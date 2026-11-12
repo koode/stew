@@ -32,6 +32,15 @@ enum Snapshot {
                 print(path)
             }
         }
+        // The Updates section after Check now found a newer version.
+        for dark in [false, true] {
+            let model = SettingsModel()
+            model.load()
+            let path = "\(directory)/settings-update-available-\(dark ? "dark" : "light").png"
+            let updater = Updater(log: { _ in }, availableVersion: "0.2.0")
+            write(SettingsView(model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: updater).frame(width: 720, height: 640), dark: dark, to: path)
+            print(path)
+        }
         exit(0)
     }
 

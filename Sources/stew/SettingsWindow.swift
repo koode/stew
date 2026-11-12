@@ -221,7 +221,13 @@ struct GeneralSettings: View {
                     LabeledContent("Version") {
                         HStack {
                             Text(AppVersion.running.description).foregroundStyle(.secondary)
-                            Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: true) { _ in } }
+                            // Check now only reports; installing takes its own click.
+                            if updater.availableVersion != nil {
+                                Button("Install now") { updater.run(install: true) { _ in } }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(updater.busy)
+                            }
+                            Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: false) { _ in } }
                                 .disabled(updater.busy)
                         }
                     }

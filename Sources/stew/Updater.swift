@@ -24,6 +24,8 @@ final class Updater: ObservableObject {
 
     @Published private(set) var state: State
     @Published private(set) var busy = false
+    /// The version the last check found and did not install, for "Install now".
+    @Published private(set) var availableVersion: String?
 
     /// True while no request is open, so the app may be swapped. The daemon sets it.
     var isIdle: () -> Bool = { true }
@@ -35,9 +37,11 @@ final class Updater: ObservableObject {
     private var pending: (staged: String, manifest: UpdateManifest)?
     private var timer: Timer?
 
-    init(log: @escaping (String) -> Void) {
+    /// `availableVersion` presets a found update, for snapshots of the settings window.
+    init(log: @escaping (String) -> Void, availableVersion: String? = nil) {
         self.log = log
         state = Self.loadState()
+        self.availableVersion = availableVersion
     }
 
     static var manifestURL: String {
@@ -127,6 +131,7 @@ final class Updater: ObservableObject {
                     outcome = installWhenIdle(staged: path, manifest: manifest)
                 }
                 record(outcome)
+                availableVersion = outcome.status == .available ? outcome.version : nil
                 completion(outcome)
                 if outcome.status == .installed { restart() }
             }
