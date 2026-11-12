@@ -7,6 +7,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         case approved, denied, answered, acknowledged, timedOut, dismissed, callerGone
         /// Needs items: the user did it, Claude saw it was done, the user wrote to the
         /// session, or a later turn of the session ended without needing it any more.
+        /// One of a needs item's other answers counts as `answered`.
         case done, resolvedByClaude, answeredInSession, movedOn
 
         public var label: String {
@@ -46,6 +47,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var note: String?
     /// Set for a call that auto mode blocked, so a missed one can still be allowed.
     public var blocked: BlockedCall?
+    /// A needs item with its own answers: the label of the one the user picked.
+    public var answer: String?
 
     /// Missed means the time ran out. Closing a request yourself is an answer, not a miss.
     public var missed: Bool { outcome == .timedOut }
@@ -53,7 +56,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public init(
         id: UUID = UUID(), received: Date, ended: Date, session: String, cwd: String?, kind: String, summary: String,
         command: String?, detail: String?, outcome: Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil,
-        note: String? = nil, blocked: BlockedCall? = nil
+        note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil
     ) {
         self.id = id
         self.received = received
@@ -69,6 +72,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.grant = grant
         self.note = note
         self.blocked = blocked
+        self.answer = answer
     }
 
     /// The entry for a request that ended with `response`, or with no response when
@@ -122,11 +126,11 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
 
     /// The entry for a needs item that ended. Only final outcomes are recorded: "Not now"
     /// keeps the item open, so it is not one.
-    public static func record(_ item: NeedsItem, outcome: Outcome, note: String?, ended: Date, id: UUID = UUID()) -> HistoryEntry {
+    public static func record(_ item: NeedsItem, outcome: Outcome, note: String?, answer: String? = nil, ended: Date, id: UUID = UUID()) -> HistoryEntry {
         HistoryEntry(
             id: id, received: item.created, ended: ended, session: item.session.name, cwd: item.session.cwd,
             kind: "needs", summary: item.needs.title, command: item.needs.maskedCommands, detail: item.needs.historyDetail,
-            outcome: outcome, note: note
+            outcome: outcome, note: note, answer: answer
         )
     }
 }

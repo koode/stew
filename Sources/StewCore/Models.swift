@@ -241,6 +241,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
 public enum StewStatus: String, Codable, Sendable {
     case approved, denied, answered, acknowledged, shown, dismissed, timeout, error
     /// A needs item: the user marked it done, or Claude or a new message cleared it.
+    /// One of its other answers is `answered`.
     case done, resolved
 }
 
@@ -267,6 +268,9 @@ public struct StewResponse: Codable, Equatable, Sendable {
     public var grant: GrantChoice?
     /// The needs item this answer is about, for `stew needs resolve ID`.
     public var id: String?
+    /// For a needs item with its own answers: the label of the one the user picked,
+    /// the Done label with "done" or one of the other answers with "answered".
+    public var answer: String?
     public var error: String?
 
     public init(
@@ -277,6 +281,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         risk: RiskAssessment? = nil,
         grant: GrantChoice? = nil,
         id: String? = nil,
+        answer: String? = nil,
         error: String? = nil
     ) {
         self.status = status
@@ -286,6 +291,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         self.risk = risk
         self.grant = grant
         self.id = id
+        self.answer = answer
         self.error = error
     }
 

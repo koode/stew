@@ -42,14 +42,25 @@ public struct NeedsRequest: Codable, Equatable, Sendable {
     /// Made by the Stop hook from a `needs input:` line, not by Claude calling stew. The
     /// next message to that session clears it, and each session has at most one.
     public var automatic: Bool
+    /// The title of the Done button: the state the user reaches, such as "Signed in".
+    /// Nil shows "Done".
+    public var doneLabel: String?
+    /// Other ways the item can end besides Done, such as "Can't sign in". Each one ends
+    /// the item and tells Claude which one the user picked.
+    public var answers: [String]
 
-    public init(title: String, why: String? = nil, steps: [String] = [], commands: [NeedsCommand] = [], links: [NeedsLink] = [], automatic: Bool = false) {
+    public init(
+        title: String, why: String? = nil, steps: [String] = [], commands: [NeedsCommand] = [], links: [NeedsLink] = [],
+        automatic: Bool = false, doneLabel: String? = nil, answers: [String] = []
+    ) {
         self.title = title
         self.why = why
         self.steps = steps
         self.commands = commands
         self.links = links
         self.automatic = automatic
+        self.doneLabel = doneLabel
+        self.answers = answers
     }
 
     public init(from decoder: Decoder) throws {
@@ -60,6 +71,30 @@ public struct NeedsRequest: Codable, Equatable, Sendable {
         commands = try container.decodeIfPresent([NeedsCommand].self, forKey: .commands) ?? []
         links = try container.decodeIfPresent([NeedsLink].self, forKey: .links) ?? []
         automatic = try container.decodeIfPresent(Bool.self, forKey: .automatic) ?? false
+        doneLabel = try container.decodeIfPresent(String.self, forKey: .doneLabel)
+        answers = try container.decodeIfPresent([String].self, forKey: .answers) ?? []
+    }
+
+    public static let defaultDoneLabel = "Done"
+
+    /// What the Done button says.
+    public var doneTitle: String {
+        let trimmed = doneLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? Self.defaultDoneLabel : trimmed
+    }
+
+    /// Whether Claude chose the answers. Then the reply names the one the user picked,
+    /// also for Done; without them the reply stays as it always was.
+    public var hasCustomAnswers: Bool {
+        doneLabel != nil || !answers.isEmpty
+    }
+
+    /// The label Claude gets for a picked answer: the extra answer at `index`, or the
+    /// Done title for nil. Nil when the item has no custom answers or `index` is out of range.
+    public func answerLabel(at index: Int?) -> String? {
+        guard hasCustomAnswers else { return nil }
+        guard let index else { return doneTitle }
+        return answers.indices.contains(index) ? answers[index] : nil
     }
 
     public static let maxTitle = 200
@@ -67,6 +102,13 @@ public struct NeedsRequest: Codable, Equatable, Sendable {
     public static let maxSteps = 20
     public static let maxCommands = 10
     public static let maxLinks = 10
+    /// Short enough for a button next to Decline, Note and Not now.
+    public static let maxDoneLabel = 24
+    public static let maxAnswer = 40
+    /// One per ⌘1 to ⌘3 key.
+    public static let maxAnswers = 3
+    /// The panel's fixed buttons. An answer with one of these titles would read as that button.
+    public static let reservedLabels = ["Decline", "Note", "Not now"]
 
     public struct ValidationError: Error, Equatable, CustomStringConvertible {
         public let description: String
@@ -97,6 +139,30 @@ public struct NeedsRequest: Codable, Equatable, Sendable {
         }
         if let link = links.first(where: { !Self.isWebURL($0.url) }) {
             throw ValidationError(description: "\"\(link.url)\" is not an http or https URL")
+        }
+        try validateAnswers()
+    }
+
+    private func validateAnswers() throws {
+        if let doneLabel {
+            let trimmed = doneLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw ValidationError(description: "--done is empty") }
+            guard !trimmed.contains(where: \.isNewline) else { throw ValidationError(description: "--done must be one line") }
+            guard trimmed.count <= Self.maxDoneLabel else { throw ValidationError(description: "--done is longer than \(Self.maxDoneLabel) characters") }
+            guard !Self.reservedLabels.contains(where: { $0.lowercased() == trimmed.lowercased() }) else {
+                throw ValidationError(description: "--done \"\(trimmed)\" is already a button; pick the state the user reaches, such as \"Signed in\"")
+            }
+        }
+        guard answers.count <= Self.maxAnswers else { throw ValidationError(description: "at most \(Self.maxAnswers) answers, got \(answers.count)") }
+        var seen = Set(([doneTitle] + Self.reservedLabels).map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        for answer in answers {
+            let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw ValidationError(description: "an answer is empty") }
+            guard !trimmed.contains(where: \.isNewline) else { throw ValidationError(description: "an answer must be one line") }
+            guard trimmed.count <= Self.maxAnswer else { throw ValidationError(description: "the answer \"\(trimmed)\" is longer than \(Self.maxAnswer) characters") }
+            guard seen.insert(trimmed.lowercased()).inserted else {
+                throw ValidationError(description: "the answer \"\(trimmed)\" is already a button; every answer needs its own label")
+            }
         }
     }
 }
