@@ -25,8 +25,9 @@ If AskUserQuestion comes back denied with a note that the user did not answer in
 
 If the user installed stew's hooks, a call that auto mode blocks goes to the user in stew. You see the normal denial first.
 
-- If Claude Code then tells you that you may retry, the user approved it. Retry the identical call: same tool, same command, same description. Any change makes it a new call that auto mode reviews again.
-- If the retry is denied with a note from the user, follow the note.
+- If Claude Code then tells you that you may retry, retry the identical call: same tool, same command, same description. Any change makes it a new call that auto mode reviews again. The retry message alone does not mean the user approved: the retry itself gives the answer.
+  - The retry runs: the user approved it.
+  - The retry is refused with a note: the user denied it with that note, or did not respond in time (the note says so). Follow the note; do not tell the user they approved.
 - If no retry message comes, the user denied or dismissed it. Find another way, or stop and say what you needed.
 
 ## Commands
