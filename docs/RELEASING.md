@@ -47,6 +47,7 @@ Replacing the key later breaks updates for every installed copy that trusts the 
 ## How updates work
 
 - The daemon checks `latest.json` one minute after it starts, then whenever a day has passed since the last check, while "Install updates automatically" is on (`"autoUpdate": true`, the default). `stew update` checks and installs now; `stew update --check` only reports. Settings ▸ General shows the version, the last check and a Check now button.
+- "Check now" in Settings only checks; "Install now" next to the result installs. Only an app signed with the Koode Developer ID installs updates at all; a build from source checks and reports, and Settings tells the user to rebuild.
 - A newer version wins; for the same version, the higher build wins. A release whose `minimumMacOS` is newer than the Mac's is skipped.
 - The zip must match the size and SHA-256 in `latest.json` and carry a valid Ed25519 signature from the release key. The unzipped app must be `nl.koode.stew` with the version and build from the manifest, and pass `codesign --verify --deep --strict` with a Developer ID from team PXD36584ME.
 - The download and unzip happen in `~/Applications/.stew-update`. The app is swapped only while no request is open in the panel: the installed app moves to `.stew-update/backup`, the new one moves in, and the backup moves back if that fails. Then `launchctl kickstart -k` restarts the daemon on the new binary, and the new daemon removes `.stew-update`.

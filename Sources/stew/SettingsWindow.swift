@@ -214,15 +214,16 @@ struct GeneralSettings: View {
                 Toggle("Confetti", isOn: binding(\.confetti))
             }
             Section("Updates") {
-                SettingRow(hint: "Stew checks once a day and installs a new version when no request is open.") {
+                SettingRow(hint: updater.isReleaseBuild ? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
                     Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
+                        .disabled(!updater.isReleaseBuild)
                 }
                 SettingRow(hint: updateHint) {
                     LabeledContent("Version") {
                         HStack {
                             Text(AppVersion.running.description).foregroundStyle(.secondary)
                             // Check now only reports; installing takes its own click.
-                            if updater.availableVersion != nil {
+                            if updater.availableVersion != nil, updater.isReleaseBuild {
                                 Button("Install now") { updater.run(install: true) { _ in } }
                                     .buttonStyle(.borderedProminent)
                                     .disabled(updater.busy)

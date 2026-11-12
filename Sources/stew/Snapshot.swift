@@ -37,7 +37,7 @@ enum Snapshot {
             let model = SettingsModel()
             model.load()
             let path = "\(directory)/settings-update-available-\(dark ? "dark" : "light").png"
-            let updater = Updater(log: { _ in }, availableVersion: "0.2.0")
+            let updater = Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)
             write(SettingsView(model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: updater).frame(width: 720, height: 640), dark: dark, to: path)
             print(path)
         }

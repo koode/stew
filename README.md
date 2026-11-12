@@ -175,6 +175,8 @@ stew update --check    # is there a newer version?
 stew update            # install it now
 ```
 
+A build from source (`./install.sh`) is not signed with Koode's Developer ID, so it never installs updates: `stew update --check` still reports a newer version, and Settings says to rebuild instead.
+
 An update is installed only when the download matches the size and SHA-256 in the release manifest, carries an Ed25519 signature from the stew release key, and the app inside is signed with Koode's Developer ID. Each step is logged to `~/Library/Logs/stew.log`.
 
 | `stew update` exit code | Meaning |

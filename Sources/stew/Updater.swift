@@ -37,11 +37,35 @@ final class Updater: ObservableObject {
     private var pending: (staged: String, manifest: UpdateManifest)?
     private var timer: Timer?
 
-    /// `availableVersion` presets a found update, for snapshots of the settings window.
-    init(log: @escaping (String) -> Void, availableVersion: String? = nil) {
+    /// Only an app signed with the Koode Developer ID installs updates. A build from
+    /// source is signed ad hoc, and a release would silently replace the user's own
+    /// build, so it only checks and reports.
+    let isReleaseBuild: Bool
+
+    static let sourceBuildNote = "Built from source: install updates by rebuilding."
+
+    /// `availableVersion` and `releaseBuild` preset the state, for snapshots of the
+    /// settings window.
+    init(log: @escaping (String) -> Void, availableVersion: String? = nil, releaseBuild: Bool? = nil) {
         self.log = log
         state = Self.loadState()
         self.availableVersion = availableVersion
+        isReleaseBuild = releaseBuild ?? Self.checkReleaseBuild()
+    }
+
+    /// The code requirement for a Koode Developer ID signature.
+    static var teamRequirement: String {
+        "anchor apple generic and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+    }
+
+    /// Checks the installed app, which is what an update would replace, else the app
+    /// this binary runs from. A binary outside any app is a development build.
+    /// STEW_UPDATE_ASSUME_RELEASE_BUILD=1 lets tests install over ad hoc builds.
+    private static func checkReleaseBuild() -> Bool {
+        if ProcessInfo.processInfo.environment["STEW_UPDATE_ASSUME_RELEASE_BUILD"] == "1" { return true }
+        let installed = FileManager.default.fileExists(atPath: Paths.installedApp) ? Paths.installedApp : nil
+        guard let app = installed ?? AppVersion.appBundle(forExecutable: Paths.executable) else { return false }
+        return runTool("/usr/bin/codesign", ["--verify", "-R=\(teamRequirement)", app]).0 == 0
     }
 
     static var manifestURL: String {
@@ -119,7 +143,12 @@ final class Updater: ObservableObject {
                 let (manifest, decision) = try check()
                 outcome = describe(decision, manifest: manifest)
                 if install, decision == .available {
-                    staged = (try prepare(manifest), manifest)
+                    if isReleaseBuild {
+                        staged = (try prepare(manifest), manifest)
+                    } else {
+                        outcome.message += " " + Self.sourceBuildNote
+                        log("update: not installing; this build is not signed with the Koode Developer ID")
+                    }
                 }
             } catch {
                 outcome = UpdateOutcome.failure(error)
@@ -220,7 +249,7 @@ final class Updater: ObservableObject {
         if Self.skipsTeamCheck {
             log("update: code signature valid; team check skipped (STEW_UPDATE_SKIP_TEAM_CHECK)")
         } else {
-            let requirement = "anchor apple generic and certificate leaf[subject.OU] = \"\(Self.teamIdentifier)\""
+            let requirement = Self.teamRequirement
             let (teamStatus, teamOutput) = Self.runTool("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R=\(requirement)", staged])
             let (_, details) = Self.runTool("/usr/bin/codesign", ["-dv", staged])
             let team = UpdateVerifier.teamIdentifier(fromCodesignOutput: details)

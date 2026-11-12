@@ -29,7 +29,7 @@ UPDATE_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/public.txt")
 OTHER_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/other-public.txt")
 export STEW_LOG="$WORK/stew.log" STEW_APP_PATH="$UPD/Applications/Stew.app" \
   STEW_UPDATE_URL="http://127.0.0.1:$PORT/latest.json" STEW_UPDATE_PUBLIC_KEY="$(cat "$UPD/public.txt")" \
-  STEW_UPDATE_SKIP_TEAM_CHECK=1
+  STEW_UPDATE_SKIP_TEAM_CHECK=1 STEW_UPDATE_ASSUME_RELEASE_BUILD=1
 HTTP=""
 SCHEDULED=""
 
@@ -390,6 +390,12 @@ out=$("$STEW" update --check); code=$?
 expect "newer version is detected" "$out" "Version 0.2.0 (build 9) is available."
 expect "check exit 10" "$code" "10"
 expect "check installs nothing" "$(installed_version)" "0.1.0"
+# A build that is not signed with the Koode Developer ID only checks.
+out=$(STEW_SOCKET="$WORK/none.sock" env -u STEW_UPDATE_ASSUME_RELEASE_BUILD "$STEW" update --check); code=$?
+expect "source build still checks" "$out$code" "is available.10"
+out=$(STEW_SOCKET="$WORK/none.sock" env -u STEW_UPDATE_ASSUME_RELEASE_BUILD "$STEW" update); code=$?
+expect "source build never installs" "$out$code" "Built from source: install updates by rebuilding.10"
+expect "source build left the app alone" "$(installed_version)" "0.1.0"
 
 release 0.2.0 9 99.0
 out=$("$STEW" update); code=$?
