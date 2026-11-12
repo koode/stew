@@ -40,6 +40,11 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/stew"
 chmod 755 "$app/Contents/MacOS/stew"
 cp "$project_root/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+# The installers copy the skill out of the app, and the uninstaller ships inside it,
+# so an install from a release zip has both without the source repository.
+mkdir -p "$app/Contents/Resources/skill"
+cp "$project_root/skill/SKILL.md" "$app/Contents/Resources/skill/SKILL.md"
+install -m 755 "$project_root/uninstall.sh" "$app/Contents/Resources/uninstall.sh"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
