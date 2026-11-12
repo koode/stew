@@ -5,8 +5,9 @@ import Foundation
 public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public enum Outcome: String, Codable, Sendable, CaseIterable {
         case approved, denied, answered, acknowledged, timedOut, dismissed, callerGone
-        /// Needs items: the user did it, Claude saw it was done, or the user wrote to the session.
-        case done, resolvedByClaude, answeredInSession
+        /// Needs items: the user did it, Claude saw it was done, the user wrote to the
+        /// session, or a later turn of the session ended without needing it any more.
+        case done, resolvedByClaude, answeredInSession, movedOn
 
         public var label: String {
             switch self {
@@ -20,6 +21,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             case .done: "Done"
             case .resolvedByClaude: "Resolved by Claude"
             case .answeredInSession: "Answered in session"
+            case .movedOn: "Moved on"
             }
         }
     }

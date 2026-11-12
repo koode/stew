@@ -210,17 +210,21 @@ enum Hooks {
     }
 
     /// Stop: when Claude's last message has a `needs input:` line, the session waits on
-    /// the user, so show it as a needs item. It runs in the background (async in the
-    /// hook entry), prints nothing and always exits 0, so it never holds up or fails
-    /// the end of a turn.
+    /// the user, so show it as a needs item. When it has none, the session moved on and
+    /// its earlier automatic item goes. It runs in the background (async in the hook
+    /// entry), prints nothing and always exits 0, so it never holds up or fails the end
+    /// of a turn.
     static func stop() -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard let input = TurnHookInput.parse(data),
+              let message = input.lastAssistantMessage ?? lastAssistantMessage(transcriptPath: input.transcriptPath) else { exit(0) }
+        guard let needs = NeedsParser.parse(message) else {
+            resolveAutomatic(sessionID: input.sessionID, control: "moved-on")
+            exit(0)
+        }
         let (config, _) = loadConfig()
         let attended = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ATTENDED"]
-        guard AutoNeeds.shouldCreate(mode: config.autoNeeds, attended: attended),
-              let input = TurnHookInput.parse(data),
-              let message = input.lastAssistantMessage ?? lastAssistantMessage(transcriptPath: input.transcriptPath),
-              let needs = NeedsParser.parse(message) else { exit(0) }
+        guard AutoNeeds.shouldCreate(mode: config.autoNeeds, attended: attended) else { exit(0) }
         var session = SessionResolver.resolve(
             explicitName: nil,
             environment: ProcessInfo.processInfo.environment,
@@ -241,13 +245,19 @@ enum Hooks {
     /// needs.json and talks to the daemon only when that session has an open item.
     static func prompt() -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard FileManager.default.fileExists(atPath: NeedsStore.path),
-              let sessionID = TurnHookInput.parse(data)?.sessionID,
-              !NeedsBook.answeredBy(sessionID: sessionID, in: NeedsStore.readFile()).isEmpty else { exit(0) }
-        if Client.sendControl("needs answered \(sessionID)") == nil {
-            Log.append("hook prompt: daemon not running; needs items for \(sessionID) stay open")
-        }
+        resolveAutomatic(sessionID: TurnHookInput.parse(data)?.sessionID, control: "answered")
         exit(0)
+    }
+
+    /// Ends the session's automatic items through the daemon. Reads needs.json first, so
+    /// a hook that runs on every turn or prompt talks to the daemon only when there is
+    /// something to end.
+    static func resolveAutomatic(sessionID: String?, control: String) {
+        guard let sessionID, FileManager.default.fileExists(atPath: NeedsStore.path),
+              !NeedsBook.answeredBy(sessionID: sessionID, in: NeedsStore.readFile()).isEmpty else { return }
+        if Client.sendControl("needs \(control) \(sessionID)") == nil {
+            Log.append("hook: daemon not running; needs items for \(sessionID) stay open")
+        }
     }
 
     /// The transcript can lag behind the turn, so this is only a fallback for a Claude

@@ -305,6 +305,11 @@ private func item(_ id: String, title: String = "Log in", in itemSession: Sessio
         #expect(HistoryEntry.outcome(of: StewResponse(status: .done)) == .done)
         #expect(HistoryEntry.outcome(of: StewResponse(status: .resolved)) == .resolvedByClaude)
     }
+
+    @Test func movedOnHasItsOwnLabel() {
+        #expect(HistoryEntry.Outcome.movedOn.label == "Moved on")
+        #expect(!HistoryEntry.record(item("a1"), outcome: .movedOn, note: nil, ended: start).missed)
+    }
 }
 
 @Suite struct NeedsHookInstallTests {

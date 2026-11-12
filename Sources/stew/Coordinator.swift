@@ -242,10 +242,13 @@ final class Coordinator: ObservableObject {
             } else {
                 response = StewResponse(status: .error, id: argument, error: "no open needs item with id \(argument)")
             }
-        case "answered":
+        case "answered", "moved-on":
+            // "moved-on": a later turn of the session ended without a `needs input:` line,
+            // so it no longer waits on what the automatic item asked for.
+            let outcome: HistoryEntry.Outcome = parts.first == "answered" ? .answeredInSession : .movedOn
             let answered = NeedsBook.answeredBy(sessionID: argument, in: needsStore.items)
             for record in answered {
-                finishNeeds(id: record.id, outcome: .answeredInSession, status: .resolved, note: nil)
+                finishNeeds(id: record.id, outcome: outcome, status: .resolved, note: nil)
             }
             response = StewResponse(status: .resolved, note: "\(answered.count) resolved")
         default:

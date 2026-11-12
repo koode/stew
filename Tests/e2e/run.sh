@@ -512,6 +512,13 @@ sleep 0.2
 expect "answered in session is recorded" "$(needs_count answeredInSession 'log in to the registry again')" "1"
 prompt_hook auto-3 > /dev/null
 expect "every automatic item answered" "$(control state)" "items=0 kind=none"
+# A later turn that ends without the line: the session moved on, its item goes.
+stop_hook auto-6 "$NEEDS_MESSAGE" 0 > /dev/null
+expect "an item to move on from" "$(control state)" "needs=1 "
+stop_hook auto-6 "Pushed. All green." 0 > /dev/null
+expect "a turn without the line ends the automatic item" "$(control state)" "items=0 kind=none"
+sleep 0.2
+expect "moved on is recorded" "$(needs_count movedOn 'log in to the registry')" "1"
 # Claude already called stew needs for this session: the hook adds no second item.
 out=$(CLAUDE_CODE_SESSION_ID=auto-7 "$STEW" needs "Log in to the registry")
 CLI=$(id_of "$out")

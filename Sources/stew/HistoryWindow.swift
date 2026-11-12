@@ -119,6 +119,7 @@ struct OutcomePill: View {
         case .approved, .done: .green
         case .denied: .red
         case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: .blue
+        case .movedOn: .secondary
         case .timedOut: .orange
         case .dismissed, .callerGone: .secondary
         }
