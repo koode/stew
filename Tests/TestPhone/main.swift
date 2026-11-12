@@ -278,19 +278,35 @@ func samplePush(_ values: [String: String]) throws {
             QuestionOption(label: "KV", description: "Eventually consistent"),
         ])])), false),
         ("notify", .notify(NotifyRequest(title: "Tests passed", body: "212 of 212 in 41 s", level: .success)), false),
+        ("needs", .needs(NeedsRequest(
+            title: "Log in to Cloudflare",
+            why: "The deploy needs a fresh wrangler login, and only you can approve it in the browser.",
+            steps: ["Run the command below", "Approve the login in the browser"],
+            commands: [NeedsCommand(command: "pnpm exec wrangler login")]
+        )), false),
     ]
     for (index, sample) in samples.enumerated() {
-        let requestId = "sample\(index)"
-        let isNotify: Bool
-        if case .notify = sample.1 { isNotify = true } else { isNotify = false }
+        let hasNoTimeLimit: Bool
+        let requestId: String
+        switch sample.1 {
+        case .notify:
+            hasNoTimeLimit = true
+            requestId = "sample\(index)"
+        case .needs:
+            hasNoTimeLimit = true
+            requestId = LinkPresentation.needsRequestId("sample\(index)")
+        case .permission, .question:
+            hasNoTimeLimit = false
+            requestId = "sample\(index)"
+        }
         let request = LinkRequest(
             requestId: requestId,
             macName: "Studio",
             request: StewRequest(session: session, prompt: sample.1),
             receivedAt: Date(),
-            deadline: isNotify ? nil : Date().addingTimeInterval(3600),
+            deadline: hasNoTimeLimit ? nil : Date().addingTimeInterval(3600),
             queued: false,
-            extendBy: isNotify ? nil : 120,
+            extendBy: hasNoTimeLimit ? nil : 120,
             hardDeny: sample.2,
             risk: nil
         )
