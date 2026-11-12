@@ -77,6 +77,49 @@ expect "LaunchAgent stopped" "$(tail -1 "$LAUNCHCTL_LOG")" "launchctl bootout gu
 expect "uninstall removes the hooks" "$(cat "$WORK/claude-settings.json")" "{"
 [[ "$(cat "$WORK/claude-settings.json")" != *"stew hook"* ]] && pass "no stew hooks left" || fail "no stew hooks left" "$(cat "$WORK/claude-settings.json")"
 
+# The curl installer: latest.json and the zip from a local server.
+SITE="$WORK/site"
+mkdir -p "$SITE/v0.2.0"
+"$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/release" --version 0.2.0 --build 6 > /dev/null
+codesign --force --sign - --identifier nl.koode.stew "$WORK/release/Stew.app" 2> /dev/null
+ditto -c -k --keepParent "$WORK/release/Stew.app" "$SITE/v0.2.0/Stew-0.2.0.zip"
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$SITE" > "$WORK/http.log" 2>&1 &
+HTTP=$!
+trap 'kill $HTTP 2>/dev/null; wait $HTTP 2>/dev/null; rm -rf "$WORK"' EXIT
+for _ in $(seq 1 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break; sleep 0.1; done
+publish() { # sha256 minimumMacOS
+  cat > "$SITE/latest.json" <<JSON
+{"version":"0.2.0","build":6,"published":"2026-11-20T10:00:00Z","minimumMacOS":"$2","notes":"https://stewcli.com/changelog#0.2.0",
+ "archive":{"url":"http://127.0.0.1:$PORT/v0.2.0/Stew-0.2.0.zip","sha256":"$1","size":$(stat -f%z "$SITE/v0.2.0/Stew-0.2.0.zip"),"ed25519":"unused"}}
+JSON
+}
+GOOD_SHA=$(shasum -a 256 "$SITE/v0.2.0/Stew-0.2.0.zip" | cut -d' ' -f1)
+remote_install() { in_home env STEW_UPDATE_URL="http://127.0.0.1:$PORT/latest.json" "$@" "$ROOT/scripts/install-release.sh" --no-skill 2>&1; }
+
+publish "$(printf '0%.0s' $(seq 1 64))" 14.0
+out=$(remote_install STEW_UPDATE_SKIP_TEAM_CHECK=1); code=$?
+expect "sha mismatch stops the install" "$out$code" "sha256 is $GOOD_SHA, expected"
+[[ ! -e "$app" ]] && pass "nothing installed after a sha mismatch" || fail "nothing installed after a sha mismatch" "$app exists"
+
+publish "$GOOD_SHA" 99.0
+out=$(remote_install STEW_UPDATE_SKIP_TEAM_CHECK=1); code=$?
+expect "too new for this macOS" "$out" "needs macOS 99.0 or later"
+
+publish "$GOOD_SHA" 14.0
+out=$(remote_install STEW_UPDATE_SKIP_TEAM_CHECK=0); code=$?
+expect "ad hoc build fails the team check" "$out" "signed by team 'none', not Koode (PXD36584ME)"
+[[ ! -e "$app" ]] && pass "nothing installed without the team" || fail "nothing installed without the team" "$app exists"
+
+out=$(remote_install STEW_UPDATE_SKIP_TEAM_CHECK=1); code=$?
+expect "download install exits 0" "$code" "0"
+expect "download install verifies the zip" "$out" "Size and sha256 match."
+expect "downloaded version installed" "$("$FAKE_HOME/.local/bin/stew" version)" "stew 0.2.0 (build 6)"
+
+out=$(in_home "$FAKE_HOME/.local/bin/stew" uninstall); code=$?
+expect "stew uninstall exits 0" "$code" "0"
+[[ ! -e "$app" && ! -L "$FAKE_HOME/.local/bin/stew" ]] && pass "stew uninstall removes the app and link" || fail "stew uninstall removes the app and link" "$out"
+
 echo
 if [[ $failures -eq 0 ]]; then echo "all install checks passed"; else echo "$failures install check(s) failed"; fi
 exit $failures
