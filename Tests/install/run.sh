@@ -60,10 +60,18 @@ expect "update replaces the app" "$("$FAKE_HOME/.local/bin/stew" version)" "stew
 out=$(in_home "$ROOT/scripts/install-release.sh" --bogus 2>&1); code=$?
 expect "unknown option exits 64" "$code" "64"
 
-# The uninstaller inside the app removes everything but the settings.
-echo '{}' > "$WORK/config.json"
+# The uninstaller inside the app hands over to `stew uninstall`, which removes
+# everything but the settings.
+mkdir -p "$FAKE_HOME/.config/stew" "$FAKE_HOME/Library/Application Support/stew" "$FAKE_HOME/Library/Caches/stew"
+echo '{}' > "$FAKE_HOME/.config/stew/config.json"
 out=$(in_home "$app/Contents/Resources/uninstall.sh" 2>&1); code=$?
 expect "uninstall exits 0" "$code" "0"
+expect "uninstall.sh runs stew uninstall" "$out" "removed $app"
+expect "hooks go before the daemon" "$(printf '%s' "$out" | head -1)" "removed stew hooks"
+expect "LaunchAgent stopped" "$(tail -1 "$LAUNCHCTL_LOG")" "launchctl bootout gui/$(id -u)/nl.koode.stew"
+[[ -f "$FAKE_HOME/.config/stew/config.json" ]] && pass "settings are kept" || fail "settings are kept" "config.json is gone"
+[[ ! -e "$FAKE_HOME/Library/Application Support/stew" && ! -e "$FAKE_HOME/Library/Caches/stew" ]] \
+  && pass "support and cache folders removed" || fail "support and cache folders removed" "$(ls "$FAKE_HOME/Library")"
 [[ ! -e "$app" && ! -L "$FAKE_HOME/.local/bin/stew" && ! -e "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" && ! -e "$FAKE_HOME/.claude/skills/stew" ]] \
   && pass "uninstall removes app, link, LaunchAgent and skill" || fail "uninstall removes app, link, LaunchAgent and skill" "$(find "$FAKE_HOME" -name '*stew*' -o -name 'Stew.app')"
 expect "uninstall removes the hooks" "$(cat "$WORK/claude-settings.json")" "{"

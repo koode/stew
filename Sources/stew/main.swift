@@ -28,6 +28,9 @@ USAGE
   stew update [--check]
       Install the latest version now (the daemon also checks daily), or with
       --check only report whether there is one.
+  stew uninstall [--bin-dir DIR] [--app-dir DIR]
+      Remove the hooks, daemon, Stew.app, the stew link, skill, caches and
+      stored approvals. Keeps ~/.config/stew.
 
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
@@ -282,6 +285,12 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         }
         print(outcome.message)
         exit(outcome.exitCode)
+
+    case "uninstall":
+        exit(Uninstaller.run(
+            binDirectory: arguments.options["bin-dir"] ?? Paths.home + "/.local/bin",
+            appDirectory: arguments.options["app-dir"] ?? Paths.home + "/Applications"
+        ))
 
     case "_sign-update":
         // Release tooling: the private key arrives on stdin and never touches disk.

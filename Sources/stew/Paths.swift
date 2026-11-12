@@ -1,7 +1,12 @@
 import Foundation
 
 enum Paths {
-    static let home = FileManager.default.homeDirectoryForCurrentUser.path
+    /// HOME first, like other command line tools, so the installer tests can point stew
+    /// at a temporary home folder.
+    static let home: String = {
+        if let home = ProcessInfo.processInfo.environment["HOME"], home.hasPrefix("/") { return home }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }()
     static let launchAgentLabel = "nl.koode.stew"
 
     static var supportDirectory: String {

@@ -29,6 +29,11 @@ launchctl_run() {
 }
 
 if [[ -x "$bin_dir/stew" ]]; then
+  # `stew uninstall` does all of the below. A stew from before that command exits
+  # with an error, and the steps below run instead.
+  if "$bin_dir/stew" uninstall --bin-dir "$bin_dir" --app-dir "$app_dir"; then
+    exit 0
+  fi
   "$bin_dir/stew" hooks uninstall || true
 fi
 launchctl_run bootout "gui/$(id -u)/$label" 2> /dev/null || true
