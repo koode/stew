@@ -220,3 +220,36 @@ public struct RelayPush: Codable, Equatable, Sendable {
         self.envelope = envelope
     }
 }
+
+/// A Mac as the phone stores it: the code it scanned, and the name the user gave it.
+public struct PhonePairing: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { code.pairingId }
+    public var code: PairingCode
+    /// Starts as the Mac's own name; the user can rename it on the phone.
+    public var displayName: String
+    public var pairedAt: Date
+
+    public init(code: PairingCode, displayName: String? = nil, pairedAt: Date = Date()) {
+        self.code = code
+        self.displayName = displayName ?? code.macName
+        self.pairedAt = pairedAt
+    }
+
+    public func channel(identity: LinkIdentity) throws -> LinkChannel {
+        try LinkChannel(pairingId: code.pairingId, side: .phone, identity: identity, peer: code.macKeys, pairingSecret: code.secret)
+    }
+}
+
+/// A ready-made phone state for simulator checks and screenshots: the debug build of the
+/// app installs it from a launch argument instead of pairing through a relay.
+public struct PhoneSeed: Codable, Equatable, Sendable {
+    public var phoneName: String
+    public var identity: LinkIdentity.Stored
+    public var pairings: [PhonePairing]
+
+    public init(phoneName: String, identity: LinkIdentity.Stored, pairings: [PhonePairing]) {
+        self.phoneName = phoneName
+        self.identity = identity
+        self.pairings = pairings
+    }
+}
