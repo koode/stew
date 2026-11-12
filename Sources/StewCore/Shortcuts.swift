@@ -214,6 +214,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     /// Days of request history to keep.
     public var historyDays: Int
     public var classifier: ClassifierConfig
+    /// When open requests go to paired iPhones.
+    public var phone: PhoneConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
         public var enabled: Bool
@@ -274,6 +276,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = true
         historyDays = History.defaultKeepDays
         classifier = ClassifierConfig()
+        phone = PhoneConfig()
     }
 
     public init(from decoder: Decoder) throws {
@@ -295,6 +298,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
+        phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
     }
 }
 
