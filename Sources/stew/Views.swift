@@ -41,6 +41,7 @@ struct RootView: View {
     }
 
     private var width: CGFloat {
+        if coordinator.current?.blocked != nil { return 540 }
         guard case .question = coordinator.current?.request.prompt,
               let flow = coordinator.current?.flow,
               flow.current.options.contains(where: { $0.preview != nil }) else { return 480 }
@@ -193,7 +194,10 @@ struct ActionButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Text(title).font(.system(size: 13, weight: prominent ? .semibold : .medium))
+                Text(title)
+                    .font(.system(size: 13, weight: prominent ? .semibold : .medium))
+                    .lineLimit(1)
+                    .fixedSize()
                 Keycap(shortcut: shortcut, onTint: prominent)
             }
             .padding(.horizontal, 11)
@@ -219,14 +223,29 @@ struct SectionLabel: View {
 
 struct CommandBox: View {
     let command: String
+    @State private var revealed = false
 
     var body: some View {
+        let hasSecrets = CommandText.hasSecrets(command)
+        let shown = hasSecrets && !revealed ? CommandText.masked(command) : command
+        VStack(alignment: .trailing, spacing: 4) {
+            box(shown)
+            if hasSecrets {
+                Button(revealed ? "Hide secrets" : "Show secrets") { revealed.toggle() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func box(_ command: String) -> some View {
         let text = Text(command)
             .font(.system(size: 12, design: .monospaced))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
-        Group {
+        return Group {
             if command.split(separator: "\n", omittingEmptySubsequences: false).count > 12 || command.count > 900 {
                 ScrollView { text }.frame(height: 220)
             } else {
@@ -248,6 +267,15 @@ struct RiskBanner: View {
             banner(tint: .secondary, symbol: nil, title: "Checking against your auto mode rules…", detail: nil)
         case .failed(let reason):
             banner(tint: .secondary, symbol: "questionmark.diamond", title: "Risk check unavailable", detail: reason)
+        case .blocked(let blocked):
+            banner(
+                tint: blocked.hardDeny ? .red : .orange,
+                symbol: blocked.hardDeny ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
+                title: ["Auto mode blocked this", blocked.category].compactMap { $0 }.joined(separator: " · "),
+                detail: blocked.hardDeny
+                    ? "This rule blocks even when you ask. Approving lets Claude retry this exact call once."
+                    : "Approving lets Claude retry this exact call once."
+            )
         case .done(let assessment):
             switch assessment.verdict {
             case .allow:
@@ -356,7 +384,7 @@ struct PermissionBody: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                SectionLabel(text: "Why")
+                SectionLabel(text: item.blocked == nil ? "Why" : "Claude's last message")
                 Text(permission.reason)
                     .font(.system(size: 13))
                     .textSelection(.enabled)
@@ -370,9 +398,15 @@ struct PermissionBody: View {
                     interactive: interactive
                 )
             }
+            if coordinator.grantMode, let blocked = item.blocked {
+                GrantPicker(blocked: blocked, coordinator: coordinator)
+            } else {
             HStack(spacing: 8) {
                 ActionButton(title: "Deny", shortcut: keymap[.deny]) { coordinator.perform(.deny) }
-                ActionButton(title: coordinator.textMode ? "Hide note" : "Add note", shortcut: keymap[.other]) { coordinator.perform(.other) }
+                ActionButton(title: "Note", shortcut: keymap[.other]) { coordinator.perform(.other) }
+                if let blocked = item.blocked, !blocked.grantScopes.isEmpty {
+                    ActionButton(title: "Allow more…", shortcut: keymap[.grant]) { coordinator.perform(.grant) }
+                }
                 Spacer()
                 ActionButton(
                     title: item.isHardDeny ? "Approve anyway" : "Approve",
@@ -381,7 +415,107 @@ struct PermissionBody: View {
                     tint: item.isHardDeny ? .red : .accentColor
                 ) { coordinator.perform(.approve) }
             }
+            }
         }
+    }
+}
+
+/// "Allow more…": pick what to allow without asking, then for an hour or for good.
+struct GrantPicker: View {
+    let blocked: BlockedCall
+    @ObservedObject var coordinator: Coordinator
+
+    var body: some View {
+        let keymap = coordinator.keymap
+        let scopes = blocked.grantScopes
+        let selected = scopes.indices.contains(coordinator.grantSelection) ? scopes[coordinator.grantSelection] : scopes.first
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionLabel(text: "Allow without asking")
+                    Text("In \(URL(fileURLWithPath: blocked.projectRoot).lastPathComponent). This call runs too.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Manage approvals…") { coordinator.openApprovals() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            VStack(spacing: 6) {
+                ForEach(Array(scopes.enumerated()), id: \.offset) { index, scope in
+                    ScopeRow(scope: scope, shortcut: keymap.options[index], selected: index == coordinator.grantSelection) {
+                        coordinator.choose(option: index)
+                    }
+                }
+            }
+            if let selected {
+                Text(alwaysHint(selected))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                ActionButton(title: "Back", shortcut: keymap[.grant]) { coordinator.perform(.grant) }
+                Spacer()
+                ActionButton(title: "Always", shortcut: keymap[.approve].adding(keymap.hardDenyExtra)) { coordinator.perform(.grantAlways) }
+                ActionButton(title: "For 1 hour", shortcut: keymap[.approve], prominent: true) { coordinator.perform(.approve) }
+            }
+        }
+    }
+
+    private func alwaysHint(_ scope: GrantChoice.Scope) -> String {
+        switch scope.kind {
+        case .exact, .pattern:
+            return "Always adds Bash(\(scope.value)) to this project's .claude/settings.local.json. An hour keeps it in stew."
+        case .category:
+            return "Kept in stew for this project. Revoke it under Manage approvals."
+        }
+    }
+}
+
+struct ScopeRow: View {
+    let scope: GrantChoice.Scope
+    let shortcut: Shortcut
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 10) {
+                Keycap(shortcut: shortcut)
+                    .frame(width: 44, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    switch scope.kind {
+                    case .exact, .pattern:
+                        Text(scope.value)
+                            .font(.system(size: 12, design: .monospaced))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Text(scope.kind == .exact ? "This command" : "Commands that start like this")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    case .category:
+                        Text(scope.value).font(.system(size: 13, weight: .medium))
+                        Text("Anything auto mode blocks as this, any tool")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.045))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

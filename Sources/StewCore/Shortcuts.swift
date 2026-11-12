@@ -132,7 +132,7 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
-    case approve, deny, dismiss, dismissAll, other, submit, next, previous
+    case approve, deny, dismiss, dismissAll, other, submit, next, previous, grant
 }
 
 /// User config at ~/.config/stew/config.json. Every field is optional.
@@ -188,6 +188,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         HotkeyAction.submit.rawValue: "return",
         HotkeyAction.next.rawValue: "]",
         HotkeyAction.previous.rawValue: "[",
+        HotkeyAction.grant.rawValue: "g",
     ]
 
     public init() {
@@ -244,8 +245,10 @@ public struct Keymap: Equatable, Sendable {
             group.map { ($0.rawValue, actions[$0]!) }
         }
         let common: [HotkeyAction] = [.dismiss, .dismissAll]
+        let approveExtra = ("approve past a hard deny, or always", actions[.approve]!.adding(hardDenyExtra))
         let groups = [
-            named(common + [.approve, .deny, .other]) + [("approve past a hard deny", actions[.approve]!.adding(hardDenyExtra))],
+            named(common + [.approve, .deny, .other, .grant]) + [approveExtra],
+            named(common + [.approve, .grant]) + [approveExtra] + optionNames,
             named(common + [.approve]),
             named(common + [.other, .submit, .next, .previous]) + optionNames,
         ]

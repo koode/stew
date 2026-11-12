@@ -15,6 +15,12 @@ USAGE
   stew check --action TEXT --reason TEXT [--command TEXT|-]
       Run only the auto mode risk check and print its verdict.
   stew keys          Show the shortcuts in effect.
+  stew approvals     Open the window that lists standing approvals.
+  stew hooks install|uninstall|status
+      Ask in stew when Claude Code's auto mode blocks a call (hooks in
+      ~/.claude/settings.json; a backup is written first).
+  stew hook denied|pre
+      The hook commands Claude Code runs. Not for direct use.
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
 
@@ -182,6 +188,24 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
     case "_control":
         // Test hook: the daemon accepts simulated input only in headless mode.
         print(Client.sendControl(arguments.positional.joined(separator: " ")) ?? "daemon not running")
+
+    case "hook":
+        switch arguments.positional.first {
+        case "denied": Hooks.denied()
+        case "pre": Hooks.pre()
+        default: throw UsageError("hook needs denied or pre")
+        }
+
+    case "hooks":
+        switch arguments.positional.first {
+        case "install": try Hooks.install()
+        case "uninstall": try Hooks.uninstall()
+        case "status", nil: Hooks.status()
+        default: throw UsageError("hooks needs install, uninstall or status")
+        }
+
+    case "approvals":
+        print(Client.sendControl("approvals", startDaemon: true) ?? "could not reach the daemon")
 
     case "stop":
         print(Client.sendControl("stop") ?? "daemon not running")

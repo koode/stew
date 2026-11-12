@@ -82,11 +82,10 @@ final class PanelController {
         let signature = coordinator.bindingSignature
         guard signature != registeredSignature else { return }
         registeredSignature = signature
-        let bindings: [(Shortcut, () -> Void)] = coordinator.activeBindings().map { shortcut, action, option in
+        let bindings: [(Shortcut, () -> Void)] = coordinator.activeBindings().map { shortcut, panelAction in
             (shortcut, { [weak self, weak coordinator] in
                 guard let self, Date() >= self.armedAt else { return }
-                if let action { coordinator?.perform(action) }
-                if let option { coordinator?.choose(option: option) }
+                coordinator?.perform(panelAction)
             })
         }
         let failures = hotkeys.set(bindings)

@@ -7,6 +7,8 @@ enum RiskState: Equatable {
     case checking
     case done(RiskAssessment)
     case failed(String)
+    /// Claude Code's auto mode already blocked the call; this is its real verdict.
+    case blocked(BlockedCall)
 
     var assessment: RiskAssessment? {
         if case .done(let assessment) = self { return assessment }
@@ -37,12 +39,31 @@ final class Item: ObservableObject, Identifiable {
         }
     }
 
-    var isHardDeny: Bool { risk.assessment?.verdict == .hardDeny }
+    var isHardDeny: Bool {
+        if case .blocked(let blocked) = risk { return blocked.hardDeny }
+        return risk.assessment?.verdict == .hardDeny
+    }
+
+    var blocked: BlockedCall? {
+        if case .permission(let permission) = request.prompt { return permission.blocked }
+        return nil
+    }
+}
+
+/// What a hotkey or click does on the current panel.
+enum PanelAction: Equatable {
+    case action(HotkeyAction)
+    case option(Int)
+    /// In grant mode: keep the chosen scope for good instead of an hour.
+    case grantAlways
 }
 
 final class Coordinator: ObservableObject {
     @Published private(set) var items: [Item] = []
     @Published private(set) var textMode = false
+    /// The "Allow more…" view of a blocked call, with the scope picked in it.
+    @Published private(set) var grantMode = false
+    @Published private(set) var grantSelection = 0
     @Published var draft = ""
     @Published private(set) var keymap: Keymap
     @Published private(set) var configError: String?
@@ -51,6 +72,7 @@ final class Coordinator: ObservableObject {
     private var configModified: Date?
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
+    var onOpenApprovals: (() -> Void)?
 
     var current: Item? { items.first }
 
@@ -94,6 +116,9 @@ final class Coordinator: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.onStop?() }
         case "status":
             connection.send(Data("\(items.count) pending\n".utf8))
+        case "approvals":
+            connection.send(Data("opened\n".utf8))
+            onOpenApprovals?()
         default:
             if Paths.headless, let reply = handleTestControl(control) {
                 connection.send(Data((reply + "\n").utf8))
@@ -119,7 +144,9 @@ final class Coordinator: ObservableObject {
             item.timer = timer
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
         }
-        if case .permission(let permission) = request.prompt, config.classifier.enabled {
+        if case .permission(let permission) = request.prompt, let blocked = permission.blocked {
+            item.risk = .blocked(blocked)
+        } else if case .permission(let permission) = request.prompt, config.classifier.enabled {
             item.risk = .checking
             RiskChecker(config: config.classifier).check(permission, session: request.session) { [weak self, weak item] result in
                 guard let item else { return }
@@ -144,8 +171,12 @@ final class Coordinator: ObservableObject {
         let argument = parts.count > 1 ? parts[1] : ""
         switch parts.first {
         case "press":
-            guard let action = HotkeyAction(rawValue: argument) else { return "unknown action" }
-            perform(action)
+            if argument == "always" {
+                grantAlways()
+            } else {
+                guard let action = HotkeyAction(rawValue: argument) else { return "unknown action" }
+                perform(action)
+            }
         case "choose":
             guard let number = Int(argument) else { return "bad option" }
             choose(option: number - 1)
@@ -161,10 +192,11 @@ final class Coordinator: ObservableObject {
         case .checking: risk = "checking"
         case .done(let assessment): risk = assessment.verdict.rawValue
         case .failed(let reason): risk = "failed: \(reason)"
+        case .blocked(let blocked): risk = "blocked:\(blocked.hardDeny ? "hard" : "soft")"
         case .off, nil: risk = "off"
         }
         let bindings = activeBindings().map { "\($0.0)" }.joined(separator: " ")
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) risk=\(risk) keys=\(bindings)"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) risk=\(risk) keys=\(bindings)"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -192,6 +224,8 @@ final class Coordinator: ObservableObject {
         items.removeAll { $0.id == item.id }
         if wasCurrent {
             textMode = false
+            grantMode = false
+            grantSelection = 0
             draft = ""
         }
         changed()
@@ -223,7 +257,14 @@ final class Coordinator: ObservableObject {
         case (_, .dismiss):
             respond(item, StewResponse(status: .dismissed, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
         case (.permission, .approve):
-            respond(item, StewResponse(status: .approved, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
+            let grant = grantMode ? grantChoice(for: item, duration: .hour) : nil
+            respond(item, StewResponse(status: .approved, note: note.isEmpty ? nil : note, risk: item.risk.assessment, grant: grant))
+        case (.permission, .grant):
+            guard let blocked = item.blocked, !blocked.grantScopes.isEmpty else { return }
+            grantMode.toggle()
+            grantSelection = 0
+            if grantMode { textMode = false }
+            changed()
         case (.permission, .deny):
             respond(item, StewResponse(status: .denied, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
         case (.permission, .other), (.question, .other):
@@ -250,7 +291,36 @@ final class Coordinator: ObservableObject {
         }
     }
 
+    func grantAlways() {
+        guard grantMode, let item = current, let grant = grantChoice(for: item, duration: .always) else { return }
+        let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        respond(item, StewResponse(status: .approved, note: note.isEmpty ? nil : note, grant: grant))
+    }
+
+    private func grantChoice(for item: Item, duration: GrantChoice.Duration) -> GrantChoice? {
+        guard let scopes = item.blocked?.grantScopes, scopes.indices.contains(grantSelection) else { return nil }
+        return GrantChoice(scope: scopes[grantSelection], duration: duration)
+    }
+
+    func perform(_ panelAction: PanelAction) {
+        switch panelAction {
+        case .action(let action): perform(action)
+        case .option(let index): choose(option: index)
+        case .grantAlways: grantAlways()
+        }
+    }
+
+    func openApprovals() {
+        onOpenApprovals?()
+    }
+
     func choose(option index: Int) {
+        if grantMode {
+            guard let scopes = current?.blocked?.grantScopes, scopes.indices.contains(index) else { return }
+            grantSelection = index
+            changed()
+            return
+        }
         guard let item = current, var flow = item.flow else { return }
         let outcome = flow.choose(index)
         item.flow = flow
@@ -280,24 +350,38 @@ final class Coordinator: ObservableObject {
     }
 
     /// The shortcuts that make sense for what is on screen now.
-    func activeBindings() -> [(Shortcut, HotkeyAction?, Int?)] {
+    func activeBindings() -> [(Shortcut, PanelAction)] {
         guard let item = current else { return [] }
-        var bindings: [(Shortcut, HotkeyAction?, Int?)] = [(keymap[.dismiss], .dismiss, nil)]
-        if items.count > 1 { bindings.append((keymap[.dismissAll], .dismissAll, nil)) }
+        var bindings: [(Shortcut, PanelAction)] = [(keymap[.dismiss], .action(.dismiss))]
+        if items.count > 1 { bindings.append((keymap[.dismissAll], .action(.dismissAll))) }
         switch item.request.prompt {
         case .permission:
+            if grantMode, let scopes = item.blocked?.grantScopes {
+                for index in scopes.indices {
+                    bindings.append((keymap.options[index], .option(index)))
+                }
+                bindings += [
+                    (keymap[.approve], .action(.approve)),
+                    (keymap[.approve].adding(keymap.hardDenyExtra), .grantAlways),
+                    (keymap[.grant], .action(.grant)),
+                ]
+                break
+            }
             let approve = item.isHardDeny ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
-            bindings += [(approve, .approve, nil), (keymap[.deny], .deny, nil), (keymap[.other], .other, nil)]
+            bindings += [(approve, .action(.approve)), (keymap[.deny], .action(.deny)), (keymap[.other], .action(.other))]
+            if let blocked = item.blocked, !blocked.grantScopes.isEmpty {
+                bindings.append((keymap[.grant], .action(.grant)))
+            }
         case .notify:
-            bindings.append((keymap[.approve], .approve, nil))
+            bindings.append((keymap[.approve], .action(.approve)))
         case .question:
             guard let flow = item.flow else { break }
             for index in flow.current.options.indices {
-                bindings.append((keymap.options[index], nil, index))
+                bindings.append((keymap.options[index], .option(index)))
             }
-            bindings += [(keymap[.other], .other, nil), (keymap[.submit], .submit, nil)]
+            bindings += [(keymap[.other], .action(.other)), (keymap[.submit], .action(.submit))]
             if flow.questions.count > 1 {
-                bindings += [(keymap[.next], .next, nil), (keymap[.previous], .previous, nil)]
+                bindings += [(keymap[.next], .action(.next)), (keymap[.previous], .action(.previous))]
             }
         }
         return bindings

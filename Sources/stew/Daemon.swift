@@ -130,6 +130,8 @@ enum Daemon {
         if !Paths.headless {
             let panel = PanelController(coordinator: coordinator)
             coordinator.onChange = { panel.update() }
+            let approvals = ApprovalsWindowController()
+            coordinator.onOpenApprovals = { approvals.show() }
         }
 
         let server = SocketServer(path: Paths.socket)

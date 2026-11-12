@@ -18,8 +18,8 @@ enum Client {
         }
     }
 
-    static func sendControl(_ control: String) -> String? {
-        guard let fd = try? connect(path: Paths.socket) else { return nil }
+    static func sendControl(_ control: String, startDaemon: Bool = false) -> String? {
+        guard let fd = try? (startDaemon ? connectStartingDaemon() : connect(path: Paths.socket)) else { return nil }
         defer { close(fd) }
         guard (try? writeAll(fd, try Wire.encode(ControlMessage(control: control)))) != nil,
               let line = readLine(fd) else { return nil }

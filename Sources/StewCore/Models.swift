@@ -26,11 +26,14 @@ public struct PermissionRequest: Codable, Equatable, Sendable {
     public var command: String?
     /// Why Claude needs it.
     public var reason: String
+    /// Set when the request comes from the auto mode hook: the call auto mode blocked.
+    public var blocked: BlockedCall?
 
-    public init(action: String, command: String? = nil, reason: String) {
+    public init(action: String, command: String? = nil, reason: String, blocked: BlockedCall? = nil) {
         self.action = action
         self.command = command
         self.reason = reason
+        self.blocked = blocked
     }
 }
 
@@ -208,6 +211,8 @@ public struct StewResponse: Codable, Equatable, Sendable {
     public var annotations: [String: QuestionAnnotation]?
     /// The risk assessment the user saw, for permission requests.
     public var risk: RiskAssessment?
+    /// A standing approval chosen alongside the answer.
+    public var grant: GrantChoice?
     public var error: String?
 
     public init(
@@ -216,6 +221,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         answers: [String: String]? = nil,
         annotations: [String: QuestionAnnotation]? = nil,
         risk: RiskAssessment? = nil,
+        grant: GrantChoice? = nil,
         error: String? = nil
     ) {
         self.status = status
@@ -223,6 +229,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         self.answers = answers
         self.annotations = annotations
         self.risk = risk
+        self.grant = grant
         self.error = error
     }
 

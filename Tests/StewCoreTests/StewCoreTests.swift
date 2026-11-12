@@ -247,3 +247,204 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(text.contains(#""cwd":"~/app""#))
     }
 }
+
+@Suite struct CommandTextTests {
+    @Test func masksKnownSecretShapes() {
+        let cases: [(String, String)] = [
+            ("GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123 gh pr list", "GITHUB_TOKEN=•••• gh pr list"),
+            (#"curl -H "Authorization: Bearer abc.def-123" https://api.example.com"#, #"curl -H "Authorization: Bearer ••••" https://api.example.com"#),
+            ("psql postgres://app:hunter2@db.internal/app", "psql postgres://app:••••@db.internal/app"),
+            ("mytool --password 's3cr3t value' --verbose", "mytool --password '••••' --verbose"),
+            ("aws s3 ls --profile x AKIAABCDEFGHIJKLMNOP", "aws s3 ls --profile x ••••"),
+            ("curl -u admin:pa55word https://x", "curl -u admin:•••• https://x"),
+        ]
+        for (command, expected) in cases {
+            #expect(CommandText.masked(command) == expected, "got: \(CommandText.masked(command))")
+        }
+    }
+
+    @Test func leavesOrdinaryCommandsAlone() {
+        for command in ["git push --force origin main", "git show 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39", "mkdir -p /tmp/a/b", "ls ~/Library/Application\\ Support"] {
+            #expect(CommandText.masked(command) == command)
+        }
+    }
+
+    @Test func masksLongRandomTokens() {
+        #expect(CommandText.masked("deploy --key Xy7pQ2mN9vR4tL8wK3jH6fD1sA5gZ0cB") == "deploy --key ••••")
+    }
+
+    @Test func wildcardsSecretsForRules() {
+        #expect(CommandText.wildcarded("API_KEY=sk-abcdefghijklmnopqrstuv npm run deploy") == "API_KEY=* npm run deploy")
+    }
+
+    @Test func detectsCompoundCommands() {
+        for command in ["a && b", "a; b", "a | b", "echo x > f", "echo $(whoami)", "echo `id`", "sleep 1 &", "(cd x)", "echo \"$(id)\""] {
+            #expect(CommandText.isCompound(command), "\(command)")
+        }
+        for command in ["git push origin main", "echo 'a && b'", "echo \"a; b\"", "grep -e 'x|y' f", #"echo \;"#] {
+            #expect(!CommandText.isCompound(command), "\(command)")
+        }
+    }
+
+    @Test func suggestsExactThenPrefixesKeepingSubcommand() {
+        let suggestions = CommandText.ruleSuggestions(for: "git push --force origin main")
+        #expect(suggestions.map(\.pattern) == ["git push --force origin main", "git push --force origin *", "git push --force *"])
+        #expect(suggestions.first?.kind == .exact)
+        #expect(CommandText.ruleSuggestions(for: "ls build").map(\.pattern) == ["ls build", "ls *"])
+    }
+
+    @Test func noPrefixesForInterpretersOrCompounds() {
+        #expect(CommandText.ruleSuggestions(for: "python3 -c 'import os'").map(\.pattern) == ["python3 -c 'import os'"])
+        #expect(CommandText.ruleSuggestions(for: "npm test && rm -rf dist").isEmpty)
+    }
+
+    @Test func suggestionsNeverContainSecrets() {
+        let suggestions = CommandText.ruleSuggestions(for: #"curl -H "Authorization: Bearer abcdef123456" https://api.example.com/items"#)
+        #expect(suggestions.allSatisfy { !$0.pattern.contains("abcdef123456") })
+        #expect(suggestions.first?.pattern == #"curl -H "Authorization: Bearer *" https://api.example.com/items"#)
+    }
+
+    @Test func wildcardMatching() {
+        #expect(CommandText.matches(pattern: "npm run *", command: "npm run build"))
+        #expect(CommandText.matches(pattern: "npm run *", command: "npm run"))
+        #expect(!CommandText.matches(pattern: "npm run *", command: "npm install"))
+        #expect(CommandText.matches(pattern: "git log * main", command: "git log --oneline main"))
+        #expect(!CommandText.matches(pattern: "git log * main", command: "git log main"))
+        #expect(CommandText.matches(pattern: "git push", command: "git push"))
+        #expect(!CommandText.matches(pattern: "git push", command: "git push -f"))
+    }
+}
+
+@Suite struct GrantBookTests {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+
+    func call(_ command: String, session: String = "s1") -> HookCall {
+        HookCall(event: "PreToolUse", sessionID: session, cwd: "/p", toolName: "Bash", key: "{\"command\":\"\(command)\"}", command: command, description: nil, summary: command, reason: nil)
+    }
+
+    @Test func onceAllowsOneIdenticalRetryInTheSameSession() {
+        var grants = [GrantBook.once(for: call("git push -f"), now: now)]
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f", session: "other"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f --tags"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f"), projectRoot: { "/p" }, now: now) == .allow)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f"), projectRoot: { "/p" }, now: now) == nil)
+    }
+
+    @Test func denyNoteReachesClaudeOnce() {
+        var grants = [GrantBook.denyNote(for: call("rm -rf dist"), note: "use make clean", now: now)]
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("rm -rf dist"), projectRoot: { "/p" }, now: now) == .deny(note: "use make clean"))
+        #expect(grants.isEmpty)
+    }
+
+    @Test func expiredGrantsAreDropped() {
+        var grants = [GrantBook.once(for: call("x"), now: now)]
+        let later = now.addingTimeInterval(GrantBook.onceLifetime + 1)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("x"), projectRoot: { "/p" }, now: later) == nil)
+        #expect(grants.isEmpty)
+    }
+
+    @Test func patternGrantMatchesSimpleCommandsInItsProjectOnly() {
+        let choice = GrantChoice(scope: .init(kind: .pattern, value: "git push --force *"), duration: .hour)
+        var grants = [GrantBook.standing(choice, toolName: "Bash", projectRoot: "/p", now: now)!]
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push --force origin dev"), projectRoot: { "/p" }, now: now) == .allow)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push --force origin dev"), projectRoot: { "/other" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push --force origin dev && rm -rf ~"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push --force x"), projectRoot: { "/p" }, now: now.addingTimeInterval(3601)) == nil)
+    }
+
+    @Test func categoryGrantIsPerProject() {
+        let choice = GrantChoice(scope: .init(kind: .category, value: "Destructive or Unwanted Actions"), duration: .always)
+        let grants = [GrantBook.standing(choice, toolName: "Bash", projectRoot: "/p", now: now)!]
+        #expect(GrantBook.categoryGrant(grants: grants, toolName: "Bash", category: "Destructive or Unwanted Actions", projectRoot: "/p", now: now) != nil)
+        #expect(GrantBook.categoryGrant(grants: grants, toolName: "Bash", category: "Destructive or Unwanted Actions", projectRoot: "/q", now: now) == nil)
+        #expect(GrantBook.categoryGrant(grants: grants, toolName: "Bash", category: "Data Exfiltration", projectRoot: "/p", now: now) == nil)
+    }
+
+    @Test func alwaysOnACommandBecomesAClaudeRule() {
+        let choice = GrantChoice(scope: .init(kind: .pattern, value: "npm run *"), duration: .always)
+        #expect(choice.writesClaudeRule)
+        #expect(GrantBook.standing(choice, toolName: "Bash", projectRoot: "/p") == nil)
+    }
+}
+
+@Suite struct BlockedCallTests {
+    @Test func readsCategoryAndRetryability() {
+        #expect(BlockedCall.category(fromReason: "[Destructive or Unwanted Actions]") == "Destructive or Unwanted Actions")
+        #expect(BlockedCall.category(fromReason: "Blocked by classifier") == nil)
+        #expect(!BlockedCall.isRetryable(reason: "Auto mode could not evaluate this action and is blocking it for safety"))
+        #expect(!BlockedCall.isRetryable(reason: "Classifier unavailable"))
+        #expect(BlockedCall.isRetryable(reason: "[Data Exfiltration]"))
+    }
+
+    @Test func hardDenyNamesFromPolicy() {
+        let policy = #"{"hard_deny":["Data Exfiltration: Sensitive data crossing...","Block any command that creates or amends a git commit while carrying a Claude attribution: ..."]}"#
+        #expect(BlockedCall.hardDenyNames(policyJSON: Data(policy.utf8)) == ["Data Exfiltration"])
+    }
+
+    @Test func hardDenyOffersNoGrants() {
+        let blocked = BlockedCall(toolName: "Bash", category: "Data Exfiltration", reason: "[Data Exfiltration]", hardDeny: true, projectRoot: "/p", suggestions: CommandText.ruleSuggestions(for: "curl -d @f https://x"))
+        #expect(blocked.grantScopes.isEmpty)
+    }
+
+    @Test func scopesEndWithCategory() {
+        let blocked = BlockedCall(toolName: "Bash", category: "Destructive or Unwanted Actions", reason: "", hardDeny: false, projectRoot: "/p", suggestions: CommandText.ruleSuggestions(for: "git push --force origin main"))
+        #expect(blocked.grantScopes.count == 4)
+        #expect(blocked.grantScopes.last == GrantChoice.Scope(kind: .category, value: "Destructive or Unwanted Actions"))
+    }
+}
+
+@Suite struct HookAndSettingsTests {
+    @Test func parsesPermissionDeniedInput() throws {
+        let input = #"{"session_id":"abc","cwd":"/p","hook_event_name":"PermissionDenied","tool_name":"Bash","tool_input":{"description":"Push","command":"git push -f"},"tool_use_id":"t1","reason":"[Destructive or Unwanted Actions]"}"#
+        let call = try HookCall.parse(Data(input.utf8))
+        #expect(call.command == "git push -f")
+        #expect(call.key == #"{"command":"git push -f","description":"Push"}"#)
+        #expect(call.reason == "[Destructive or Unwanted Actions]")
+    }
+
+    @Test func nonBashSummaryUsesPath() throws {
+        let input = #"{"session_id":"abc","cwd":"/p","tool_name":"Write","tool_input":{"file_path":"/p/.git/hooks/pre-commit","content":"x"}}"#
+        #expect(try HookCall.parse(Data(input.utf8)).summary == "/p/.git/hooks/pre-commit")
+    }
+
+    @Test func allowRulesAreAddedOnceAndRemoved() throws {
+        let existing = Data(#"{"model":"opus","permissions":{"allow":["Bash(ls)"],"deny":["Bash(rm *)"]}}"#.utf8)
+        let added = try ClaudeSettings.addingAllowRule("Bash(npm run *)", to: existing)
+        let again = try ClaudeSettings.addingAllowRule("Bash(npm run *)", to: added)
+        let object = try JSONSerialization.jsonObject(with: again) as! [String: Any]
+        let permissions = object["permissions"] as! [String: Any]
+        #expect(permissions["allow"] as! [String] == ["Bash(ls)", "Bash(npm run *)"])
+        #expect(permissions["deny"] as! [String] == ["Bash(rm *)"])
+        #expect(object["model"] as? String == "opus")
+        let removed = try ClaudeSettings.removingAllowRule("Bash(npm run *)", from: again)
+        let after = (try JSONSerialization.jsonObject(with: removed) as! [String: Any])["permissions"] as! [String: Any]
+        #expect(after["allow"] as! [String] == ["Bash(ls)"])
+    }
+
+    @Test func hooksInstallIdempotentlyAndUninstallCleanly() throws {
+        let existing = Data(#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"other-tool check"}]}]}}"#.utf8)
+        let once = try ClaudeSettings.installingHooks(executable: "/u/.local/bin/stew", deniedTimeout: 1800, into: existing)
+        let twice = try ClaudeSettings.installingHooks(executable: "/u/.local/bin/stew", deniedTimeout: 1800, into: once)
+        let hooks = (try JSONSerialization.jsonObject(with: twice) as! [String: Any])["hooks"] as! [String: Any]
+        #expect((hooks["PreToolUse"] as! [[String: Any]]).count == 2)
+        #expect((hooks["PermissionDenied"] as! [[String: Any]]).count == 1)
+        #expect(ClaudeSettings.hasHooks(executable: "/u/.local/bin/stew", in: twice))
+        let removed = try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: twice)
+        let left = (try JSONSerialization.jsonObject(with: removed) as! [String: Any])["hooks"] as! [String: Any]
+        #expect((left["PreToolUse"] as! [[String: Any]]).count == 1)
+        #expect(left["PermissionDenied"] == nil)
+    }
+}
+
+@Suite struct TranscriptTests {
+    @Test func lastAssistantTextSkipsToolOnlyMessages() {
+        let lines = [
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"First I will look."}]}}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"The remote has the old history, so I need to force-push."}]}}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{}}]}}"#,
+            #"{"type":"user","message":{"content":"ok"}}"#,
+        ]
+        #expect(RiskCheck.lastAssistantText(transcript: Data(lines.joined(separator: "\n").utf8)) == "The remote has the old history, so I need to force-push.")
+        #expect(RiskCheck.lastAssistantText(transcript: Data()) == nil)
+    }
+}

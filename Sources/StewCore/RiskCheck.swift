@@ -101,6 +101,23 @@ public enum RiskCheck {
         return Array(messages.suffix(limit))
     }
 
+    /// The text of Claude's last message in a transcript, shortened for the panel.
+    public static func lastAssistantText(transcript: Data, maxCharacters: Int = 600) -> String? {
+        var latest: String?
+        for line in transcript.split(separator: 0x0A) {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  object["type"] as? String == "assistant",
+                  let message = object["message"] as? [String: Any],
+                  let parts = message["content"] as? [[String: Any]] else { continue }
+            let text = parts.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { latest = text }
+        }
+        guard let latest else { return nil }
+        return latest.count > maxCharacters ? String(latest.prefix(maxCharacters)) + "…" : latest
+    }
+
     static func stripSystemReminders(_ text: String) -> String {
         var result = text
         while let start = result.range(of: "<system-reminder>"),

@@ -11,7 +11,7 @@ The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 op
 
 ## When to use it
 
-- A background job needs a decision to continue. Ask with `stew ask` or `stew permit` before stopping with "needs input".
+- A background job needs a decision to continue. Ask with `stew ask` or `stew permit` before you stop to wait for the user.
 - Long work finished, failed or needs attention: `stew notify`.
 - The user asked to be notified, pinged or asked.
 
@@ -19,20 +19,28 @@ In a foreground session where the user is clearly typing to you, the normal AskU
 
 `stew permit` adds a human check; it does not replace or bypass Claude Code's own permission system. Never use it to get around a denied tool call.
 
+## When auto mode blocks a call
+
+If the user installed stew's hooks, a call that auto mode blocks goes to the user in stew. You see the normal denial first.
+
+- If Claude Code then tells you that you may retry, the user approved it. Retry the identical call: same tool, same command, same description. Any change makes it a new call that auto mode reviews again.
+- If the retry is denied with a note from the user, follow the note.
+- If no retry message comes, the user denied or dismissed it. Find another way, or stop and say what you needed.
+
 ## Commands
 
 ```bash
 # Permission. Exit 0 approved, 1 denied, 2 dismissed, 3 timeout.
 stew permit \
   --action "Delete the stale build cache" \
-  --command "rm -rf ~/Library/Caches/stew-build" \
+  --command "rm -rf ~/Library/Caches/my-app-build" \
   --reason "The cache holds objects from an old toolchain and breaks the build."
 
 # Long or multi-line command: pass it on stdin.
 printf '%s' "$cmd" | stew permit --action "..." --command - --reason "..."
 
 # Notification. Returns at once with "shown"; the panel stays until the user closes it.
-stew notify "Tests passed" --body "25 of 25 green, MR !12 is ready" --level success
+stew notify "Tests passed" --body "212 of 212 green, the branch is ready to merge" --level success
 #   --level info|success|warning|error, --wait blocks until acknowledged
 
 # Question: exactly the AskUserQuestion input (1-4 questions, 2-4 options each).

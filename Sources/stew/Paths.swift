@@ -55,4 +55,16 @@ enum Log {
         let stamp = ISO8601DateFormatter().string(from: Date())
         FileHandle.standardError.write(Data("\(stamp) \(message)\n".utf8))
     }
+
+    /// For hook processes, whose stderr Claude Code would show in the session.
+    static func append(_ message: String) {
+        let line = Data("\(ISO8601DateFormatter().string(from: Date())) \(message)\n".utf8)
+        if let handle = FileHandle(forWritingAtPath: Paths.log) {
+            handle.seekToEndOfFile()
+            handle.write(line)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: Paths.log, contents: line)
+        }
+    }
 }

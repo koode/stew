@@ -7,7 +7,6 @@ final class RiskChecker {
     private static let policyCacheLifetime: TimeInterval = 600
     private static let queue = DispatchQueue(label: "stew.risk", attributes: .concurrent)
     private static let policyLock = NSLock()
-    private static var policyCache: [String: (prompt: String, fetched: Date)] = [:]
     private static var subscriptionVerifiedAt = Date.distantPast
 
     init(config: StewConfig.ClassifierConfig) {
@@ -82,31 +81,42 @@ final class RiskChecker {
         policyLock.unlock()
     }
 
-    /// Effective auto mode rules depend on the project, so the policy is cached per folder.
     private static func systemPromptFile(claude: String, workingDirectory: String) throws -> String {
-        policyLock.lock()
-        let cached = policyCache[workingDirectory]
-        policyLock.unlock()
-        let prompt: String
-        if let cached, Date().timeIntervalSince(cached.fetched) < policyCacheLifetime {
-            prompt = cached.prompt
-        } else {
-            let directory = FileManager.default.fileExists(atPath: workingDirectory) ? workingDirectory : Paths.home
-            let policy = try runProcess(claude, ["auto-mode", "config"], stdin: nil, directory: directory, timeout: 30)
-            guard (try? JSONSerialization.jsonObject(with: policy)) != nil else {
-                throw CheckFailure(description: "`claude auto-mode config` did not return JSON")
-            }
-            prompt = RiskCheck.systemPrompt(policyJSON: String(decoding: policy, as: UTF8.self))
-            policyLock.lock()
-            policyCache[workingDirectory] = (prompt, Date())
-            policyLock.unlock()
-        }
+        let policy = try policyJSON(workingDirectory: workingDirectory, claude: claude)
+        let prompt = RiskCheck.systemPrompt(policyJSON: String(decoding: policy, as: UTF8.self))
         // One file per distinct prompt keeps concurrent checks from racing on a shared file.
         let path = Paths.cacheDirectory + "/policy-\(stableHash(prompt)).txt"
         if !FileManager.default.fileExists(atPath: path) {
             try prompt.write(toFile: path, atomically: true, encoding: .utf8)
         }
         return path
+    }
+
+    /// Effective auto mode rules (`claude auto-mode config`). They depend on the project,
+    /// so they are cached per folder in a file that short-lived hook processes share.
+    static func policyJSON(workingDirectory: String, claude: String? = nil) throws -> Data {
+        if let override = ProcessInfo.processInfo.environment["STEW_POLICY_FILE"] {
+            guard let data = FileManager.default.contents(atPath: override) else {
+                throw CheckFailure(description: "cannot read \(override)")
+            }
+            return data
+        }
+        let cacheFile = Paths.cacheDirectory + "/automode-\(stableHash(workingDirectory)).json"
+        if let modified = (try? FileManager.default.attributesOfItem(atPath: cacheFile))?[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) < policyCacheLifetime,
+           let data = FileManager.default.contents(atPath: cacheFile) {
+            return data
+        }
+        guard let claude = claude ?? Paths.claudeBinary(configured: nil) else {
+            throw CheckFailure(description: "claude CLI not found")
+        }
+        let directory = FileManager.default.fileExists(atPath: workingDirectory) ? workingDirectory : Paths.home
+        let policy = try runProcess(claude, ["auto-mode", "config"], stdin: nil, directory: directory, timeout: 30)
+        guard (try? JSONSerialization.jsonObject(with: policy)) != nil else {
+            throw CheckFailure(description: "`claude auto-mode config` did not return JSON")
+        }
+        try? policy.write(to: URL(fileURLWithPath: cacheFile), options: .atomic)
+        return policy
     }
 
     private static func stableHash(_ text: String) -> String {
