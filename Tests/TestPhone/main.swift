@@ -12,8 +12,12 @@ stew-test-phone COMMAND [options]
       Register with the code's relay and send the hello. Prints the six digit code.
   wait-push --state FILE [--kind request|update|resolved|unpair] [--timeout SECONDS]
       Wait for the next recorded push of that kind, decrypt it, print it as JSON.
-  answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT]
+  answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
       ACTION is approve, deny, moreTime, option.N or other. Prints the Mac's result.
+      --force skips the phone's own checks, to prove the Mac refuses too.
+      --twice posts the same envelope again and adds the relay's status for it.
+  unpair --state FILE
+      End the pairing from the phone.
   pending --state FILE
       Print the relay's open requests for this pairing.
   sample-push --out DIR
@@ -195,11 +199,18 @@ func answer(_ values: [String: String]) throws {
     let requestId = try required(values, "request")
     guard let request = state.requests[requestId] else { throw Failure("no request \(requestId) seen yet") }
     let action = try required(values, "action")
-    guard let choice = LinkPresentation.choice(forAction: action, typedText: values["text"], request: request) else {
+    let forced = values["force"] == "yes"
+    let offered = LinkPresentation.choice(forAction: action, typedText: values["text"], request: request)
+    let choice: LinkChoice
+    if let offered {
+        choice = offered
+    } else if forced, action == LinkPresentation.approveAction {
+        choice = .approve
+    } else {
         printJSON(["accepted": false, "refusedOnPhone": true, "message": "This action is not offered for this request."])
         exit(5)
     }
-    if let refusal = LinkRefusal.beforeSending(choice, for: request) {
+    if !forced, let refusal = LinkRefusal.beforeSending(choice, for: request) {
         printJSON(["accepted": false, "refusedOnPhone": true, "message": refusal])
         exit(5)
     }
@@ -218,8 +229,20 @@ func answer(_ values: [String: String]) throws {
     let result = try channel.open(reply.result, as: LinkResult.self, replay: &replay)
     var output: [String: Any] = ["accepted": result.accepted, "message": result.message]
     if let deadline = result.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
+    if values["twice"] == "yes" {
+        output["secondStatus"] = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope)).0
+    }
     printJSON(output)
     exit(result.accepted ? 0 : 7)
+}
+
+func unpair(_ values: [String: String]) throws {
+    let state = try loadState(try required(values, "state"))
+    let channel = try state.pairing.channel(identity: try LinkIdentity(stored: state.identity))
+    let envelope = try channel.seal(LinkUnpair(reason: "Unpaired on \(state.phoneName)."), kind: .unpair, requestId: "pairing", expiresAt: Date().addingTimeInterval(3600))
+    let (status, body) = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
+    guard (200..<300).contains(status) else { throw Failure("unpair failed: \(status) \(String(decoding: body, as: UTF8.self))") }
+    print("unpaired")
 }
 
 func pending(_ values: [String: String]) throws {
@@ -327,6 +350,7 @@ do {
     case "wait-push": try waitPush(values)
     case "answer": try answer(values)
     case "pending": try pending(values)
+    case "unpair": try unpair(values)
     case "sample-push": try samplePush(values)
     case "fixture": try fixture(values)
     default:

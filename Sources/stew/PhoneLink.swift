@@ -47,6 +47,11 @@ final class PhoneLink: ObservableObject {
         let store = PhoneStore()
         self.store = store
         pairings = store.pairings
+        // A code nobody scanned within a day is abandoned; it should not hold a socket.
+        for pairing in pairings where pairing.state == .waiting && Date().timeIntervalSince(pairing.createdAt) > 24 * 3600 {
+            store.remove(pairing.pairingId)
+        }
+        pairings = store.pairings
         for pairing in pairings { connect(pairing) }
         coordinator.onRespond = { [weak self] item, response in self?.responded(item, response) }
         coordinator.onControl = { [weak self] control in self?.control(control) }
