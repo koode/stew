@@ -512,6 +512,14 @@ sleep 0.2
 expect "answered in session is recorded" "$(needs_count answeredInSession 'log in to the registry again')" "1"
 prompt_hook auto-3 > /dev/null
 expect "every automatic item answered" "$(control state)" "items=0 kind=none"
+# Claude already called stew needs for this session: the hook adds no second item.
+out=$(CLAUDE_CODE_SESSION_ID=auto-7 "$STEW" needs "Log in to the registry")
+CLI=$(id_of "$out")
+stop_hook auto-7 "$NEEDS_MESSAGE" 0 > /dev/null
+expect "an open stew needs item blocks the automatic one" "$(control state)" "needs=1 "
+stop_hook auto-7 "Waiting for the login." 0 > /dev/null
+expect "moving on leaves the stew needs item" "$(control state)" "needs=1 parked=0 front=$CLI"
+"$STEW" needs resolve "$CLI" > /dev/null
 # The Stop input of an older Claude Code has no last_assistant_message: read the transcript.
 printf '%s\n' "$(python3 -c 'import json;print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":"needs input: approve the deploy"}]}}))')" > "$WORK/transcript.jsonl"
 python3 -c 'import json,sys;print(json.dumps({"session_id":"auto-4","cwd":sys.argv[1],"hook_event_name":"Stop","transcript_path":sys.argv[2]}))' "$PROJ" "$WORK/transcript.jsonl" \

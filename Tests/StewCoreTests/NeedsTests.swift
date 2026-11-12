@@ -122,6 +122,14 @@ private func item(_ id: String, title: String = "Log in", in itemSession: Sessio
         #expect(NeedsBook.countText(1) == "1 thing needs you")
         #expect(NeedsBook.countText(2) == "2 things need you")
     }
+
+    @Test func anOpenCLIItemBlocksAnAutomaticOne() {
+        let items = [item("m1"), item("a1", in: otherSession, automatic: true)]
+        #expect(NeedsBook.hasOpenCLIItem(sessionID: "aaaa-1111", in: items))
+        #expect(!NeedsBook.hasOpenCLIItem(sessionID: "bbbb-2222", in: items))
+        #expect(!NeedsBook.hasOpenCLIItem(sessionID: nil, in: items))
+        #expect(!NeedsBook.hasOpenCLIItem(sessionID: "", in: items))
+    }
 }
 
 @Suite struct PanelQueueTests {

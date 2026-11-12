@@ -258,6 +258,11 @@ final class Coordinator: ObservableObject {
     /// --wait the caller gets its id at once; with it, the caller waits for Done or
     /// Decline, or until its own --timeout.
     private func addNeeds(_ needs: NeedsRequest, request: StewRequest, connection: Connection?) {
+        if needs.automatic, NeedsBook.hasOpenCLIItem(sessionID: request.session.id, in: needsStore.items) {
+            let response = StewResponse(status: .dismissed, note: "The session already has an open item from stew needs")
+            connection?.send((try? Wire.encode(response)) ?? Data())
+            return
+        }
         let record = NeedsItem(id: NeedsBook.newID(existing: needsStore.items), created: Date(), session: request.session, needs: needs)
         for replaced in needsStore.add(record) {
             // A session's newer automatic need supersedes its older one; the old one

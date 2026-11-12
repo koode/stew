@@ -157,6 +157,14 @@ public enum NeedsBook {
         return items.filter { $0.needs.automatic && $0.session.id == sessionID }
     }
 
+    /// Whether the session already has an open item Claude made with `stew needs`. Then
+    /// the Stop hook adds no automatic item for the same need: Claude follows the skill,
+    /// which asks for both the command and the `needs input:` line.
+    public static func hasOpenCLIItem(sessionID: String?, in items: [NeedsItem]) -> Bool {
+        guard let sessionID, !sessionID.isEmpty else { return false }
+        return items.contains { !$0.needs.automatic && $0.session.id == sessionID }
+    }
+
     /// The return summary line for open items.
     public static func countText(_ count: Int) -> String {
         count == 1 ? "1 thing needs you" : "\(count) things need you"
