@@ -3,3 +3,5 @@
 *.xcodeproj
 snapshots/
 build/
+relay/node_modules/
+relay/.wrangler/
