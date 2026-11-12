@@ -115,6 +115,33 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(content.actions.isEmpty)
     }
 
+    @Test func needsItemShowsWhatThePanelShowsWithDoneAndNotNow() {
+        let needs = NeedsRequest(
+            title: "Log in to the registry",
+            why: "The publish step needs a token.",
+            steps: ["Open the terminal", "Run the command"],
+            commands: [NeedsCommand(command: "NPM_TOKEN=sk-abcdefghijklmnopqrstuv pnpm login")] // gitleaks:allow (test fixture)
+        )
+        let request = linkRequest(.needs(needs), deadline: nil, extendBy: nil)
+        let content = LinkPresentation.notification(for: request, pairingId: "pair", time: clock)
+        #expect(content.title == "Log in to the registry")
+        #expect(content.subtitle == "Needs you · stew-build")
+        #expect(content.body == "The publish step needs a token.\n1. Open the terminal\n2. Run the command\n$ NPM_TOKEN=•••• pnpm login\nStudio")
+        #expect(content.categoryIdentifier == "stew.needs")
+        #expect(content.actions.map(\.title) == ["Done", "Not now"])
+        #expect(content.actions.allSatisfy { action in !action.requiresAuthentication })
+        #expect(LinkPresentation.choice(forAction: "done", typedText: nil, request: request) == .done)
+        #expect(LinkPresentation.choice(forAction: "notNow", typedText: nil, request: request) == nil)
+        #expect(LinkPresentation.choice(forAction: "done", typedText: nil, request: linkRequest(permission)) == nil)
+        #expect(LinkRefusal.beforeSending(.done, for: request, now: received) == nil)
+        #expect(LinkRefusal.beforeSending(.approve, for: request, now: received) != nil)
+        var history = PhoneHistory()
+        history.record(request, pairingId: "pair")
+        #expect(history.entries[0].command == "NPM_TOKEN=•••• pnpm login")
+        #expect(history.entries[0].kindTitle == "Needs you")
+        #expect(LinkPresentation.needsRequestId("ab12cd34") == "needs-ab12cd34")
+    }
+
     @Test func shortPath() {
         #expect(LinkPresentation.shortPath("/Users/someone/Projects/x") == "~/Projects/x")
         #expect(LinkPresentation.shortPath("/Users/someone") == "~")

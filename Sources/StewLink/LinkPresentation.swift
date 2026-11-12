@@ -7,6 +7,7 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case approve, deny, moreTime
         case option(Int)
         case other
+        case done, notNow
     }
 
     public var identifier: String
@@ -47,6 +48,13 @@ public enum LinkPresentation {
     public static let denyAction = "deny"
     public static let moreTimeAction = "moreTime"
     public static let otherAction = "other"
+    public static let doneAction = "done"
+    /// Handled on the phone alone: the notification goes, the item stays open on the Mac.
+    public static let notNowAction = "notNow"
+    public static let needsCategory = "stew.needs"
+
+    /// Request ids for needs items, which have short ids of their own on the Mac.
+    public static func needsRequestId(_ needsID: String) -> String { "needs-" + needsID }
     public static let optionActionPrefix = "option."
 
     /// Same titles as the Mac panel header.
@@ -99,8 +107,10 @@ public enum LinkPresentation {
 
     public static func categoryIdentifier(_ request: LinkRequest) -> String? {
         switch request.request.prompt {
-        case .notify, .needs:
+        case .notify:
             return nil
+        case .needs:
+            return needsCategory
         case .permission:
             let base = request.hardDeny ? "stew.permission.macOnly" : "stew.permission"
             return canExtend(request) ? base : base + ".noTime"
@@ -116,8 +126,14 @@ public enum LinkPresentation {
     public static func actions(_ request: LinkRequest) -> [LinkNotificationAction] {
         let moreTime = LinkNotificationAction(identifier: moreTimeAction, title: moreTimeTitle(request.extendBy ?? 0), role: .moreTime)
         switch request.request.prompt {
-        case .notify, .needs:
+        case .notify:
             return []
+        case .needs:
+            // Done needs no Face ID: it only tells Claude to go on, it runs nothing.
+            return [
+                LinkNotificationAction(identifier: doneAction, title: "Done", role: .done),
+                LinkNotificationAction(identifier: notNowAction, title: "Not now", role: .notNow),
+            ]
         case .permission:
             var actions: [LinkNotificationAction] = []
             if !request.hardDeny {
@@ -202,7 +218,9 @@ public enum LinkPresentation {
         return lines
     }
 
-    static func timeLine(_ request: LinkRequest, time: (Date) -> String) -> String {
+    /// The last line of a notification and the subtitle of a request row: the Mac, and
+    /// when the time to answer runs out.
+    public static func timeLine(_ request: LinkRequest, time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String {
         switch request.request.prompt {
         case .notify, .needs: return request.macName
         case .permission, .question: break
@@ -219,6 +237,9 @@ public enum LinkPresentation {
         case approveAction: return request.hardDeny ? nil : .approve
         case denyAction: return .deny
         case moreTimeAction: return .moreTime
+        case doneAction:
+            guard case .needs = request.request.prompt else { return nil }
+            return .done
         case otherAction:
             let text = (typedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard notificationQuestion(request) != nil, !text.isEmpty else { return nil }
@@ -275,7 +296,7 @@ public enum LinkRefusal {
         case (.moreTime, _):
             if request.queued { return clockNotStarted }
             return request.deadline == nil ? noTimeLimit : nil
-        case (.deny, .permission), (.answers, .question):
+        case (.deny, .permission), (.answers, .question), (.done, .needs):
             return nil
         default:
             return "This answer does not fit this request."

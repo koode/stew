@@ -71,6 +71,8 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     case moreTime
     /// One entry per question, in order.
     case answers([LinkQuestionAnswer])
+    /// A needs item is done. "Not now" sends nothing: on the Mac it changes nothing.
+    case done
 }
 
 /// Phone to Mac.
