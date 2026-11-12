@@ -1,6 +1,6 @@
 # Setting up stew: instructions for a coding agent
 
-You are setting up stew for the user on their Mac. stew is a floating panel that lets Claude Code sessions ask the user for permission, ask questions and send notifications, without taking keyboard focus. Follow these steps in order. Ask the user where a step says so; do not decide for them.
+You are setting up stew for the user on their Mac. stew is a floating panel that lets Claude Code sessions ask the user for permission, ask questions, send notifications and say when they need the user to do something only the user can do (log in, buy, approve in a web page), without taking keyboard focus. Follow these steps in order. Ask the user where a step says so; do not decide for them.
 
 ## 1. Check the machine
 
@@ -14,7 +14,7 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 
 ## 2. Ask the user two questions
 
-1. **Hooks.** "Should stew ask you when Claude Code's auto mode blocks a call, and show Claude's questions in stew when you are not at the terminal (background and remote sessions)? This adds hooks to `~/.claude/settings.json` (a backup is written first)."
+1. **Hooks.** "Should stew ask you when Claude Code's auto mode blocks a call, and, when you are not at the terminal (background and remote sessions), show Claude's questions in stew and tell you when a session waits for you to do something (its reply ends with a `needs input:` line)? This adds hooks to `~/.claude/settings.json` (a backup is written first)."
 2. **Keys and time.** "stew uses ⌘↩ to approve, ⌘D to deny, ⌘1 to ⌘4 for options and ⌘. to dismiss, while a panel is visible. You get 1 minute to answer before Claude is told you did not respond; ⌘E adds 2 minutes. Do you want different keys or times?"
 
 ## 3. Install
@@ -54,6 +54,11 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
    stew permit --action "Test stew" --command "echo hello" --reason "Checking the setup" --timeout 120
    ```
    The output must show `"status":"approved"` after they press ⌘↩.
+6. Show one needs item and ask the user to mark it done:
+   ```bash
+   stew needs "Check the stew setup" --step "Copy the command below with its copy button" --command "stew version" --wait --timeout 300
+   ```
+   The output must show `"status":"done"` after they press ⌘↩. While it is open, a hand with the count shows in the menu bar.
 
 ## Troubleshooting
 
@@ -64,6 +69,8 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 | The install script stops with a sha256 or signature error | The download was damaged or is not an official build | Run the install command again. If it keeps failing, stop and tell the user; do not work around the check |
 | "Risk check unavailable: not logged in with a Claude subscription" | `claude` uses an API key or is logged out | `claude auth login` with a Claude account, or set `"classifier": {"enabled": false}` |
 | A blocked call never shows in stew | Hooks not installed, or the denial had no verdict | `stew hooks status`; denials such as "Classifier unavailable" cannot be retried, so stew skips them |
+| `stew hooks status` says "partly installed" | The hooks come from an older stew, without the needs hooks | `stew hooks install` adds what is missing and keeps the rest |
+| A `needs input:` line never shows in stew | The session is attended (someone at the terminal), or `autoNeeds` is `never` | Expected for attended sessions; set `"autoNeeds": "always"` in `~/.config/stew/config.json` if the user wants them too |
 
 ## Removing stew
 

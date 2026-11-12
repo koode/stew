@@ -1,6 +1,6 @@
 ---
 name: stew
-description: Reach the user on their desktop through a floating panel (the `stew` CLI) to ask permission for an action, ask a question in AskUserQuestion format, or tell them something. Use in background jobs and long-running work when the user is likely not watching the terminal, when blocked on a decision, when a long task finishes or fails, and whenever the user asks to be pinged, notified or asked.
+description: Reach the user on their desktop through a floating panel (the `stew` CLI) to ask permission for an action, ask a question in AskUserQuestion format, tell them something, or tell them you need them to do something only they can do (log in, buy, approve in a web page, a physical action). Use in background jobs and long-running work when the user is likely not watching the terminal, when blocked on a decision or on the user, when a long task finishes or fails, and whenever the user asks to be pinged, notified or asked.
 ---
 
 # stew
@@ -14,6 +14,7 @@ The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 op
 - A decision blocks you: ask with the normal AskUserQuestion tool. With stew's hooks installed, it shows in stew whenever nobody is at the terminal (background and remote sessions), and the answer comes back as usual. Use `stew ask` only when AskUserQuestion is not available to you.
 - You need permission for something outside your tools' own prompts: `stew permit`.
 - Long work finished, failed or needs attention: `stew notify`.
+- You are blocked on something only the user can do (log in, enter a password or a 2FA code, buy or top up credits, approve something in a web page, plug in a device): `stew needs`. See below.
 - The user asked to be notified, pinged or asked.
 
 If AskUserQuestion comes back denied with a note that the user did not answer in time, or closed the question, they are probably away: continue with a safe choice that does not need the answer, and say which choice you made.
@@ -51,6 +52,29 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 ```
 
 Common flags: `--session NAME` overrides the label. `--timeout SECONDS` sets the time to answer (default from the user's settings, 1 minute; `0` means no limit). The user can add time.
+
+## When you need the user to do something
+
+Use `stew needs` when you cannot go on until the user does something you cannot do for them. Never use it for a decision (ask instead) or for permission (`stew permit`).
+
+```bash
+stew needs "Log in to npm so I can publish 2.4.0" \
+  --why "The publish failed with E401: this machine has no npm login." \
+  --step "Run the command below in a terminal" \
+  --step "Finish the login in the browser window it opens" \
+  --command "npm login --auth-type=web" \
+  --link https://www.npmjs.com/settings/tokens
+# {"id":"3f9a1c2e","status":"shown"}
+```
+
+- The title says what you need, in one line. `--why` says what failed.
+- `--step` (repeat it) gives the steps in order, in plain words. `--command` (repeat it) gives each command the user must run exactly as it must be run: the panel has a copy button, and it masks secrets on screen. `--link` takes only http or https URLs.
+- It returns at once with an id, and stays open (also across restarts) until it is resolved. It has no time limit.
+- Keep the id. Carry on with work that does not need it. When you can see the thing got done (the login works, the credits show, the build is approved), run `stew needs resolve ID`.
+- To wait for the user instead: `--wait` (with the Bash tool's `run_in_background: true`). It returns `"done"` with the user's note, or `"dismissed"` if they declined. `--timeout SECONDS` limits only how long you wait: on `"timeout"` the item stays open.
+- `stew needs list --json` shows what is open.
+
+Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote sessions (a numbered list after it becomes the steps and code blocks in the message become commands), and it goes away when the user next writes to you.
 
 ## Waiting
 

@@ -6,6 +6,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 
 - **Auto mode, with you as the fallback.** Claude Code's auto mode decides as usual. When it blocks a call, stew asks you. Approve, and Claude retries that exact call. You can also allow it for an hour, or for good, without being asked again.
 - **Permission, questions, notifications.** Claude can call `stew` itself: a permission request with the exact command and the reason, a question in the same format as Claude Code's AskUserQuestion tool, or a notification.
+- **Needs you.** When Claude is stuck on something only you can do (log in, buy, approve in a web page, plug something in), stew shows the steps, the commands to copy and the links to open. It stays open until it is done, with a count in the menu bar.
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
 - **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
@@ -66,7 +67,7 @@ Open Claude Code in this folder and paste:
 
 ### When auto mode blocks a call
 
-With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, and one for questions (see below).
+With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, and two for things Claude needs you to do (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
@@ -99,6 +100,21 @@ Claude Code's own question tool (AskUserQuestion) can show in stew too, through 
 
 The answer goes back to Claude as if you had answered in the terminal. If the time to answer runs out, or you close the question, Claude is told so and continues with a safe choice. If stew is not running, the terminal asks as usual.
 
+### Needs you: things only you can do
+
+What Claude sessions wait on most is something only you can do: log in, buy more credits, approve a build in a web page, plug in a phone. stew shows it as a **Needs you** panel with what Claude needs, why, numbered steps, each command in a box with a copy button, and links that open in your browser.
+
+![Claude needs you to log in to npm](docs/images/needs-light.png)
+
+- **Done** (⌘↩) tells Claude it is done, optionally with a note (⌘O). **Decline** (⌘D) tells Claude you will not do it.
+- **Not now** (⌘.) keeps it open for later. It has no time limit.
+- Permission requests and questions always go first. A needs item shows when nothing else is waiting.
+- While anything is open, the menu bar shows a hand with the count. Its menu lists each item (session · title) and opens it in the panel.
+- When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
+- Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
+
+Claude can make one with `stew needs` (the skill tells it when). With the hooks, Claude Code also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, and code blocks in the message into commands. A session has at most one of these at a time. The `UserPromptSubmit` hook clears it as soon as you send that session a message. By default this happens only in unattended sessions (background and remote). Change it in `stew settings` → Claude Code → "Needs you from Claude Code", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
+
 ### The skill
 
 The skill in `~/.claude/skills/stew` tells Claude Code sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Edit `~/.claude/skills/stew/SKILL.md` to change when sessions use it.
@@ -115,6 +131,15 @@ stew notify "Tests passed" --body "212 of 212" --level success
 # Question, in AskUserQuestion format.
 stew ask --json '{"questions":[{"question":"Which database?","header":"DB","multiSelect":false,
   "options":[{"label":"Postgres","description":"Relational"},{"label":"SQLite","description":"Embedded"}]}]}'
+
+# Something only the user can do. Returns at once with {"status":"shown","id":"…"}.
+stew needs "Log in to npm so I can publish 2.4.0" --why "The publish failed with E401." \
+  --step "Run the command below" --step "Finish the login in the browser" \
+  --command "npm login --auth-type=web" --link https://www.npmjs.com/settings/tokens
+#   --wait blocks until Done ("done", with the note) or Decline ("dismissed");
+#   --timeout SECONDS limits only that wait, and the item stays open.
+stew needs list [--json]       # the open items
+stew needs resolve ID          # clear one once you can see it is done
 ```
 
 Answers print as one JSON line. `stew --help` lists every command and flag.
@@ -129,9 +154,9 @@ For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Dismissed (declined), Resolved by Claude, or Answered in session. Not now is not an ending, so it is not recorded.
 
-When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩).
+When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts open needs items ("2 things need you"), and shows on its own when only those are open.
 
 ```bash
 stew history                    # open the History tab
@@ -149,16 +174,16 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 
 | Keys | Action |
 |---|---|
-| ⌘↩ | Approve, or OK on a notification |
-| ⌘D | Deny |
+| ⌘↩ | Approve, OK on a notification, or Done on a needs item |
+| ⌘D | Deny, or Decline a needs item |
 | ⌘O | Open the note or "Other" field (the only thing that takes keyboard focus) |
 | ⌘G | Allow more… on a call auto mode blocked |
 | ⌘E | More time (+2 minutes) |
 | ⌘1 to ⌘4 | Pick an option |
 | ⌘↩ | Confirm a multi-select question, or send typed text |
 | ⌘[ / ⌘] | Previous or next question |
-| ⌘. | Dismiss without answering |
-| ⇧⌘. | Dismiss everything waiting |
+| ⌘. | Dismiss without answering, or Not now on a needs item |
+| ⇧⌘. | Dismiss everything waiting (needs items get Not now) |
 | ⇧⌘↩ | Approve past a hard deny, or Always in Allow more… |
 
 The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save" key), not ⌘⌫. Dismiss is ⌘. (the macOS cancel key), not ⌘W. While a panel is visible these keys go to stew, so your terminal's ⌘D or ⌘1 waits until it closes.
@@ -199,7 +224,7 @@ The window has five tabs:
 
 - **General:** time to answer, more time, arming delay, position, sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
-- **Claude Code:** install or remove the auto mode hooks, and set up the risk check.
+- **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **Approvals:** the same list as `stew approvals`.
 - **History:** finished requests, with a Missed only switch (see History).
 
@@ -214,6 +239,7 @@ The window has five tabs:
   "responseTimeout": 60,
   "extendBy": 120,
   "routeQuestions": "unattended",
+  "autoNeeds": "unattended",
   "sound": "Glass",
   "position": "top-right",
   "confetti": false,
@@ -227,6 +253,7 @@ The window has five tabs:
 - Keys without Control, Option or Command are refused.
 - Approve and submit may share a key, because they never show on the same panel. Other clashes are refused.
 - `routeQuestions` is `unattended`, `always` or `never`: where Claude Code's own questions appear.
+- `autoNeeds` is `unattended`, `always` or `never`: for which sessions a `needs input:` line at the end of a turn becomes a needs item.
 - `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
 - `position` is `top-right`, `top-center` or `top-left`.
 - `sound` is a name from `/System/Library/Sounds` (such as `"Glass"`), or `""` for none.
@@ -242,7 +269,8 @@ The window has five tabs:
 - **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session. It runs only on a Claude subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login.
 - **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
 - **Signed updates only.** An update needs a valid Ed25519 signature from the stew release key and Koode's Developer ID code signature. The release server only serves the files.
-- **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Logs go to `~/Library/Logs/stew.log`.
+- **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Open needs items are in `needs.json` (mode 0600), with their commands as given so the copy button copies the real command; the panel and the history show secrets as `••••`. Logs go to `~/Library/Logs/stew.log`.
+- **Web links only.** A needs item's links must be `http` or `https`, so a click can only open the browser, never a file or an app.
 
 ## Uninstall
 
