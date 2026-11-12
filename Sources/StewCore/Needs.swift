@@ -220,9 +220,12 @@ public enum ReturnSummary {
 }
 
 /// Reads the `needs input:` convention from Claude's last message: the line names what
-/// Claude needs, a numbered list after it gives the steps, and fenced code blocks give
-/// the commands to copy.
+/// Claude needs, a numbered list after it gives the steps, fenced code blocks give the
+/// commands to copy, and web addresses outside code blocks give the links.
 public enum NeedsParser {
+    /// Few enough that the links stay a short list under the steps.
+    public static let maxLinks = 4
+
     public static func parse(_ message: String) -> NeedsRequest? {
         let lines = message.components(separatedBy: .newlines)
         var inFence = false
@@ -252,12 +255,37 @@ public enum NeedsParser {
             title: title,
             steps: Array(steps(in: following).prefix(NeedsRequest.maxSteps)),
             commands: Array(codeBlocks(in: lines).prefix(NeedsRequest.maxCommands)).map { NeedsCommand(command: $0) },
+            links: Array(links(in: lines).prefix(maxLinks)).map { NeedsLink(url: $0) },
             automatic: true
         )
     }
 
     private static let marker = try! NSRegularExpression(pattern: #"^[\s>#*_]*needs input[*_]*\s*:[*_]*\s*(.*)$"#, options: [.caseInsensitive])
     private static let numbered = try! NSRegularExpression(pattern: #"^\s*\d{1,2}[.)]\s+(.+)$"#)
+    private static let webAddress = try! NSRegularExpression(pattern: #"https?://[^\s<>()\[\]{}"'`]+"#, options: [.caseInsensitive])
+
+    /// http and https addresses outside code blocks, in order, each once. Punctuation that
+    /// ends the sentence is not part of the address. A URL in a code block belongs to a
+    /// command, not to the links.
+    static func links(in lines: [String]) -> [String] {
+        var found: [String] = []
+        var inFence = false
+        for line in lines {
+            if isFence(line) {
+                inFence.toggle()
+                continue
+            }
+            if inFence { continue }
+            let range = NSRange(line.startIndex..., in: line)
+            for match in webAddress.matches(in: line, range: range) {
+                guard let matched = Range(match.range, in: line) else { continue }
+                var address = String(line[matched])
+                while let last = address.last, ".,;:!?*_".contains(last) { address.removeLast() }
+                if NeedsRequest.isWebURL(address), !found.contains(address) { found.append(address) }
+            }
+        }
+        return found
+    }
 
     static func markerRest(_ line: String) -> String? {
         let range = NSRange(line.startIndex..., in: line)

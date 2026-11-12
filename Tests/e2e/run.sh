@@ -478,7 +478,7 @@ expect "nothing open" "$(control state)" "items=0 kind=none"
 turn_json() { # event, session, message
   python3 -c 'import json,sys;print(json.dumps({"session_id":sys.argv[2],"cwd":sys.argv[4],"hook_event_name":sys.argv[1],"transcript_path":"/nonexistent","last_assistant_message":sys.argv[3],"prompt":"ok"}))' "$1" "$2" "$3" "$PROJ"
 }
-NEEDS_MESSAGE=$'The push failed.\n\nneeds input: log in to the registry\n\n1. Run the login\n   ```\n   docker login ghcr.io\n   ```\n2. Tell me when it worked'
+NEEDS_MESSAGE=$'The push failed, see https://ghcr.io/login.\n\nneeds input: log in to the registry\n\n1. Run the login\n   ```\n   docker login ghcr.io\n   ```\n2. Tell me when it worked'
 stop_hook() { turn_json Stop "$1" "$2" | CLAUDE_CODE_SESSION_ATTENDED="$3" "$STEW" hook stop; }
 expect "stop hook is silent" "[$(stop_hook auto-1 "$NEEDS_MESSAGE" 1)]" "[]"
 expect "attended session gets no item" "$(control state)" "items=0 kind=none"
@@ -489,6 +489,7 @@ listed=$("$STEW" needs list --json)
 expect "item title from the needs line" "$listed" '"title" : "log in to the registry"'
 expect "steps from the numbered list" "$listed" '"Tell me when it worked"'
 expect "commands from code blocks" "$listed" '"command" : "docker login ghcr.io"'
+expect "links from web addresses" "$listed" '"url" : "https://ghcr.io/login"'
 expect "item is marked automatic" "$listed" '"automatic" : true'
 stop_hook auto-1 $'needs input: log in to the registry again' 0 > /dev/null
 expect "a session keeps one automatic item" "$(control state)" "needs=1 "

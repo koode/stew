@@ -226,6 +226,31 @@ private func item(_ id: String, title: String = "Log in", in itemSession: Sessio
         #expect(needs.title.count == NeedsRequest.maxTitle)
         try needs.validate()
     }
+
+    @Test func linksComeFromWebAddressesOutsideCodeBlocks() throws {
+        let message = """
+        needs input: approve the build at https://appstoreconnect.apple.com/apps/42.
+        See [the runbook](https://wiki.example.com/release) and https://appstoreconnect.apple.com/apps/42 again,
+        or (http://status.example.com/) for outages; not ftp://files.example.com.
+        ```
+        curl https://api.example.com/token
+        ```
+        Also https://one.example.com, https://two.example.com and https://three.example.com!
+        """
+        let needs = try #require(NeedsParser.parse(message))
+        #expect(needs.links.map(\.url) == [
+            "https://appstoreconnect.apple.com/apps/42",
+            "https://wiki.example.com/release",
+            "http://status.example.com/",
+            "https://one.example.com",
+        ])
+        #expect(needs.links.allSatisfy { $0.label == nil })
+        try needs.validate()
+    }
+
+    @Test func noAddressesMeansNoLinks() {
+        #expect(NeedsParser.parse("needs input: plug in the phone")?.links == [])
+    }
 }
 
 @Suite struct NeedsRoutingTests {
