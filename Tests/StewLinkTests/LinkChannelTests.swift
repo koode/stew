@@ -196,6 +196,30 @@ private func sampleAnswer() -> LinkAnswer {
         }
     }
 
+    @Test func answersAllHaveTheSameSize() throws {
+        let sides = try PairedSides()
+        let choices: [LinkChoice] = [.approve, .deny, .moreTime, .answers([LinkQuestionAnswer(selected: [1])])]
+        let sizes = try Set(choices.map { choice in
+            try sides.phone.seal(LinkAnswer(requestId: "request1", choice: choice, phoneName: "iPhone", answeredAt: now), kind: .answer, requestId: "request1", expiresAt: soon).ciphertext.count
+        })
+        #expect(sizes.count == 1)
+        let outcomes = try Set(LinkOutcome.allCases.map { outcome in
+            try sides.mac.seal(LinkResolved(requestId: "request1", outcome: outcome, resolvedAt: now), kind: .resolved, requestId: "request1", expiresAt: soon).ciphertext.count
+        })
+        #expect(outcomes.count == 1)
+    }
+
+    @Test func paddingRoundTripsAndRefusesBadLengths() throws {
+        for size in [0, 1, 251, 252, 253, 600] {
+            let json = Data(repeating: 0x41, count: size)
+            let padded = LinkChannel.padded(json)
+            #expect(padded.count % LinkChannel.paddingBlock == 0)
+            #expect(try LinkChannel.unpadded(padded) == json)
+        }
+        #expect(throws: LinkError.malformed) { try LinkChannel.unpadded(Data([0, 0, 1, 0, 0x41])) }
+        #expect(throws: LinkError.malformed) { try LinkChannel.unpadded(Data([0, 0])) }
+    }
+
     @Test func headerIsStable() {
         let envelope = LinkEnvelope(pairingId: "pair", kind: .answer, sender: .phone, requestId: "request", messageId: "message", replyTo: "", expiresAt: 42, ciphertext: Data([1, 2, 3]))
         #expect(String(decoding: envelope.signedBytes, as: UTF8.self) == "stew-link/1\npair\nanswer\nphone\nrequest\nmessage\n\n42\nAQID")

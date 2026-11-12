@@ -103,11 +103,33 @@ public struct LinkChannel: Sendable {
             expiresAt: Int(expiresAt.timeIntervalSince1970.rounded(.up))
         )
         guard envelope.hasValidFields else { throw LinkError.malformed }
-        let plaintext = try LinkJSON.encode(payload)
+        let plaintext = Self.padded(try LinkJSON.encode(payload))
         let box = try ChaChaPoly.seal(plaintext, using: key, authenticating: envelope.header)
         envelope.ciphertext = box.combined
         envelope.signature = try identity.sign(envelope.signedBytes)
         return envelope
+    }
+
+    /// Ciphertext length would otherwise tell the relay which answer was given
+    /// ("approve" and "deny" differ in length) and roughly how long a command is. The
+    /// plaintext is a 4 byte big-endian length, the JSON, and zeros up to a multiple of
+    /// this size.
+    public static let paddingBlock = 256
+
+    static func padded(_ json: Data) -> Data {
+        var length = UInt32(json.count).bigEndian
+        var data = Data(bytes: &length, count: 4)
+        data += json
+        let total = (data.count + paddingBlock - 1) / paddingBlock * paddingBlock
+        data += Data(count: total - data.count)
+        return data
+    }
+
+    static func unpadded(_ data: Data) throws -> Data {
+        guard data.count >= 4 else { throw LinkError.malformed }
+        let length = data.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+        guard length <= data.count - 4 else { throw LinkError.malformed }
+        return Data(data.dropFirst(4).prefix(length))
     }
 
     /// Checks, in order: fields, pairing, sender, signature, expiry, replay, then decrypts.
@@ -136,7 +158,7 @@ public struct LinkChannel: Sendable {
         }
         let payload: Payload
         do {
-            payload = try LinkJSON.decode(type, from: plaintext)
+            payload = try LinkJSON.decode(type, from: try Self.unpadded(plaintext))
         } catch {
             throw LinkError.malformed
         }
