@@ -13,19 +13,40 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 ## Requirements
 
 - macOS 14 or later
-- A Swift 6 toolchain: Xcode 16 or later, or the Command Line Tools (`xcode-select --install`)
 - [Claude Code](https://code.claude.com), for the skill, the auto mode hooks and the risk check
+- To build from source: a Swift 6 toolchain (Xcode 16 or later, or the Command Line Tools: `xcode-select --install`)
 
 ## Install
+
+```bash
+curl -fsSL https://releases.stewcli.com/install.sh | bash
+```
+
+To also ask in stew when auto mode blocks a call:
+
+```bash
+curl -fsSL https://releases.stewcli.com/install.sh | bash -s -- --with-hooks
+```
+
+The script downloads the latest release and checks it before it changes anything: the size and SHA-256 from the release manifest, and a code signature from Koode's Developer ID that Apple notarized. It then installs:
+
+- `~/Applications/Stew.app`: the daemon and the command line tool. No admin rights needed.
+- `~/.local/bin/stew`: a link to the tool inside the app.
+- The LaunchAgent `nl.koode.stew`, which starts the daemon at login.
+- The Claude Code skill in `~/.claude/skills/stew`, if `~/.claude` exists.
+
+Other options: `--no-skill`, `--bin-dir DIR`, `--app-dir DIR`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place, and Claude Code hooks keep working because they call that path.
+
+### From source
 
 Clone this repository, then from its folder:
 
 ```bash
-./install.sh                 # binary, background daemon, Claude Code skill
+./install.sh                 # Stew.app, background daemon, Claude Code skill
 ./install.sh --with-hooks    # also: ask in stew when auto mode blocks a call
 ```
 
-The script builds stew, installs it to `~/.local/bin/stew`, starts it as a LaunchAgent and installs the Claude Code skill. Run it again to update. `./uninstall.sh` removes it.
+The script builds Stew.app from source and installs the same layout. Run it again to update.
 
 Check that it works:
 
@@ -128,6 +149,28 @@ The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save"
 
 Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak, Colemak or a remapped keyboard.
 
+## Updates
+
+stew updates itself. The daemon checks for a new version one minute after it starts and then once a day, and installs it when no request is open in the panel, then restarts. Turn this off in `stew settings` → General → "Install updates automatically", or with `"autoUpdate": false`.
+
+```bash
+stew version           # the version and build
+stew update --check    # is there a newer version?
+stew update            # install it now
+```
+
+An update is installed only when the download matches the size and SHA-256 in the release manifest, carries an Ed25519 signature from the stew release key, and the app inside is signed with Koode's Developer ID. Each step is logged to `~/Library/Logs/stew.log`.
+
+| `stew update` exit code | Meaning |
+|---|---|
+| 0 | Up to date, or the update was installed |
+| 10 | An update is available (`--check` only) |
+| 11 | A newer version exists but needs a newer macOS |
+| 12 | Downloaded and verified; installs as soon as no request is open |
+| 20 | The check failed: network, server or an invalid manifest |
+| 21 | The download was rejected: size, SHA-256, signature or code signature |
+| 22 | Moving the new app into place failed; the old version stays |
+
 ## Configuration
 
 Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` directly. The window writes the same file. Every field is optional, and changes apply to the next request without a restart. `stew keys` shows the keys in effect and reports conflicts.
@@ -136,7 +179,7 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 The window has four tabs:
 
-- **General:** time to answer, more time, arming delay, position, sound.
+- **General:** time to answer, more time, arming delay, position, sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the auto mode hooks, and set up the risk check.
 - **Approvals:** the same list as `stew approvals`.
@@ -154,6 +197,8 @@ The window has four tabs:
   "routeQuestions": "unattended",
   "sound": "Glass",
   "position": "top-right",
+  "confetti": false,
+  "autoUpdate": true,
   "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
 }
 ```
@@ -164,6 +209,9 @@ The window has four tabs:
 - `routeQuestions` is `unattended`, `always` or `never`: where Claude Code's own questions appear.
 - `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
 - `position` is `top-right`, `top-center` or `top-left`.
+- `sound` is a name from `/System/Library/Sounds` (such as `"Glass"`), or `""` for none.
+- `confetti` shows a short burst of confetti where the panel was when you approve a request. It is off by default, and never plays when "Reduce motion" is on in macOS.
+- `autoUpdate` installs new versions by itself (see Updates).
 - `classifier` controls the risk check on direct `stew permit` calls.
 
 ## Security model
@@ -172,15 +220,16 @@ The window has four tabs:
 - **One retry, one call.** An approval lets one identical call through, in the session that asked, within 15 minutes.
 - **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session. It runs only on a Claude subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login.
 - **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
+- **Signed updates only.** An update needs a valid Ed25519 signature from the stew release key and Koode's Developer ID code signature. The release server only serves the files.
 - **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Logs go to `~/Library/Logs/stew.log`.
 
 ## Uninstall
 
 ```bash
-./uninstall.sh
+stew uninstall
 ```
 
-This removes the hooks, the daemon, the binary, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to projects' `.claude/settings.local.json`. Run `stew approvals` first to see and revoke those.
+`./uninstall.sh` in a clone does the same. This removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to projects' `.claude/settings.local.json`. Run `stew approvals` first to see and revoke those.
 
 ## Develop
 
@@ -188,10 +237,13 @@ This removes the hooks, the daemon, the binary, the skill, caches and stored app
 swift test                     # unit tests
 Tests/e2e/run.sh               # end-to-end tests against a headless daemon on a private socket
 RISK_CHECK=1 Tests/e2e/run.sh  # also runs one real risk check (uses your Claude plan)
+Tests/install/run.sh           # the installers and stew uninstall, against a temporary home folder
 swift run stew snapshot --out snapshots   # renders sample panels to PNG, light and dark
 ```
 
-The end-to-end tests use their own socket, grant store, policy file and settings files, so they never touch your installed stew or your Claude Code settings.
+The end-to-end tests use their own socket, grant store, policy file, settings files and a temporary Stew.app, and serve test releases from a local server, so they never touch your installed stew or your Claude Code settings. The installer tests log launchctl calls instead of running them.
+
+[docs/RELEASING.md](docs/RELEASING.md) describes how a release is built, signed and published.
 
 ## License
 

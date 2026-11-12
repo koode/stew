@@ -9,7 +9,6 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 | Check | Command | Needs | Fix |
 |---|---|---|---|
 | macOS version | `sw_vers -productVersion` | 14 or later | Update macOS |
-| Swift toolchain | `swift --version` | Swift 6 or later | `xcode-select --install`, or update Xcode |
 | Claude Code | `claude --version` | Installed | Needed only for the risk check and the auto mode hooks |
 | Login type | `claude auth status` | `"authMethod": "claude.ai"` | The risk check runs only on a Claude subscription, never on API billing; it is skipped otherwise |
 
@@ -20,14 +19,14 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 
 ## 3. Install
 
-From the repository folder:
-
 ```bash
-./install.sh                 # if the user said no to hooks
-./install.sh --with-hooks    # if the user said yes
+curl -fsSL https://releases.stewcli.com/install.sh | bash                    # if the user said no to hooks
+curl -fsSL https://releases.stewcli.com/install.sh | bash -s -- --with-hooks # if the user said yes
 ```
 
-The script builds a release binary, installs it to `~/.local/bin/stew`, starts the daemon as the LaunchAgent `nl.koode.stew`, and installs the Claude Code skill in `~/.claude/skills/stew`. Running it again updates everything.
+The script downloads the latest release, checks its SHA-256 and its Koode Developer ID signature, installs `~/Applications/Stew.app`, links `~/.local/bin/stew` to the tool inside it, starts the daemon as the LaunchAgent `nl.koode.stew`, and installs the Claude Code skill in `~/.claude/skills/stew`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place. stew then updates itself once a day.
+
+If the user works from a clone of this repository and wants to build from source, run `./install.sh` (or `./install.sh --with-hooks`) from its folder instead. That needs Swift 6 or later (`swift --version`; fix with `xcode-select --install` or an Xcode update).
 
 If `~/.local/bin` is not on the user's PATH, the script says so. Add it to their shell profile only if they agree.
 
@@ -43,7 +42,7 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 
 ## 5. Verify
 
-1. `stew keys` prints the shortcuts with no config error.
+1. `stew version` prints a version and build number, and `stew keys` prints the shortcuts with no config error.
 2. `launchctl print gui/$(id -u)/nl.koode.stew | grep state` shows `state = running`.
 3. Send a test notification and ask the user to confirm they see it in the top right corner:
    ```bash
@@ -62,13 +61,14 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 |---|---|---|
 | The panel says a key is "taken by another app" | Another app registered the same global shortcut | Remap that action in `~/.config/stew/config.json` |
 | `daemon did not start` | The LaunchAgent is not loaded | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/nl.koode.stew.plist`, then read `~/Library/Logs/stew.log` |
+| The install script stops with a sha256 or signature error | The download was damaged or is not an official build | Run the install command again. If it keeps failing, stop and tell the user; do not work around the check |
 | "Risk check unavailable: not logged in with a Claude subscription" | `claude` uses an API key or is logged out | `claude auth login` with a Claude account, or set `"classifier": {"enabled": false}` |
 | A blocked call never shows in stew | Hooks not installed, or the denial had no verdict | `stew hooks status`; denials such as "Classifier unavailable" cannot be retried, so stew skips them |
 
 ## Removing stew
 
 ```bash
-./uninstall.sh
+stew uninstall
 ```
 
-It removes the hooks, the daemon, the binary, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to a project's `.claude/settings.local.json`; list those with `stew approvals` before uninstalling if the user wants them gone.
+It removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to a project's `.claude/settings.local.json`; list those with `stew approvals` before uninstalling if the user wants them gone.
