@@ -26,6 +26,10 @@ final class PhoneLink: ObservableObject {
     private var connections: [String: RelayConnection] = [:]
     private var replayGuards: [String: ReplayGuard] = [:]
     private var pushed: [UUID: Pushed] = [:]
+    /// Needs items sent to phones, by needs id, with the pairings they went to.
+    private var pushedNeeds: [String: Set<String>] = [:]
+    /// Which pairing marked a needs item done.
+    private var needsDoneBy: [String: String] = [:]
     /// Which pairing answered a request, so its "resolved" carries the right outcome.
     private var answeredBy: [UUID: String] = [:]
     /// Outcomes of recent requests, so a late answer gets a reason and not just "no".
@@ -59,6 +63,7 @@ final class PhoneLink: ObservableObject {
         for pairing in pairings { connect(pairing) }
         coordinator.onRespond = { [weak self] item, response in self?.responded(item, response) }
         coordinator.onControl = { [weak self] control in self?.control(control) }
+        coordinator.onNeedsFinished = { [weak self] record, outcome in self?.needsFinished(record, outcome) }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
     }
 
@@ -217,6 +222,10 @@ final class PhoneLink: ObservableObject {
     private func apply(_ answer: LinkAnswer, from pairingId: String) -> LinkResult {
         let requestId = answer.requestId
         func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
+        let needsPrefix = LinkPresentation.needsRequestId("")
+        if requestId.hasPrefix(needsPrefix) {
+            return applyNeeds(answer, needsID: String(requestId.dropFirst(needsPrefix.count)), from: pairingId)
+        }
         guard let coordinator,
               let item = coordinator.items.first(where: { $0.id.uuidString == requestId }),
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
@@ -262,6 +271,39 @@ final class PhoneLink: ObservableObject {
         default:
             return refuse("This answer does not fit this request.")
         }
+    }
+
+    /// A needs item has one answer from a phone: Done. "Not now" never leaves the phone.
+    private func applyNeeds(_ answer: LinkAnswer, needsID: String, from pairingId: String) -> LinkResult {
+        let requestId = answer.requestId
+        func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
+        guard let coordinator, coordinator.needsStore.item(needsID) != nil, pushedNeeds[needsID]?.contains(pairingId) == true else {
+            if let recent = recentlyResolved[requestId] {
+                return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName))
+            }
+            return refuse(LinkRefusal.closed(nil, macName: macName))
+        }
+        if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
+            return refuse(LinkRefusal.tooSlow)
+        }
+        guard answer.choice == .done else { return refuse("This answer does not fit this request.") }
+        needsDoneBy[needsID] = pairingId
+        coordinator.markNeedsDone(id: needsID)
+        return LinkResult(requestId: requestId, accepted: true, message: "Marked done on \(macName).")
+    }
+
+    private func needsFinished(_ record: NeedsItem, _ outcome: HistoryEntry.Outcome) {
+        let doneBy = needsDoneBy.removeValue(forKey: record.id)
+        guard let pairingIds = pushedNeeds.removeValue(forKey: record.id) else { return }
+        let linkOutcome: LinkOutcome
+        switch outcome {
+        case .done: linkOutcome = .done
+        case .resolvedByClaude: linkOutcome = .resolvedByClaude
+        case .answeredInSession: linkOutcome = .answeredInSession
+        case .movedOn: linkOutcome = .movedOn
+        default: linkOutcome = .dismissed
+        }
+        resolve(LinkPresentation.needsRequestId(record.id), pairingIds: pairingIds, outcome: linkOutcome, answering: doneBy)
     }
 
     private func responded(_ item: Item, _ response: StewResponse) {
@@ -329,10 +371,14 @@ final class PhoneLink: ObservableObject {
     }
 
     private func send(_ request: LinkRequest, kind: LinkKind, item: Item, to pairingIds: Set<String>) {
+        send(request, kind: kind, expiresAt: expiry(for: request, item: item), to: pairingIds)
+    }
+
+    private func send(_ request: LinkRequest, kind: LinkKind, expiresAt: Date, to pairingIds: Set<String>) {
         guard let store else { return }
         for pairing in paired where pairingIds.contains(pairing.pairingId) {
             guard let channel = try? pairing.channel(identity: store.identity),
-                  let envelope = try? channel.seal(request, kind: kind, requestId: request.requestId, expiresAt: expiry(for: request, item: item)) else { continue }
+                  let envelope = try? channel.seal(request, kind: kind, requestId: request.requestId, expiresAt: expiresAt) else { continue }
             connections[pairing.pairingId]?.send(envelope)
         }
     }
@@ -374,6 +420,38 @@ final class PhoneLink: ObservableObject {
             send(request, kind: .request, item: item, to: targets)
             pushed[item.id] = Pushed(pairingIds: targets, sent: request)
         }
+        pushNeeds(coordinator: coordinator, targets: targets, now: now, presence: &presence)
+    }
+
+    /// Needs items go out under the same policy as requests. One the user parked with
+    /// "Not now" on the Mac stays parked: they have seen it and chose to wait. A needs
+    /// item has no deadline, so the relay keeps it close to its longest.
+    private func pushNeeds(coordinator: Coordinator, targets: Set<String>, now: Date, presence: inout MacPresence?) {
+        let open = coordinator.needsStore.items
+        let openIDs = Set(open.map(\.id))
+        for (needsID, pairingIds) in pushedNeeds where !openIDs.contains(needsID) {
+            // Replaced by a newer automatic item from the same session without an ending.
+            pushedNeeds[needsID] = nil
+            resolve(LinkPresentation.needsRequestId(needsID), pairingIds: pairingIds, outcome: .movedOn, answering: nil)
+        }
+        for record in open where !record.parked && pushedNeeds[record.id] == nil {
+            let current = presence ?? Self.samplePresence()
+            presence = current
+            guard PushPolicy.shouldPush(config: coordinator.config.phone, openFor: now.timeIntervalSince(record.created), presence: current) else { continue }
+            let request = LinkRequest(
+                requestId: LinkPresentation.needsRequestId(record.id),
+                macName: macName,
+                request: StewRequest(session: record.session, prompt: .needs(record.needs), wait: false),
+                receivedAt: record.created,
+                deadline: nil,
+                queued: false,
+                extendBy: nil,
+                hardDeny: false,
+                risk: nil
+            )
+            send(request, kind: .request, expiresAt: now.addingTimeInterval(6 * 24 * 3600), to: targets)
+            pushedNeeds[record.id] = targets
+        }
     }
 
     /// Idle time from the last keyboard, mouse or trackpad event, and the lock state of
@@ -411,7 +489,7 @@ final class PhoneLink: ObservableObject {
             return "unpaired"
         case "state":
             let connected = statuses.values.filter { $0 == .connected }.count
-            return "pairings=\(pairings.count) paired=\(paired.count) confirming=\(confirming == nil ? 0 : 1) connected=\(connected) pushed=\(pushed.count)"
+            return "pairings=\(pairings.count) paired=\(paired.count) confirming=\(confirming == nil ? 0 : 1) connected=\(connected) pushed=\(pushed.count) needs=\(pushedNeeds.count)"
         default:
             return "unknown phone control"
         }

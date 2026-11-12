@@ -170,7 +170,7 @@ The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600)
 
 ## On your iPhone
 
-When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, or a question's options. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, or Done on a needs item. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
 
 ## Keys
 

@@ -94,6 +94,8 @@ final class Coordinator: ObservableObject {
     var onRespond: ((Item, StewResponse) -> Void)?
     /// Gets controls this class does not know; a non-nil reply answers the caller.
     var onControl: ((String) -> String?)?
+    /// Told when a needs item ends for good, with how it ended, so paired phones learn it.
+    var onNeedsFinished: ((NeedsItem, HistoryEntry.Outcome) -> Void)?
     private var configModified: Date?
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
@@ -347,6 +349,7 @@ final class Coordinator: ObservableObject {
     private func finishNeeds(id: String, outcome: HistoryEntry.Outcome, status: StewStatus, note: String?) -> Bool {
         guard let record = needsStore.remove(id) else { return false }
         history?.append(HistoryEntry.record(record, outcome: outcome, note: note, ended: Date()))
+        onNeedsFinished?(record, outcome)
         answerWaiter(id, StewResponse(status: status, note: note, id: id))
         if let panelItem = items.first(where: { $0.needsID == id }) {
             remove(panelItem)
@@ -355,6 +358,12 @@ final class Coordinator: ObservableObject {
         }
         needsChanged()
         return true
+    }
+
+    /// Done from a paired phone: the same ending as Done in the panel.
+    @discardableResult
+    func markNeedsDone(id: String) -> Bool {
+        finishNeeds(id: id, outcome: .done, status: .done, note: nil)
     }
 
     /// "Not now": out of the panel, still open in the menu bar. A waiting caller keeps waiting.

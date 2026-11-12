@@ -12,6 +12,7 @@ When a request stays open while you are away from your Mac, stew sends it to you
 - **Risk check first.** A request waits while its risk check runs, so the phone sees the verdict and a hard deny never arrives with an Approve.
 - **Questions.** A single question offers its options (up to 4) and "Other…" with a text field. Several questions, or a multi-select question, open the app.
 - **Notifications** (`stew notify`) arrive without actions.
+- **Needs items** (`stew needs`) go out under the same rules, without a deadline. The notification shows the title, why, the steps and the commands with secrets masked, with Done and Not now. Done needs no Face ID and ends the item on the Mac as Done. Not now only clears the notification; the item stays open on the Mac. An item you parked with Not now on the Mac is not sent. The phone's history uses the Mac's labels: Done, Dismissed, Resolved by Claude, Answered in session, Moved on.
 - **Apple Watch** shows the same actions, without a watch app.
 
 ## Pairing
