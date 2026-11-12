@@ -164,8 +164,8 @@ final class Coordinator: ObservableObject {
         }
         let wasEmpty = items.isEmpty
         items.append(item)
-        if wasEmpty, let sound = config.sound, !sound.isEmpty {
-            NSSound(named: NSSound.Name(sound))?.play()
+        if wasEmpty {
+            ArrivalSound.play(config.sound)
         }
         changed()
     }

@@ -13,7 +13,7 @@ let package = Package(
             name: "stew",
             dependencies: ["StewCore"],
             swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [.linkedFramework("Carbon"), .linkedFramework("AppKit")]
+            linkerSettings: [.linkedFramework("Carbon"), .linkedFramework("AppKit"), .linkedFramework("AudioToolbox")]
         ),
         .testTarget(name: "StewCoreTests", dependencies: ["StewCore"]),
     ]
