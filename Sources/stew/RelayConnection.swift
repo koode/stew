@@ -129,6 +129,20 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         onStatus?(status)
     }
 
+    /// Tells the relay a queued frame (a hello or an unpair) was handled, so it stops
+    /// sending it on every connect. Sent whatever the outcome, since sending it again
+    /// would change nothing.
+    func acknowledge(_ messageId: String, completion: (() -> Void)? = nil) {
+        let ack = ["type": "ack", "messageId": messageId]
+        guard let socket, let data = try? JSONSerialization.data(withJSONObject: ack, options: [.sortedKeys]) else {
+            completion?()
+            return
+        }
+        socket.send(.string(String(decoding: data, as: UTF8.self))) { _ in
+            DispatchQueue.main.async { completion?() }
+        }
+    }
+
     struct PostResult {
         let status: Int
         let body: Data

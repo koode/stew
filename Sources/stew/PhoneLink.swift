@@ -172,6 +172,11 @@ final class PhoneLink: ObservableObject {
         guard let store, var pairing = pairings.first(where: { $0.pairingId == pairingId }) else { return }
         var replay = replayGuards[pairingId] ?? ReplayGuard()
         defer { replayGuards[pairingId] = replay }
+        let connection = connections[pairingId]
+        // Only queued frames need an ack; answers get a result instead.
+        let acknowledged = frame.type == .hello || frame.envelope.kind == .unpair
+        var ackSent = false
+        defer { if acknowledged && !ackSent { connection?.acknowledge(frame.envelope.messageId) } }
         do {
             switch frame.type {
             case .hello:
@@ -199,6 +204,10 @@ final class PhoneLink: ObservableObject {
                 case .unpair:
                     _ = try channel.open(frame.envelope, as: LinkUnpair.self, replay: &replay)
                     if pairingCode?.pairingId == pairingId { pairingCode = nil }
+                    // Keep the socket until the relay has the ack, then let it go.
+                    connections.removeValue(forKey: pairingId)
+                    ackSent = true
+                    connection?.acknowledge(frame.envelope.messageId) { connection?.stop() }
                     forget(pairingId)
                 default:
                     return
