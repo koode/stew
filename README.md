@@ -168,6 +168,10 @@ For a missed call that auto mode blocked, the History tab offers **Allow next ti
 
 The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
 
+## On your iPhone
+
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, or a question's options. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
+
 ## Keys
 
 Every key is ⌘ plus one key, and works only while a panel is visible. Presses in the first 0.5 seconds after a panel appears are ignored, so a shortcut meant for another app cannot answer it.

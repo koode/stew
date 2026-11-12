@@ -19,7 +19,31 @@ When a request stays open while you are away from your Mac, stew sends it to you
 2. On the iPhone: in the stew app, tap Pair a Mac and scan the code, or paste it.
 3. Both screens show the same six digit code. Check that they match, then click Confirm on the Mac.
 
+![Settings ▸ iPhone while a code waits to be scanned](images/settings-phone-pairing-light.png)
+
 A Mac can pair with several phones and a phone with several Macs. Each pairing has its own id, its own pairing secret and its own key. Unpairing on either side removes the pairing on both.
+
+## Configuration
+
+The `phone` object in `~/.config/stew/config.json`. Every field is optional.
+
+```json
+{ "phone": { "push": "away", "after": 10, "idleAfter": 120, "relay": "https://relay.stewcli.com" } }
+```
+
+- `push`: `away`, `always` or `never`. An unknown value counts as `away`.
+- `after`: seconds a request must be open before it is sent.
+- `idleAfter`: seconds without keyboard or mouse input before the Mac counts as away.
+- `relay`: the relay for new pairings. Each pairing keeps the relay it was made with, so change this before pairing. [relay/README.md](../relay/README.md) explains self-hosting.
+
+## Testing
+
+```bash
+swift test              # StewLink: encryption, signatures, replays, expiry, notification text, history
+Tests/phone/run.sh      # a local relay in MOCK_APNS mode, a headless daemon and a test phone
+```
+
+`Tests/phone/run.sh` needs the relay's dependencies (`pnpm install` in `relay/`) and runs everything on this Mac: the relay records pushes instead of sending them to Apple, and `stew-test-phone` decrypts them with the same code as the iOS app and answers.
 
 ## Security
 
