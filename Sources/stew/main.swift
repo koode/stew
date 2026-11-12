@@ -337,6 +337,10 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
 }
 
 let commandLine = CommandLine.arguments
+if LaunchContext.isOpenedAsApp(arguments: commandLine, parentProcessID: getppid(), inputIsTerminal: isatty(0) == 1) {
+    // Double-clicking Stew.app opens the settings window in the daemon, starting it if needed.
+    exit(Client.sendControl("settings", startDaemon: true) == nil ? 1 : 0)
+}
 guard commandLine.count > 1, !["-h", "--help", "help"].contains(commandLine[1]) else {
     print(usage)
     exit(commandLine.count > 1 ? 0 : 64)

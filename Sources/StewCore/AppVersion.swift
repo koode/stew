@@ -44,3 +44,13 @@ public struct AppVersion: Equatable, Sendable, CustomStringConvertible {
         return ((infoPlist as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
     }
 }
+
+public enum LaunchContext {
+    /// True when Finder or `open` started Stew.app: launchd is the parent, there are no
+    /// arguments (or only an old -psn_ process serial number), and no terminal is
+    /// attached. A shell starts stew as its own child, so typing `stew` keeps the usage.
+    public static func isOpenedAsApp(arguments: [String], parentProcessID: Int32, inputIsTerminal: Bool) -> Bool {
+        let rest = arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
+        return rest.isEmpty && parentProcessID == 1 && !inputIsTerminal
+    }
+}

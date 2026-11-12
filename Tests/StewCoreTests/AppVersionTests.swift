@@ -54,6 +54,16 @@ import Testing
         #expect(AppVersion.infoPlistPath(forExecutable: "/tmp/Contents/MacOS/stew") == nil)
     }
 
+    @Test func opensSettingsOnlyWhenLaunchedAsAnApp() {
+        let app = "/Users/someone/Applications/Stew.app/Contents/MacOS/stew"
+        #expect(LaunchContext.isOpenedAsApp(arguments: [app], parentProcessID: 1, inputIsTerminal: false))
+        #expect(LaunchContext.isOpenedAsApp(arguments: [app, "-psn_0_12345"], parentProcessID: 1, inputIsTerminal: false))
+        // Typed in a terminal: the shell is the parent and stdin is a terminal.
+        #expect(!LaunchContext.isOpenedAsApp(arguments: [app], parentProcessID: 4242, inputIsTerminal: true))
+        #expect(!LaunchContext.isOpenedAsApp(arguments: [app], parentProcessID: 4242, inputIsTerminal: false))
+        #expect(!LaunchContext.isOpenedAsApp(arguments: [app, "daemon"], parentProcessID: 1, inputIsTerminal: false))
+    }
+
     @Test func describesADevelopmentBuild() {
         #expect(AppVersion(version: "0.1.0", build: nil).description == "0.1.0 (development build, not in an app bundle)")
     }

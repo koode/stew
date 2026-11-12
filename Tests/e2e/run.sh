@@ -56,6 +56,9 @@ expect "unbundled version" "$("$STEW" --version)" "stew $(tr -d '[:space:]' < "$
 "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/bundle" --version 0.1.0 --build 7 > /dev/null
 ln -s "$WORK/bundle/Stew.app/Contents/MacOS/stew" "$WORK/stew-link"
 expect "bundled version" "$("$WORK/stew-link" version)" "stew 0.1.0 (build 7)"
+out=$("$WORK/stew-link" < /dev/null 2>&1); code=$?
+expect "no arguments from a shell prints usage" "$out$code" "EXIT CODES"
+expect "no arguments from a shell exits 64" "$code" "64"
 expect "bundle id" "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WORK/bundle/Stew.app/Contents/Info.plist")" "nl.koode.stew"
 
 # permission approved
