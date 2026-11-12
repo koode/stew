@@ -1,43 +1,130 @@
 # stew
 
-A macOS panel that lets Claude Code sessions ask for permission, ask a question or send a notification, without taking keyboard focus from what you are typing.
+A macOS panel that lets Claude Code ask you for permission, ask you a question or tell you something, without taking keyboard focus from what you are typing.
 
-- **Permission**: what Claude will do, the exact command, and why. A risk check against your auto mode rules shows above the command.
-- **Question**: the same input as the AskUserQuestion tool, with options, multi-select, previews and an "Other" field.
-- **Notification**: a title, an optional body and a level.
+![A call that auto mode blocked, waiting for an answer in stew](docs/images/auto-mode-blocked-light.png)
 
-Every panel names the session it comes from and can always be dismissed.
+- **Auto mode, with you as the fallback.** Claude Code's auto mode decides as usual. When it blocks a call, stew asks you. Approve, and Claude retries that exact call. You can also allow it for an hour, or for good, without being asked again.
+- **Permission, questions, notifications.** Claude can call `stew` itself: a permission request with the exact command and the reason, a question in the same format as Claude Code's AskUserQuestion tool, or a notification.
+- **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
+- **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
+
+## Requirements
+
+- macOS 14 or later
+- A Swift 6 toolchain: Xcode 16 or later, or the Command Line Tools (`xcode-select --install`)
+- [Claude Code](https://code.claude.com), for the skill, the auto mode hooks and the risk check
+
+## Install
+
+Clone this repository, then from its folder:
+
+```bash
+./install.sh                 # binary, background daemon, Claude Code skill
+./install.sh --with-hooks    # also: ask in stew when auto mode blocks a call
+```
+
+The script builds stew, installs it to `~/.local/bin/stew`, starts it as a LaunchAgent and installs the Claude Code skill. Run it again to update. `./uninstall.sh` removes it.
+
+Check that it works:
+
+```bash
+stew notify "stew works" --body "Close this with ⌘. or ⌘↩"
+```
+
+### Let Claude Code set it up
+
+Open Claude Code in this folder and paste:
+
+> Set up stew for me by following docs/AGENT_SETUP.md. Ask me before you change any settings.
+
+[docs/AGENT_SETUP.md](docs/AGENT_SETUP.md) gives the agent the checks, the two questions to ask you, the install command and the steps to verify.
+
+## How Claude Code uses it
+
+### When auto mode blocks a call
+
+With `--with-hooks`, two Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first):
+
+1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
+2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
+3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.).
+4. On approval, stew tells Claude Code that Claude may retry. The `PreToolUse` hook lets that identical call through once. A changed call goes back to auto mode.
+
+**Allow more…** (⌘G) skips the question next time:
+
+![Choosing what to allow without asking](docs/images/auto-mode-grant-dark.png)
+
+| You pick | For 1 hour (⌘↩) | Always (⇧⌘↩) |
+|---|---|---|
+| This command, or a prefix such as `npm run deploy *` | stew lets matching commands through | Added as `Bash(...)` to the project's `.claude/settings.local.json`, so Claude Code enforces it |
+| Auto mode's category, such as "Destructive or Unwanted Actions" | stew approves blocked calls in that category for this project | Same, until you revoke it |
+
+- Approvals apply to one project: the git root of the session's folder.
+- stew's own approvals never match chained commands (`&&`, `;`, `|`, redirects, `$(…)`).
+- Secrets in a command are shown as `••••` (with a button to reveal them) and become `*` in any saved rule.
+- `stew approvals` opens a window that lists every standing approval, with Revoke.
+
+What hooks cannot change:
+
+- A **hard deny** rule (such as Data Exfiltration) is meant to block even when you ask. stew asks for ⇧⌘↩ to approve once and offers no standing approvals.
+- **Protected paths** (`.git`, `.claude`, shell profiles) stay blocked even with an allow rule.
+- Denials without a verdict ("Classifier unavailable") cannot be retried, so stew does not ask.
+
+### The skill
+
+The skill in `~/.claude/skills/stew` tells Claude Code sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Edit `~/.claude/skills/stew/SKILL.md` to change when sessions use it.
+
+### Calling it directly
+
+```bash
+# Permission. Exit 0 approved, 1 denied, 2 dismissed, 3 timeout.
+stew permit --action "Delete the build cache" --command "rm -rf .build" --reason "It holds objects from an old toolchain."
+
+# Notification. Returns at once; the panel stays until closed.
+stew notify "Tests passed" --body "212 of 212" --level success
+
+# Question, in AskUserQuestion format.
+stew ask --json '{"questions":[{"question":"Which database?","header":"DB","multiSelect":false,
+  "options":[{"label":"Postgres","description":"Relational"},{"label":"SQLite","description":"Embedded"}]}]}'
+```
+
+Answers print as one JSON line. `stew --help` lists every command and flag.
+
+![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
+
+For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session as context. The verdict shows above the command after approximately 5 seconds. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
 
 ## Keys
 
-Nothing answers on plain keys, Space or Return, so text you are typing into a terminal never confirms anything. Every action is **⌘ (Command)** plus one key. The hotkeys exist only while a panel is visible, and they ignore presses for the first 0.5 s after a panel appears (`armDelay`), so a shortcut meant for another app cannot answer it.
+Every key is ⌘ plus one key, and works only while a panel is visible. Presses in the first 0.5 seconds after a panel appears are ignored, so a shortcut meant for another app cannot answer it.
 
 | Keys | Action |
 |---|---|
 | ⌘↩ | Approve, or OK on a notification |
 | ⌘D | Deny |
-| ⌘O | Open the note or "Other" field (this is the only thing that takes focus) |
+| ⌘O | Open the note or "Other" field (the only thing that takes keyboard focus) |
+| ⌘G | Allow more… on a call auto mode blocked |
 | ⌘1 to ⌘4 | Pick an option |
-| ⌘↩ | Confirm a multi-select question or send typed text |
+| ⌘↩ | Confirm a multi-select question, or send typed text |
 | ⌘[ / ⌘] | Previous or next question |
 | ⌘. | Dismiss without answering |
 | ⇧⌘. | Dismiss everything waiting |
+| ⇧⌘↩ | Approve past a hard deny, or Always in Allow more… |
 
-When the risk check says auto mode would **never** allow a command (hard deny), Approve needs ⇧⌘↩, so a reflex press cannot approve it.
+The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save" key), not ⌘⌫. Dismiss is ⌘. (the macOS cancel key), not ⌘W. While a panel is visible these keys go to stew, so your terminal's ⌘D or ⌘1 waits until it closes.
 
-The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save" key) and not ⌘⌫, dismiss is ⌘. (the macOS cancel key) and not ⌘W, and question paging is ⌘[ / ⌘] and not ⌘← / ⌘→. While a panel is visible these keys go to stew, so Ghostty's ⌘D split and ⌘1 to ⌘4 tab switching wait until it closes.
-
-The keys are looked up in your active keyboard layout, so "D" is the key that types D, also on Dvorak, Colemak or a remapped keyboard. On a split keyboard such as an ErgoDox, hold ⌘ on a thumb key and press the other key with either hand.
+Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak, Colemak or a remapped keyboard.
 
 ## Configuration
 
-`~/.config/stew/config.json`. Every field is optional; changes apply to the next request without a restart. `stew keys` shows the keys in effect.
+`~/.config/stew/config.json`. Every field is optional, and changes apply to the next request without a restart. `stew keys` shows the keys in effect and reports conflicts.
 
 ```json
 {
   "chord": "cmd",
   "keys": { "approve": "return", "deny": "d", "dismiss": ".", "dismissAll": "cmd+shift+.",
-            "other": "o", "submit": "return", "next": "]", "previous": "[" },
+            "other": "o", "submit": "return", "next": "]", "previous": "[", "grant": "g" },
   "optionKeys": ["1", "2", "3", "4"],
   "hardDenyExtra": "shift",
   "armDelay": 0.5,
@@ -47,40 +134,39 @@ The keys are looked up in your active keyboard layout, so "D" is the key that ty
 }
 ```
 
-A bare key (`"d"`) joins the chord. A full spec (`"ctrl+option+y"`) stands alone. Approve and submit may share a key because they never show on the same panel; other clashes are refused. Keys without control, option or command are refused. `position` is `top-right`, `top-center` or `top-left`.
+- A bare key (`"d"`) joins `chord`. A full spec (`"ctrl+option+y"`) stands alone.
+- Keys without Control, Option or Command are refused.
+- Approve and submit may share a key, because they never show on the same panel. Other clashes are refused.
+- `position` is `top-right`, `top-center` or `top-left`.
+- `classifier` controls the risk check on direct `stew permit` calls.
 
-## Risk check
+## Security model
 
-For each permission request the daemon runs `claude -p` with:
+- **stew never runs commands.** Claude runs them through its own tools, so Claude Code's permissions, sandbox and transcript still apply.
+- **One retry, one call.** An approval lets one identical call through, in the session that asked, within 15 minutes.
+- **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session. It runs only on a Claude subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login.
+- **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
+- **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Logs go to `~/Library/Logs/stew.log`.
 
-- the policy from `claude auto-mode config`, so your own allow and deny rules apply (cached per project for 10 minutes),
-- the action, command, reason and folder,
-- your last few messages from the session transcript, because auto mode weighs what you asked for.
-
-The call has no tools and no settings sources (so no hooks), and it saves no session. It runs on your Claude subscription and counts toward your plan, never on API billing: API key variables are removed from its environment, and the check refuses to run unless `claude auth status` reports a claude.ai login. With Haiku a check takes approximately 4 to 6 seconds. The panel shows at once and the verdict appears when it is ready. The real auto mode classifier prompt is internal to Claude Code; this is an approximation that uses the same rules.
-
-Run the check on its own:
-
-```bash
-stew check --action "Force-push main" --command "git push --force origin main" --reason "cleaner history"
-```
-
-## Install
+## Uninstall
 
 ```bash
-./install.sh     # builds, installs ~/.local/bin/stew, LaunchAgent nl.koode.stew, Claude skill
-./uninstall.sh   # removes all of it, keeps ~/.config/stew
+./uninstall.sh
 ```
 
-Logs: `~/Library/Logs/stew.log`.
+This removes the hooks, the daemon, the binary, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to projects' `.claude/settings.local.json`. Run `stew approvals` first to see and revoke those.
 
 ## Develop
 
 ```bash
-swift test                     # unit tests (StewCore)
-Tests/e2e/run.sh               # end-to-end against a headless daemon on a private socket
-RISK_CHECK=1 Tests/e2e/run.sh  # also runs one real risk check
+swift test                     # unit tests
+Tests/e2e/run.sh               # end-to-end tests against a headless daemon on a private socket
+RISK_CHECK=1 Tests/e2e/run.sh  # also runs one real risk check (uses your Claude plan)
 swift run stew snapshot --out snapshots   # renders sample panels to PNG, light and dark
 ```
 
-The headless test daemon (`STEW_HEADLESS=1`) shows nothing and accepts simulated key presses on its socket. The real daemon refuses them, so a caller cannot approve its own request.
+The end-to-end tests use their own socket, grant store, policy file and settings files, so they never touch your installed stew or your Claude Code settings.
+
+## License
+
+Elastic License 2.0 (ELv2). See [LICENSE](LICENSE). You may use, change and share stew, but not provide it to others as a hosted or managed service, and not get around its license checks.

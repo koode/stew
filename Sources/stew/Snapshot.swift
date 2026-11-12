@@ -19,8 +19,8 @@ enum Snapshot {
         exit(0)
     }
 
-    private static let session = SessionInfo(name: "release tooling", id: "5b1f0c3a-7d2e-4f6a-9c84-2e0b6a1d3f57", cwd: "~/code/stew")
-    private static let otherSession = SessionInfo(name: "mobile-app", id: "9c1d2e77-0000", cwd: "~/code/mobile-app")
+    private static let session = SessionInfo(name: "refactor auth middleware", id: "5b0e3c71-2f4d-4c1a-9e0b-7d6f1a2b3c4d", cwd: "~/code/web-app")
+    private static let otherSession = SessionInfo(name: "mobile-app", id: "9c1d2e77-8a6b-4f3e-b2d1-0c9e8f7a6b5d", cwd: "~/code/mobile-app")
 
     private static func permission(
         _ command: String,
@@ -42,6 +42,27 @@ enum Snapshot {
             connection: nil
         )
         item.risk = risk
+        return item
+    }
+
+    private static func blockedItem(command: String, description: String, reason: String) -> Item {
+        let blocked = BlockedCall(
+            toolName: "Bash",
+            category: "Destructive or Unwanted Actions",
+            reason: "[Destructive or Unwanted Actions]",
+            hardDeny: false,
+            projectRoot: "/Users/you/code/web-app",
+            suggestions: CommandText.ruleSuggestions(for: command)
+        )
+        let item = Item(
+            request: StewRequest(
+                session: session,
+                prompt: .permission(PermissionRequest(action: description, command: command, reason: reason, blocked: blocked)),
+                timeout: 1780
+            ),
+            connection: nil
+        )
+        item.risk = .blocked(blocked)
         return item
     }
 
@@ -79,6 +100,22 @@ enum Snapshot {
             coordinator.setTextMode(true)
             coordinator.draft = "No. Read the value from the secrets manager instead."
         }),
+        ("auto-mode-blocked", { coordinator in
+            coordinator.show(blockedItem(
+                command: "git push --force origin main",
+                description: "Force-push the rebased main branch",
+                reason: "The rebase rewrote three commits on main, so a normal push is rejected. Force-pushing replaces the remote history with the rebased one."
+            ))
+        }),
+        ("auto-mode-grant", { coordinator in
+            coordinator.show(blockedItem(
+                command: "npm run deploy -- --token sk-live-abcdefghijklmnopqrstuvwx",
+                description: "Deploy the staging build",
+                reason: "The build passed. Deploying to staging so you can check the new login page."
+            ))
+            coordinator.perform(.grant)
+            coordinator.choose(option: 1)
+        }),
         ("question-preview", { coordinator in
             coordinator.show(Item(request: StewRequest(session: session, prompt: .question(QuestionSet(questions: [
                 Question(question: "Which layout should the settings screen use?", header: "Layout", options: [
@@ -107,7 +144,7 @@ enum Snapshot {
         ("notify", { coordinator in
             coordinator.show(Item(request: StewRequest(session: session, prompt: .notify(NotifyRequest(
                 title: "Build finished: 25 of 25 tests passed",
-                body: "stew is installed at ~/.local/bin/stew. Run `stew keys` to see the shortcuts.",
+                body: "The release build is ready. Run `make deploy` when you want it live.",
                 level: .success
             ))), connection: nil))
         }),
