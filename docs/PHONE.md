@@ -46,6 +46,43 @@ Tests/phone/run.sh      # a local relay in MOCK_APNS mode, a headless daemon and
 
 `Tests/phone/run.sh` needs the relay's dependencies (`pnpm install` in `relay/`) and runs everything on this Mac: the relay records pushes instead of sending them to Apple, and `stew-test-phone` decrypts them with the same code as the iOS app and answers.
 
+## iPhone app
+
+The app is in `ios/App`: the app (`nl.koode.stew.ios`), its notification service extension, unit tests and a UI test target that takes screenshots. It uses the `StewLink` package from the repository root for every message, key and sentence, so the phone and the Mac say the same thing.
+
+![A permission request on the iPhone, with its actions](images/iphone-notification-expanded-permission-light.png)
+
+### Building
+
+The Xcode project is generated from `ios/App/project.yml` and is not committed.
+
+```bash
+brew install xcodegen
+cd ios/App && xcodegen generate
+xcodebuild build -project Stew.xcodeproj -scheme Stew -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
+
+`ios/tools/testflight.sh` archives a release build and uploads it to TestFlight with the App Store Connect API key. Debug builds register with the relay as `sandbox`, release builds as `production`.
+
+### Testing
+
+```bash
+cd ios/App
+xcodebuild test -project Stew.xcodeproj -scheme Stew -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:StewTests
+```
+
+The unit tests seal real envelopes with a fake Mac's keys and answer through a stubbed relay. `StewUITests` is a screenshot harness, not a gate.
+
+On the simulator, debug builds take three launch arguments. None of them exist in release builds.
+
+- `-StewSeed <base64>` installs the phone state that `stew-test-phone sample-push --out DIR` writes to `DIR/seed.txt`, without a relay.
+- `-StewDeliver <base64>` runs a push payload (`base64 -i DIR/push-permission.json`) through the notification extension's code in the app and shows the result 15 seconds later. `xcrun simctl push` delivers payloads, but the simulator does not start notification service extensions for them, so this is how to see a decrypted notification there.
+- `-StewDemo [requests|request|question|history|macs]` shows sample requests and history on that screen, for screenshots.
+
+### Screenshots
+
+`StewUITests/ScreenShots/testNotification` launches the app with `TEST_RUNNER_STEW_SEED` and `TEST_RUNNER_STEW_PUSH`, goes to the Home Screen, and captures the banner and the expanded notification. Export them with `xcrun xcresulttool export attachments`. The app screens come from `-StewDemo` and `xcrun simctl io <device> screenshot`. A headless simulator applies `xcrun simctl ui <device> appearance dark` only after a reboot.
+
 ## Security
 
 - **End to end.** Every message is encrypted with ChaCha20-Poly1305 and signed with the sender's Ed25519 key. The key comes from HKDF-SHA256 over the X25519 shared secret of the two devices, salted with the 32 byte pairing secret from the QR code.
