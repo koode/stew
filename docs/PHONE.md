@@ -53,6 +53,10 @@ The app is in `ios/App`: the app (`nl.koode.stew.ios`), its notification service
 
 ![A permission request on the iPhone, with its actions](images/iphone-notification-expanded-permission-light.png)
 
+Needs items show the same parts as the Mac panel: the title, Why, the steps, the commands with secrets masked, and the links. Done tells Claude to go on and asks for no Face ID, because it runs nothing. Not now sends nothing: the notification goes, and the item stays in Requests and on the Mac. Needs items have no time limit, so they never show as missed.
+
+![A needs item on the iPhone, with Done and Not now](images/iphone-notification-expanded-needs-light.png)
+
 ### Building
 
 The Xcode project is generated from `ios/App/project.yml` and is not committed.
@@ -78,7 +82,7 @@ On the simulator, debug builds take three launch arguments. None of them exist i
 
 - `-StewSeed <base64>` installs the phone state that `stew-test-phone sample-push --out DIR` writes to `DIR/seed.txt`, without a relay.
 - `-StewDeliver <base64>` runs a push payload (`base64 -i DIR/push-permission.json`) through the notification extension's code in the app and shows the result 15 seconds later. `xcrun simctl push` delivers payloads, but the simulator does not start notification service extensions for them, so this is how to see a decrypted notification there.
-- `-StewDemo [requests|request|question|history|macs]` shows sample requests and history on that screen, for screenshots.
+- `-StewDemo [requests|request|question|needs|history|macs]` shows sample requests and history on that screen, for screenshots.
 
 ### Screenshots
 
