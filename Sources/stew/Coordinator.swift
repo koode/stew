@@ -90,6 +90,10 @@ final class Coordinator: ObservableObject {
     @Published private(set) var configError: String?
     @Published private(set) var hotkeyFailures: [Shortcut] = []
     private(set) var config: StewConfig
+    /// Told about every answer before its item leaves, so paired phones learn the outcome.
+    var onRespond: ((Item, StewResponse) -> Void)?
+    /// Gets controls this class does not know; a non-nil reply answers the caller.
+    var onControl: ((String) -> String?)?
     private var configModified: Date?
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
@@ -181,6 +185,10 @@ final class Coordinator: ObservableObject {
         case _ where control.hasPrefix("needs "):
             connection.send(handleNeeds(control: String(control.dropFirst("needs ".count))))
         default:
+            if let reply = onControl?(control) {
+                connection.send(Data((reply + "\n").utf8))
+                return
+            }
             if Paths.headless, let reply = handleTestControl(control) {
                 connection.send(Data((reply + "\n").utf8))
                 return
@@ -441,6 +449,7 @@ final class Coordinator: ObservableObject {
         record(item, response)
         item.connection?.send((try? Wire.encode(response)) ?? Data())
         item.connection = nil
+        onRespond?(item, response)
         remove(item)
     }
 

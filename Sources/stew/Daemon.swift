@@ -170,6 +170,7 @@ enum Daemon {
             Log.write("\(error)")
             exit(1)
         }
+        PhoneLink.shared.start(coordinator: coordinator)
         for terminating in [SIGTERM, SIGINT] {
             signal(terminating, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: terminating, queue: .main)
