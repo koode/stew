@@ -12,7 +12,7 @@ final class Updater: ObservableObject {
     /// Base64 Ed25519 public key of the release signing key. `scripts/release.sh keygen`
     /// prints the value for this constant. While it is empty, this build checks for
     /// updates but refuses to install them.
-    static let embeddedPublicKey = ""
+    static let embeddedPublicKey = "mIUbo3h7qbGdsZG3yy5lMiTECjJh5M4WuB2IXfHmzXw="
     static let teamIdentifier = "PXD36584ME"
     static let defaultManifestURL = "https://releases.stewcli.com/latest.json"
     static let checkInterval: TimeInterval = 24 * 60 * 60
