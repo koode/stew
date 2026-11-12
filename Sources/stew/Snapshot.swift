@@ -268,9 +268,10 @@ enum Snapshot {
             coordinator.show(needsItem(NeedsRequest(
                 title: "Log in to npm so I can publish 2.4.0",
                 why: "The publish step failed with E401: this machine has no npm login.",
-                steps: ["Run the command below in a terminal.", "Finish the login in the browser window it opens.", "Mark this done; I retry the publish."],
+                steps: ["Run the command below in a terminal.", "Finish the login in the browser window it opens."],
                 commands: [NeedsCommand(command: "npm login --auth-type=web")],
-                links: [NeedsLink(url: "https://www.npmjs.com/settings/tokens")]
+                links: [NeedsLink(url: "https://www.npmjs.com/settings/tokens")],
+                doneLabel: "Logged in"
             )))
         }),
         ("needs-note", { coordinator in
