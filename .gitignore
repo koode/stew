@@ -2,3 +2,4 @@
 .swiftpm/
 *.xcodeproj
 snapshots/
+build/

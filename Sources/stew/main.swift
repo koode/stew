@@ -24,6 +24,7 @@ USAGE
       The hook commands Claude Code runs. Not for direct use.
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
+  stew version       Print the version and build (also --version).
 
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
@@ -217,6 +218,9 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
 
     case "daemon":
         Daemon.run()
+
+    case "version", "--version":
+        print("stew \(AppVersion.running)")
 
     case "snapshot":
         Snapshot.render(to: try arguments.required("out"))

@@ -2,7 +2,8 @@
 # End-to-end tests against a headless daemon on a private socket. Nothing appears on screen.
 # RISK_CHECK=1 also runs one real `claude -p` risk check (uses your Claude plan).
 set -u
-STEW="${STEW:-$(cd "$(dirname "$0")/../.." && pwd)/.build/debug/stew}"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+STEW="${STEW:-$ROOT/.build/debug/stew}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e"
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
@@ -23,6 +24,13 @@ wait_items() { # count
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null; wait $DAEMON 2>/dev/null; rm -rf "$WORK"' EXIT
 for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && break; sleep 0.1; done
+
+# version: from the source checkout, and from Stew.app, also through a symlink
+expect "unbundled version" "$("$STEW" --version)" "stew $(tr -d '[:space:]' < "$ROOT/VERSION") (development build"
+"$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/bundle" --version 0.1.0 --build 7 > /dev/null
+ln -s "$WORK/bundle/Stew.app/Contents/MacOS/stew" "$WORK/stew-link"
+expect "bundled version" "$("$WORK/stew-link" version)" "stew 0.1.0 (build 7)"
+expect "bundle id" "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WORK/bundle/Stew.app/Contents/Info.plist")" "nl.koode.stew"
 
 # permission approved
 "$STEW" permit --action "List files" --command "ls -la" --reason "look around" > "$WORK/out" & client=$!

@@ -39,6 +39,12 @@ enum Paths {
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
+    /// Where Stew.app is installed and where updates go. STEW_APP_PATH lets tests
+    /// install an update into a temporary folder.
+    static var installedApp: String {
+        ProcessInfo.processInfo.environment["STEW_APP_PATH"] ?? home + "/Applications/Stew.app"
+    }
+
     /// `claude` from config, then the usual install places, then PATH.
     static func claudeBinary(configured: String?) -> String? {
         let fileManager = FileManager.default
