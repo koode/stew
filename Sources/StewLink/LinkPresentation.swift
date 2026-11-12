@@ -255,6 +255,7 @@ public enum LinkRefusal {
         }
     }
 
+    public static let alreadyAnswered = "You already answered this request."
     public static let clockNotStarted = "This request waits behind another one on your Mac, so its clock has not started yet."
     public static let noTimeLimit = "This request has no time limit."
 

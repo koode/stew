@@ -161,6 +161,31 @@ public struct LinkResolved: Codable, Equatable, Sendable {
     }
 }
 
+extension QuestionFlow {
+    /// Rebuilds a phone's answers with the panel's own rules, so a phone answer reaches
+    /// Claude in exactly the form a panel answer would. Nil when a question is left
+    /// unanswered, an option is out of range, or a single-select question has several.
+    public init?(set: QuestionSet, linkAnswers: [LinkQuestionAnswer]) {
+        guard linkAnswers.count == set.questions.count else { return nil }
+        var flow = QuestionFlow(questions: set.questions)
+        for (questionIndex, answer) in linkAnswers.enumerated() {
+            let question = set.questions[questionIndex]
+            let selected = Array(Set(answer.selected)).sorted()
+            guard selected.allSatisfy(question.options.indices.contains), question.multiSelect || selected.count <= 1 else { return nil }
+            for optionIndex in selected {
+                flow.go(to: questionIndex)
+                _ = flow.choose(optionIndex)
+            }
+            if let other = answer.other, !other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                flow.go(to: questionIndex)
+                _ = flow.answerOther(other)
+            }
+        }
+        guard flow.isComplete else { return nil }
+        self = flow
+    }
+}
+
 /// Either side, to end a pairing.
 public struct LinkUnpair: Codable, Equatable, Sendable {
     public var reason: String

@@ -193,3 +193,41 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(history.entries.map(\.pairingId) == ["second"])
     }
 }
+
+@Suite struct PhoneAnswerTests {
+    private let set = QuestionSet(questions: [
+        Question(question: "Which DB?", header: "DB", options: [
+            QuestionOption(label: "Postgres", description: ""),
+            QuestionOption(label: "SQLite", description: "", preview: "embedded"),
+        ]),
+        Question(question: "Which extras?", header: "Extras", options: [
+            QuestionOption(label: "Auth", description: ""),
+            QuestionOption(label: "Billing", description: ""),
+            QuestionOption(label: "Search", description: ""),
+        ], multiSelect: true),
+    ])
+
+    @Test func rebuildsLikeThePanel() throws {
+        let flow = try #require(QuestionFlow(set: set, linkAnswers: [
+            LinkQuestionAnswer(selected: [1]),
+            LinkQuestionAnswer(selected: [2, 0, 2]),
+        ]))
+        #expect(flow.answers() == ["Which DB?": "SQLite", "Which extras?": "Auth, Search"])
+        #expect(flow.annotations()["Which DB?"]?.preview == "embedded")
+    }
+
+    @Test func otherTextAnswers() throws {
+        let flow = try #require(QuestionFlow(set: set, linkAnswers: [
+            LinkQuestionAnswer(selected: [], other: "MySQL"),
+            LinkQuestionAnswer(selected: [1], other: "Mail"),
+        ]))
+        #expect(flow.answers() == ["Which DB?": "MySQL", "Which extras?": "Billing, Mail"])
+    }
+
+    @Test func refusesIncompleteOrInvalid() {
+        #expect(QuestionFlow(set: set, linkAnswers: [LinkQuestionAnswer(selected: [0])]) == nil)
+        #expect(QuestionFlow(set: set, linkAnswers: [LinkQuestionAnswer(selected: [0]), LinkQuestionAnswer(selected: [])]) == nil)
+        #expect(QuestionFlow(set: set, linkAnswers: [LinkQuestionAnswer(selected: [5]), LinkQuestionAnswer(selected: [0])]) == nil)
+        #expect(QuestionFlow(set: set, linkAnswers: [LinkQuestionAnswer(selected: [0, 1]), LinkQuestionAnswer(selected: [0])]) == nil)
+    }
+}
