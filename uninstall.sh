@@ -40,4 +40,9 @@ launchctl_run bootout "gui/$(id -u)/$label" 2> /dev/null || true
 rm -f "$HOME/Library/LaunchAgents/$label.plist" "$bin_dir/stew"
 rm -rf "$app_dir/Stew.app" "$app_dir/.Stew.app.installing" "$app_dir/.Stew.app.previous" "$app_dir/.stew-update"
 rm -rf "$HOME/.claude/skills/stew" "$HOME/Library/Caches/stew" "$HOME/Library/Application Support/stew"
+# iPhone pairings live in the login keychain. The installer tests set
+# STEW_INSTALL_LAUNCHCTL_LOG and must not touch the real keychain.
+if [[ -z "${STEW_INSTALL_LAUNCHCTL_LOG:-}" ]]; then
+  while security delete-generic-password -s nl.koode.stew.link > /dev/null 2>&1; do :; done
+fi
 echo "stew removed. Settings in ~/.config/stew are kept."

@@ -93,6 +93,16 @@ final class PhoneStore {
         }
     }
 
+    /// Deletes every keychain item stew made for iPhone pairings. True when one was deleted.
+    @discardableResult
+    static func removeKeychainItems() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+        ]
+        return SecItemDelete(query as CFDictionary) == errSecSuccess
+    }
+
     private static func read(filePath: String?) -> Data? {
         if let filePath { return FileManager.default.contents(atPath: filePath) }
         let query: [String: Any] = [

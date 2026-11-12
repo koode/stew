@@ -4,8 +4,9 @@ import Foundation
 /// from the release script can be removed without the source repository.
 ///
 /// Order matters: the hooks go first, while the binary they call still exists, so
-/// Claude Code never calls a missing stew. ~/.config/stew stays, and so do allow rules
-/// stew wrote into projects' .claude/settings.local.json.
+/// Claude Code never calls a missing stew. The iPhone pairings in the login keychain go
+/// too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
+/// .claude/settings.local.json.
 enum Uninstaller {
     static func run(binDirectory: String, appDirectory: String) -> Int32 {
         var failures = 0
@@ -26,6 +27,12 @@ enum Uninstaller {
         remove(Paths.home + "/.claude/skills/stew", &failures)
         remove(Paths.home + "/Library/Caches/stew", &failures)
         remove(Paths.home + "/Library/Application Support/stew", &failures)
+        // The keychain is not inside the home folder, so the installer tests (which set
+        // STEW_INSTALL_LAUNCHCTL_LOG and a temporary HOME) must leave it alone.
+        if ProcessInfo.processInfo.environment["STEW_INSTALL_LAUNCHCTL_LOG"] == nil,
+           PhoneStore.removeKeychainItems() {
+            print("removed the iPhone pairings from the login keychain")
+        }
 
         if failures == 0 {
             print("stew removed. Settings in ~/.config/stew are kept.")
