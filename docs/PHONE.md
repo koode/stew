@@ -12,7 +12,7 @@ When a request stays open while you are away from your Mac, stew sends it to you
 - **Risk check first.** A request waits while its risk check runs, so the phone sees the verdict and a hard deny never arrives with an Approve.
 - **Questions.** A single question offers its options (up to 4) and "Other…" with a text field. Several questions, or a multi-select question, open the app.
 - **Notifications** (`stew notify`) arrive without actions.
-- **Needs items** (`stew needs`) go out under the same rules, without a deadline. The notification shows the title, why, the steps and the commands with secrets masked, with Done and Not now. Done needs no Face ID and ends the item on the Mac as Done. Not now only clears the notification; the item stays open on the Mac. An item you parked with Not now on the Mac is not sent. The phone's history uses the Mac's labels: Done, Dismissed, Resolved by Claude, Answered in session, Moved on.
+- **Needs items** (`stew needs`) go out under the same rules, without a deadline. The notification shows the title, why, the steps and the commands with secrets masked, with Done and Not now. When Claude named the Done button (`--done`) or offered other answers (`--answer`), the actions carry those labels: Done with its label, each other answer, then Not now, in a notification category made for that item. Done and the other answers need no Face ID; Done ends the item on the Mac as Done, another answer ends it as Answered, and Claude learns which label was picked. The Mac takes an answer only when the item offers that label, so an answer from a stale or forged notification is refused. Done keeps its old form on the wire, so an iPhone app from before the labels still ends such an item with Done. Not now only clears the notification; the item stays open on the Mac. An item you parked with Not now on the Mac is not sent. The phone's history uses the Mac's labels: Done, Dismissed, Resolved by Claude, Answered in session, Moved on.
 - **Apple Watch** shows the same actions, without a watch app.
 
 ## Pairing
@@ -53,7 +53,7 @@ The app is in `ios/App`: the app (`nl.koode.stew.ios`), its notification service
 
 ![A permission request on the iPhone, with its actions](images/iphone-notification-expanded-permission-light.png)
 
-Needs items show the same parts as the Mac panel: the title, Why, the steps, the commands with secrets masked, and the links. Done tells Claude to go on and asks for no Face ID, because it runs nothing. Not now sends nothing: the notification goes, and the item stays in Requests and on the Mac. Needs items have no time limit, so they never show as missed.
+Needs items show the same parts as the Mac panel: the title, Why, the steps, the commands with secrets masked, and the links. Done (with Claude's label for it) and the other answers tell Claude how to go on and ask for no Face ID, because they run nothing. Not now sends nothing: the notification goes, and the item stays in Requests and on the Mac. Needs items have no time limit, so they never show as missed.
 
 ![A needs item on the iPhone, with Done and Not now](images/iphone-notification-expanded-needs-light.png)
 

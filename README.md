@@ -107,6 +107,9 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 ![Claude needs you to log in to npm](docs/images/needs-light.png)
 
 - **Done** (⌘↩) tells Claude it is done, optionally with a note (⌘O). **Decline** (⌘D) tells Claude you will not do it.
+- Claude can name the Done button after the state you reach ("Signed in", "Bought it") and offer up to 3 other answers ("Can't sign in", "Use another account") on ⌘1 to ⌘3. Each one ends the item and tells Claude which you picked, with your note.
+
+![Claude needs you to sign in, with Signed in and two other answers](docs/images/needs-answers-light.png)
 - **Not now** (⌘.) keeps it open for later. It has no time limit.
 - Permission requests and questions always go first. A needs item shows when nothing else is waiting.
 - While anything is open, the menu bar shows a hand with the count. Its menu lists each item (session · title) and opens it in the panel.
@@ -138,6 +141,10 @@ stew needs "Log in to npm so I can publish 2.4.0" --why "The publish failed with
   --command "npm login --auth-type=web" --link https://www.npmjs.com/settings/tokens
 #   --wait blocks until Done ("done", with the note) or Decline ("dismissed");
 #   --timeout SECONDS limits only that wait, and the item stays open.
+#   --done LABEL names the Done button ("Signed in"), and --answer LABEL (up to 3)
+#   adds other outcomes on ⌘1 to ⌘3. The answer then names the picked label:
+#   {"answer":"Signed in","id":"…","status":"done"} or
+#   {"answer":"Can't sign in","id":"…","status":"answered"}.
 stew needs list [--json]       # the open items
 stew needs resolve ID          # clear one once you can see it is done
 ```
@@ -154,7 +161,7 @@ For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
 
 When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts open needs items ("2 things need you"), and shows on its own when only those are open.
 
@@ -170,7 +177,7 @@ The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600)
 
 ## On your iPhone
 
-When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, or Done on a needs item. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, or Done and the other answers on a needs item. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
 
 ## Keys
 
@@ -183,7 +190,7 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 | ⌘O | Open the note or "Other" field (the only thing that takes keyboard focus) |
 | ⌘G | Allow more… on a call auto mode blocked |
 | ⌘E | More time (+2 minutes) |
-| ⌘1 to ⌘4 | Pick an option |
+| ⌘1 to ⌘4 | Pick an option, or one of a needs item's other answers |
 | ⌘↩ | Confirm a multi-select question, or send typed text |
 | ⌘[ / ⌘] | Previous or next question |
 | ⌘. | Dismiss without answering, or Not now on a needs item |

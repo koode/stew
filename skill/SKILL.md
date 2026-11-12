@@ -64,15 +64,22 @@ stew needs "Log in to npm so I can publish 2.4.0" \
   --step "Run the command below in a terminal" \
   --step "Finish the login in the browser window it opens" \
   --command "npm login --auth-type=web" \
-  --link https://www.npmjs.com/settings/tokens
+  --link https://www.npmjs.com/settings/tokens \
+  --done "Logged in"
 # {"id":"3f9a1c2e","status":"shown"}
+
+stew needs "Sign in to App Store Connect in the open Chrome window" \
+  --done "Signed in" --answer "Can't sign in" --answer "Use another account" --wait
+# {"answer":"Use another account","id":"7c2d9e10","note":"the team one","status":"answered"}
 ```
 
-- The title says what you need, in one line. `--why` says what failed.
+- The title says what the user must do, in one line: the task only. Never add "then tell Claude", "let me know" or "mark this done": the Done button already tells you. `--why` says what failed.
+- `--done` names the Done button after the state the user reaches: "Signed in", "Bought it", "Plugged in" (at most 24 characters). Without it the button says Done.
+- `--answer` (up to 3, at most 40 characters each) adds another way the item can end, on ⌘1 to ⌘3. Add one only for a real alternative outcome you would act on differently ("Can't sign in", "Use another account"). Never add one for declining or for later: Decline and Not now are always there.
 - `--step` (repeat it) gives the steps in order, in plain words. `--command` (repeat it) gives each command the user must run exactly as it must be run: the panel has a copy button, and it masks secrets on screen. `--link` takes only http or https URLs.
 - It returns at once with an id, and stays open (also across restarts) until it is resolved. It has no time limit.
 - Keep the id. Carry on with work that does not need it. When you can see the thing got done (the login works, the credits show, the build is approved), run `stew needs resolve ID`.
-- To wait for the user instead: `--wait` (with the Bash tool's `run_in_background: true`). It returns `"done"` with the user's note, or `"dismissed"` if they declined. `--timeout SECONDS` limits only how long you wait: on `"timeout"` the item stays open.
+- To wait for the user instead: `--wait` (with the Bash tool's `run_in_background: true`). It returns `"done"` with the user's note, `"answered"` when they picked one of your `--answer` labels, or `"dismissed"` if they declined. With `--done` or `--answer`, `answer` holds the label they picked: the `--done` label with `"done"`, or the `--answer` label with `"answered"`. Act on that label and the note. `--timeout SECONDS` limits only how long you wait: on `"timeout"` the item stays open.
 - `stew needs list --json` shows what is open.
 
 Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote sessions (a numbered list after it becomes the steps, code blocks in the message become commands, and web addresses outside them become links), and it goes away when the user next writes to you or when a later reply of yours has no `needs input:` line. When you already called `stew needs`, the line adds no second item.

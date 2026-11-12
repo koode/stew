@@ -56,9 +56,9 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
    The output must show `"status":"approved"` after they press ⌘↩.
 6. Show one needs item and ask the user to mark it done:
    ```bash
-   stew needs "Check the stew setup" --step "Copy the command below with its copy button" --command "stew version" --wait --timeout 300
+   stew needs "Copy the stew version" --step "Copy the command below with its copy button" --command "stew version" --done "Copied it" --wait --timeout 300
    ```
-   The output must show `"status":"done"` after they press ⌘↩. While it is open, a hand with the count shows in the menu bar.
+   The output must show `"answer":"Copied it"` and `"status":"done"` after they press ⌘↩. While it is open, a hand with the count shows in the menu bar.
 
 ## Troubleshooting
 
