@@ -260,7 +260,50 @@ enum Snapshot {
                 action: .openHistory
             )), wait: false), connection: nil))
         }),
+        ("return-summary-needs", { coordinator in
+            coordinator.show(Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(ReturnSummary.notice(missedCount: 1, needsCount: 2)!), wait: false), connection: nil))
+        }),
+        ("needs", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Log in to npm so I can publish 2.4.0",
+                why: "The publish step failed with E401: this machine has no npm login.",
+                steps: ["Run the command below in a terminal.", "Finish the login in the browser window it opens.", "Mark this done; I retry the publish."],
+                commands: [NeedsCommand(command: "npm login --auth-type=web")],
+                links: [NeedsLink(url: "https://www.npmjs.com/settings/tokens")]
+            )))
+        }),
+        ("needs-note", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Approve the TestFlight build in App Store Connect",
+                links: [NeedsLink(label: "App Store Connect", url: "https://appstoreconnect.apple.com/apps")]
+            ), session: otherSession))
+            coordinator.setTextMode(true)
+            coordinator.draft = "Approved, but only for internal testers."
+        }),
+        ("needs-long", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Rotate the staging database password and plug the YubiKey back in so I can sign the release",
+                why: String(repeating: "The signing step needs the hardware key, and the staging password expired last night, so the migration job cannot connect. ", count: 4),
+                steps: (1...12).map { "Step \($0): " + String(repeating: "do the next part of the rotation carefully ", count: $0 % 3 + 1) },
+                commands: [
+                    NeedsCommand(label: "Set the new password", command: "PGPASSWORD=sk-live-abcdefghijklmnopqrstuvwx psql \"$STAGING_URL\" -c \"ALTER ROLE app PASSWORD 'new-value'\""),
+                    NeedsCommand(command: "op item edit staging-db password=new-value"),
+                    NeedsCommand(command: (1...14).map { "echo line \($0) of a long script that keeps going" }.joined(separator: "\n")),
+                ],
+                links: [
+                    NeedsLink(url: "https://console.example.com/projects/billing-staging/databases/primary/users/app/credentials"),
+                    NeedsLink(label: "Runbook", url: "https://wiki.example.com/runbooks/rotate"),
+                ]
+            )))
+            coordinator.show(needsItem(NeedsRequest(title: "Plug in the test iPhone"), session: otherSession))
+        }),
     ]
+
+    private static func needsItem(_ needs: NeedsRequest, session itemSession: SessionInfo = session) -> Item {
+        let item = Item(request: StewRequest(session: itemSession, prompt: .needs(needs), wait: false), connection: nil)
+        item.needsID = "3f9a1c2e"
+        return item
+    }
 
     private static func write<Content: View>(_ view: Content, dark: Bool, to path: String) {
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

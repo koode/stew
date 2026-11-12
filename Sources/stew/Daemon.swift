@@ -129,9 +129,10 @@ enum Daemon {
         let coordinator = Coordinator()
         let history = HistoryStore()
         coordinator.history = history
+        coordinator.needsStore = NeedsStore(path: NeedsStore.path)
         let updater = Updater(log: Log.write)
         updater.restartsInBackground = true
-        updater.isIdle = { coordinator.items.isEmpty }
+        updater.isIdle = { coordinator.isIdle }
         coordinator.onIdle = { updater.idle() }
         coordinator.onUpdate = { reply in updater.run(install: true, completion: reply) }
         if !Paths.headless {
@@ -144,6 +145,11 @@ enum Daemon {
             let settings = SettingsWindowController(updater: updater) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
             coordinator.onOpenHistory = { missedOnly in settings.showHistory(missedOnly: missedOnly) }
+            let needsMenu = NeedsStatusItem(
+                onOpen: { id in coordinator.openNeeds(id: id) },
+                onOpenHistory: { settings.showHistory(missedOnly: false) }
+            )
+            coordinator.onNeedsChange = { open in needsMenu.update(open) }
             awayWatcher.start { awaySince in coordinator.userReturned(awaySince: awaySince) }
         }
 
@@ -178,6 +184,7 @@ enum Daemon {
         RiskChecker.mainLoopRunning = true
         Log.write("stew daemon \(AppVersion.running) listening on \(Paths.socket)")
         history.prune(keepDays: coordinator.config.historyDays)
+        coordinator.restoreNeeds()
         historyPruner = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { _ in
             coordinator.reloadConfigIfChanged()
             history.prune(keepDays: coordinator.config.historyDays)

@@ -209,6 +209,58 @@ enum Hooks {
         exit(0)
     }
 
+    /// Stop: when Claude's last message has a `needs input:` line, the session waits on
+    /// the user, so show it as a needs item. It runs in the background (async in the
+    /// hook entry), prints nothing and always exits 0, so it never holds up or fails
+    /// the end of a turn.
+    static func stop() -> Never {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        let (config, _) = loadConfig()
+        let attended = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ATTENDED"]
+        guard AutoNeeds.shouldCreate(mode: config.autoNeeds, attended: attended),
+              let input = TurnHookInput.parse(data),
+              let message = input.lastAssistantMessage ?? lastAssistantMessage(transcriptPath: input.transcriptPath),
+              let needs = NeedsParser.parse(message) else { exit(0) }
+        var session = SessionResolver.resolve(
+            explicitName: nil,
+            environment: ProcessInfo.processInfo.environment,
+            cwd: input.cwd ?? FileManager.default.currentDirectoryPath,
+            home: Paths.home,
+            readFile: { FileManager.default.contents(atPath: $0) }
+        )
+        if let sessionID = input.sessionID { session.id = sessionID }
+        let response = Client.send(StewRequest(session: session, prompt: .needs(needs), wait: false))
+        if response.status == .error {
+            Log.append("hook stop: \(response.error ?? "error")")
+        }
+        exit(0)
+    }
+
+    /// UserPromptSubmit: a new message to the session answers what it was waiting on, so
+    /// its automatic needs items go. Runs before every prompt, so it only reads
+    /// needs.json and talks to the daemon only when that session has an open item.
+    static func prompt() -> Never {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard FileManager.default.fileExists(atPath: NeedsStore.path),
+              let sessionID = TurnHookInput.parse(data)?.sessionID,
+              !NeedsBook.answeredBy(sessionID: sessionID, in: NeedsStore.readFile()).isEmpty else { exit(0) }
+        if Client.sendControl("needs answered \(sessionID)") == nil {
+            Log.append("hook prompt: daemon not running; needs items for \(sessionID) stay open")
+        }
+        exit(0)
+    }
+
+    /// The transcript can lag behind the turn, so this is only a fallback for a Claude
+    /// Code version whose Stop input has no `last_assistant_message`.
+    static func lastAssistantMessage(transcriptPath: String?) -> String? {
+        guard let transcriptPath, let handle = FileHandle(forReadingAtPath: transcriptPath) else { return nil }
+        defer { try? handle.close() }
+        let tailSize: UInt64 = 1_000_000
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > tailSize ? size - tailSize : 0)
+        return RiskCheck.lastAssistantText(transcript: handle.readDataToEndOfFile(), maxCharacters: 50_000)
+    }
+
     /// Always on a command pattern goes into the project's Claude Code allow list.
     /// Hour grants and category grants stay in stew's store.
     static func apply(_ choice: GrantChoice, toolName: String, projectRoot: String, grants: inout [Grant]) throws {
@@ -252,7 +304,7 @@ enum Hooks {
             try current.write(to: URL(fileURLWithPath: "\(path).bak-stew-\(stamp)"))
         }
         try updated.write(to: URL(fileURLWithPath: path), options: .atomic)
-        print("installed PermissionDenied and PreToolUse hooks in \(path)")
+        print("installed PermissionDenied, PreToolUse, Stop and UserPromptSubmit hooks in \(path)")
     }
 
     static func uninstall() throws {

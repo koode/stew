@@ -79,6 +79,8 @@ struct ItemCard: View {
                 NotifyBody(notify: notify, coordinator: coordinator)
             case .question:
                 QuestionBody(item: item, coordinator: coordinator, interactive: interactive)
+            case .needs(let needs):
+                NeedsBody(needs: needs, coordinator: coordinator, interactive: interactive)
             }
         }
     }
@@ -95,6 +97,8 @@ private struct KindStyle {
             self.init(title: "Permission request", symbol: "hand.raised.fill", tint: .orange)
         case .question:
             self.init(title: "Question", symbol: "questionmark.bubble.fill", tint: .purple)
+        case .needs:
+            self.init(title: "Needs you", symbol: NeedsStyle.symbol, tint: NeedsStyle.tint)
         case .notify(let notify):
             switch notify.level {
             case .info: self.init(title: "Notification", symbol: "bell.fill", tint: .blue)
@@ -179,7 +183,7 @@ struct Header: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
         }
         .buttonStyle(.plain)
-        .help("Dismiss without answering")
+        .help(item.isNeeds ? "Not now: it stays open in the menu bar" : "Dismiss without answering")
     }
 }
 
@@ -925,6 +929,7 @@ struct WaitingList: View {
         case .permission(let permission): permission.action
         case .notify(let notify): notify.title
         case .question(let set): set.questions.first?.question ?? ""
+        case .needs(let needs): needs.title
         }
     }
 }

@@ -73,7 +73,7 @@ struct HistoryView: View {
                     TableColumn("Outcome") { entry in
                         OutcomePill(outcome: entry.outcome)
                     }
-                    .width(100)
+                    .width(140)
                 }
                 .frame(minHeight: 160)
                 if let entry = model.selected {
@@ -116,9 +116,9 @@ struct OutcomePill: View {
 
     private var tone: Color {
         switch outcome {
-        case .approved: .green
+        case .approved, .done: .green
         case .denied: .red
-        case .answered, .acknowledged: .blue
+        case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: .blue
         case .timedOut: .orange
         case .dismissed, .callerGone: .secondary
         }
@@ -152,7 +152,13 @@ struct HistoryDetail: View {
                 if let grant = entry.grant {
                     row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
                 }
-                row("Claude was told", toldClaude)
+                // Claude hears about a needs item only when it waited for it, so the
+                // row shows the user's note instead.
+                if entry.kind == "needs" {
+                    if let note = entry.note, !note.isEmpty { row("Note", note) }
+                } else {
+                    row("Claude was told", toldClaude)
+                }
             }
             if entry.missed, let blocked = entry.blocked, !blocked.grantScopes.isEmpty {
                 HStack {
@@ -181,6 +187,7 @@ struct HistoryDetail: View {
         switch entry.kind {
         case "question": "Questions"
         case "notify": "Message"
+        case "needs": "Details"
         default: "Why"
         }
     }

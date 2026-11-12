@@ -5,6 +5,8 @@ import Foundation
 public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public enum Outcome: String, Codable, Sendable, CaseIterable {
         case approved, denied, answered, acknowledged, timedOut, dismissed, callerGone
+        /// Needs items: the user did it, Claude saw it was done, or the user wrote to the session.
+        case done, resolvedByClaude, answeredInSession
 
         public var label: String {
             switch self {
@@ -15,6 +17,9 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             case .timedOut: "Timed out"
             case .dismissed: "Dismissed"
             case .callerGone: "Caller gone"
+            case .done: "Done"
+            case .resolvedByClaude: "Resolved by Claude"
+            case .answeredInSession: "Answered in session"
             }
         }
     }
@@ -24,7 +29,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var ended: Date
     public var session: String
     public var cwd: String?
-    /// "permission", "question" or "notify".
+    /// "permission", "question", "notify" or "needs".
     public var kind: String
     /// The action, the first question, or the notification title.
     public var summary: String
@@ -86,6 +91,10 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         case .notify(let notify):
             summary = notify.title
             detail = notify.body
+        case .needs(let needs):
+            summary = needs.title
+            command = needs.maskedCommands
+            detail = needs.historyDetail
         }
         return HistoryEntry(
             id: id, received: received, ended: ended, session: request.session.name, cwd: request.session.cwd,
@@ -104,7 +113,35 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         case .acknowledged, .shown: return .acknowledged
         case .timeout: return .timedOut
         case .dismissed, .error: return .dismissed
+        case .done: return .done
+        case .resolved: return .resolvedByClaude
         }
+    }
+
+    /// The entry for a needs item that ended. Only final outcomes are recorded: "Not now"
+    /// keeps the item open, so it is not one.
+    public static func record(_ item: NeedsItem, outcome: Outcome, note: String?, ended: Date, id: UUID = UUID()) -> HistoryEntry {
+        HistoryEntry(
+            id: id, received: item.created, ended: ended, session: item.session.name, cwd: item.session.cwd,
+            kind: "needs", summary: item.needs.title, command: item.needs.maskedCommands, detail: item.needs.historyDetail,
+            outcome: outcome, note: note
+        )
+    }
+}
+
+extension NeedsRequest {
+    /// Commands with secrets replaced by ••••, one per line, as the history keeps them.
+    var maskedCommands: String? {
+        commands.isEmpty ? nil : commands.map { CommandText.masked($0.command) }.joined(separator: "\n")
+    }
+
+    /// Why, the numbered steps and the links, as one block of text.
+    var historyDetail: String? {
+        var parts: [String] = []
+        if let why, !why.isEmpty { parts.append(why) }
+        if !steps.isEmpty { parts.append(steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")) }
+        if !links.isEmpty { parts.append(links.map(\.url).joined(separator: "\n")) }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 }
 

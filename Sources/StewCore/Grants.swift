@@ -394,22 +394,27 @@ public enum ClaudeSettings {
         var object = try object(from: data)
         var hooks = object["hooks"] as? [String: Any] ?? [:]
         // The question hook waits for the user, so it needs the long timeout; the general
-        // PreToolUse hook only reads the grant file and must stay short.
-        let entries: [(String, String, String, Int)] = [
-            ("PermissionDenied", "*", "denied", deniedTimeout),
-            ("PreToolUse", "*", "pre", 10),
-            ("PreToolUse", "AskUserQuestion", "question", deniedTimeout),
+        // PreToolUse hook only reads the grant file and must stay short. Stop and
+        // UserPromptSubmit take no matcher. The Stop hook runs in the background, so it
+        // can never hold up the end of a turn.
+        let entries: [(event: String, matcher: String?, subcommand: String, timeout: Int, background: Bool)] = [
+            ("PermissionDenied", "*", "denied", deniedTimeout, false),
+            ("PreToolUse", "*", "pre", 10, false),
+            ("PreToolUse", "AskUserQuestion", "question", deniedTimeout, false),
+            ("Stop", nil, "stop", 15, true),
+            ("UserPromptSubmit", nil, "prompt", 5, false),
         ]
-        for event in Set(entries.map(\.0)) {
+        for event in Set(entries.map(\.event)) {
             hooks[event] = (hooks[event] as? [[String: Any]] ?? []).filter { !isStewHook($0, executable: executable) }
         }
-        for (event, matcher, subcommand, timeout) in entries {
-            var list = hooks[event] as? [[String: Any]] ?? []
-            list.append([
-                "matcher": matcher,
-                "hooks": [["type": "command", "command": "\(executable) hook \(subcommand)", "timeout": timeout]],
-            ])
-            hooks[event] = list
+        for entry in entries {
+            var list = hooks[entry.event] as? [[String: Any]] ?? []
+            var handler: [String: Any] = ["type": "command", "command": "\(executable) hook \(entry.subcommand)", "timeout": entry.timeout]
+            if entry.background { handler["async"] = true }
+            var hookEntry: [String: Any] = ["hooks": [handler]]
+            if let matcher = entry.matcher { hookEntry["matcher"] = matcher }
+            list.append(hookEntry)
+            hooks[entry.event] = list
         }
         object["hooks"] = hooks
         return try self.data(from: object)
@@ -420,10 +425,10 @@ public enum ClaudeSettings {
     public static func removingHooks(executable: String, from data: Data?) throws -> Data? {
         var object = try object(from: data)
         guard var hooks = object["hooks"] as? [String: Any],
-              ["PermissionDenied", "PreToolUse"].contains(where: { event in
+              hookEvents.contains(where: { event in
                   (hooks[event] as? [[String: Any]] ?? []).contains { isStewHook($0, executable: executable) }
               }) else { return nil }
-        for event in ["PermissionDenied", "PreToolUse"] {
+        for event in hookEvents {
             guard let list = hooks[event] as? [[String: Any]] else { continue }
             let kept = list.filter { !isStewHook($0, executable: executable) }
             hooks[event] = kept.isEmpty ? nil : kept
@@ -431,6 +436,9 @@ public enum ClaudeSettings {
         object["hooks"] = hooks.isEmpty ? nil : hooks
         return try self.data(from: object)
     }
+
+    /// Every event stew hooks into.
+    static let hookEvents = ["PermissionDenied", "PreToolUse", "Stop", "UserPromptSubmit"]
 
     public enum HookState: Equatable, Sendable {
         case none
@@ -441,12 +449,12 @@ public enum ClaudeSettings {
 
     public static func hookState(executable: String, in data: Data?) -> HookState {
         guard let object = try? object(from: data), let hooks = object["hooks"] as? [String: Any] else { return .none }
-        let commands = ["PermissionDenied", "PreToolUse"].flatMap { event in
+        let commands = hookEvents.flatMap { event in
             (hooks[event] as? [[String: Any]] ?? []).flatMap { entry in
                 (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
             }
         }
-        let wanted = ["denied", "pre", "question"].map { "\(executable) hook \($0)" }
+        let wanted = ["denied", "pre", "question", "stop", "prompt"].map { "\(executable) hook \($0)" }
         let present = wanted.filter(commands.contains)
         if present.isEmpty { return .none }
         return present.count == wanted.count ? .complete : .partial

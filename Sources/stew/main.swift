@@ -12,6 +12,15 @@ USAGE
   stew ask [--json JSON | --file PATH | stdin] [common]
       Input has the AskUserQuestion shape: {"questions":[{"question","header",
       "options":[{"label","description","preview"?}],"multiSelect"}]}
+  stew needs TITLE [--why TEXT] [--step TEXT]... [--command CMD|-]... [--link URL]...
+             [--wait [--timeout SECONDS]] [--session NAME]
+      Tell the user you need them to do something only they can do (log in, buy,
+      approve in a web page, a physical action). Returns at once with the item's
+      id; it stays open, also across restarts, until it is resolved. --wait blocks
+      until the user marks it done ("done", with their note) or declines it
+      ("dismissed"); --timeout limits only that wait.
+  stew needs list [--json]       The open items.
+  stew needs resolve ID          Clear an item once you can see it is done.
   stew check --action TEXT --reason TEXT [--command TEXT|-]
       Run only the auto mode risk check and print its verdict.
   stew keys          Show the shortcuts in effect.
@@ -23,7 +32,7 @@ USAGE
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
-  stew hook denied|pre|question
+  stew hook denied|pre|question|stop|prompt
       The hook commands Claude Code runs. Not for direct use.
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
@@ -43,7 +52,7 @@ COMMON
                      Claude. The user can add time with ⌘E.
 
 EXIT CODES
-  0 approved / answered / acknowledged / shown, 1 denied, 2 dismissed,
+  0 approved / answered / acknowledged / shown / done / resolved, 1 denied, 2 dismissed,
   3 timeout, 4 error
   stew update: 0 up to date or installed, 10 update available (--check),
   11 newer version needs a newer macOS, 12 installs once no request is open,
@@ -53,6 +62,8 @@ EXIT CODES
 struct Arguments {
     var positional: [String] = []
     var options: [String: String] = [:]
+    /// Every value of an option that may repeat, such as `needs --step`, in order.
+    var lists: [String: [String]] = [:]
     var flags: Set<String> = []
 
     static let booleanFlags: Set<String> = ["wait", "help", "check"]
@@ -60,7 +71,11 @@ struct Arguments {
     /// Flags that take no value for one command only. `ask --json` takes JSON, while
     /// `history --json` is a switch.
     static func booleanFlags(for command: String) -> Set<String> {
-        command == "history" ? booleanFlags.union(["missed", "json"]) : booleanFlags
+        switch command {
+        case "history": booleanFlags.union(["missed", "json"])
+        case "needs": booleanFlags.union(["json"])
+        default: booleanFlags
+        }
     }
 
     init(_ arguments: ArraySlice<String>, booleanFlags: Set<String> = Arguments.booleanFlags) throws {
@@ -69,12 +84,16 @@ struct Arguments {
             if argument.hasPrefix("--") {
                 let name = String(argument.dropFirst(2))
                 if let equals = name.firstIndex(of: "=") {
-                    options[String(name[..<equals])] = String(name[name.index(after: equals)...])
+                    let key = String(name[..<equals])
+                    let value = String(name[name.index(after: equals)...])
+                    options[key] = value
+                    lists[key, default: []].append(value)
                 } else if booleanFlags.contains(name) {
                     flags.insert(name)
                 } else {
                     guard let value = iterator.next() else { throw UsageError("--\(name) needs a value") }
                     options[name] = value
+                    lists[name, default: []].append(value)
                 }
             } else {
                 positional.append(argument)
@@ -182,6 +201,57 @@ func updateKeygen(_ arguments: Arguments) throws {
     FileHandle.standardOutput.write(data + Data("\n".utf8))
 }
 
+/// `stew needs`: show a new item, or list and resolve open ones.
+func runNeeds(_ arguments: Arguments) throws {
+    switch arguments.positional.first {
+    case "list" where arguments.options["title"] == nil:
+        let open = NeedsStore.readFile()
+        if arguments.flags.contains("json") {
+            FileHandle.standardOutput.write(try NeedsBook.encode(open))
+        } else if open.isEmpty {
+            print("Nothing needs you.")
+        } else {
+            for record in open {
+                print("\(record.id)  \(record.menuTitle)\(record.parked ? "  (not now)" : "")")
+            }
+        }
+    case "resolve" where arguments.options["title"] == nil:
+        guard arguments.positional.count == 2 else { throw UsageError("needs resolve takes one ID") }
+        let id = arguments.positional[1]
+        guard let reply = Client.sendControl("needs resolve \(id)", startDaemon: true),
+              let response = try? Wire.decode(StewResponse.self, line: Data(reply.utf8)) else {
+            emit(StewResponse(status: .error, id: id, error: "could not reach the daemon"))
+        }
+        emit(response)
+    default:
+        let title = arguments.options["title"] ?? arguments.positional.first
+        guard let title, !title.isEmpty else { throw UsageError("needs needs a title, or list or resolve ID") }
+        guard arguments.positional.count <= (arguments.options["title"] == nil ? 1 : 0) else {
+            throw UsageError("needs takes one title; quote it, and pass details with --why and --step")
+        }
+        var commands = arguments.lists["command"] ?? []
+        if let stdinIndex = commands.firstIndex(of: "-") {
+            commands[stdinIndex] = readStandardInput().trimmingCharacters(in: .newlines)
+        }
+        let needs = NeedsRequest(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            why: arguments.options["why"],
+            steps: arguments.lists["step"] ?? [],
+            commands: commands.map { NeedsCommand(command: $0) },
+            links: (arguments.lists["link"] ?? []).map { NeedsLink(url: $0) }
+        )
+        do {
+            try needs.validate()
+        } catch {
+            throw UsageError("\(error)")
+        }
+        let wait = arguments.flags.contains("wait")
+        let timeout = try arguments.timeout
+        if timeout != nil, !wait { throw UsageError("--timeout applies only with --wait; a needs item has no time limit") }
+        emit(Client.send(StewRequest(session: currentSession(arguments), prompt: .needs(needs), timeout: timeout, wait: wait)))
+    }
+}
+
 func runCommand(_ command: String, _ arguments: Arguments) throws {
     switch command {
     case "permit":
@@ -223,6 +293,9 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         try questionSet.validate()
         emit(Client.send(StewRequest(session: currentSession(arguments), prompt: .question(questionSet), timeout: try arguments.timeout)))
 
+    case "needs":
+        try runNeeds(arguments)
+
     case "check":
         let (config, _) = loadConfig()
         let session = currentSession(arguments)
@@ -258,7 +331,9 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         case "denied": Hooks.denied()
         case "pre": Hooks.pre()
         case "question": Hooks.question()
-        default: throw UsageError("hook needs denied, pre or question")
+        case "stop": Hooks.stop()
+        case "prompt": Hooks.prompt()
+        default: throw UsageError("hook needs denied, pre, question, stop or prompt")
         }
 
     case "hooks":

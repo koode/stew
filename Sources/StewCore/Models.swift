@@ -135,12 +135,14 @@ public enum Prompt: Equatable, Sendable {
     case permission(PermissionRequest)
     case notify(NotifyRequest)
     case question(QuestionSet)
+    case needs(NeedsRequest)
 
     public var kind: String {
         switch self {
         case .permission: "permission"
         case .notify: "notify"
         case .question: "question"
+        case .needs: "needs"
         }
     }
 }
@@ -154,7 +156,8 @@ public struct StewRequest: Codable, Equatable, Sendable {
     /// Hard ceiling in seconds from arrival, even with "more time". The hook sets it to
     /// stay inside Claude Code's hook timeout.
     public var maxWait: Double?
-    /// For notifications: block until the user acknowledges. Other kinds always wait.
+    /// For notifications and needs items: block until the user acknowledges, or marks it
+    /// done or declines it. Other kinds always wait.
     public var wait: Bool
 
     public init(session: SessionInfo, prompt: Prompt, timeout: Double? = nil, maxWait: Double? = nil, wait: Bool = true) {
@@ -166,7 +169,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, session, timeout, maxWait, wait, permission, notify, question
+        case kind, session, timeout, maxWait, wait, permission, notify, question, needs
     }
 
     /// The effective time limit, given the configured default. Nil means none.
@@ -175,6 +178,10 @@ public struct StewRequest: Codable, Equatable, Sendable {
         switch prompt {
         case .permission, .question: fallback = defaultTimeout
         case .notify: fallback = nil
+        case .needs:
+            // A needs item has no time to answer: it stays open until it is done.
+            // `timeout` only limits how long a waiting caller waits.
+            return nil
         }
         guard let limit = timeout ?? fallback, limit > 0 else { return nil }
         return limit
@@ -189,6 +196,8 @@ public struct StewRequest: Codable, Equatable, Sendable {
             return "The user didn't answer within \(span). They may be away: continue with a safe choice that does not need this answer, or ask again later."
         case .permission, .notify:
             return "The user didn't respond within \(span). They may be away: treat this as denied and continue another way, or ask again later."
+        case .needs:
+            return "The user has not done this within \(span). It stays open in stew: continue with work that does not need it, and run `stew needs resolve ID` once you can see it is done."
         }
     }
 
@@ -206,6 +215,8 @@ public struct StewRequest: Codable, Equatable, Sendable {
             prompt = .notify(try container.decode(NotifyRequest.self, forKey: .notify))
         case "question":
             prompt = .question(try container.decode(QuestionSet.self, forKey: .question))
+        case "needs":
+            prompt = .needs(try container.decode(NeedsRequest.self, forKey: .needs))
         default:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown kind \(kind)")
         }
@@ -222,12 +233,15 @@ public struct StewRequest: Codable, Equatable, Sendable {
         case .permission(let permission): try container.encode(permission, forKey: .permission)
         case .notify(let notify): try container.encode(notify, forKey: .notify)
         case .question(let questionSet): try container.encode(questionSet, forKey: .question)
+        case .needs(let needs): try container.encode(needs, forKey: .needs)
         }
     }
 }
 
 public enum StewStatus: String, Codable, Sendable {
     case approved, denied, answered, acknowledged, shown, dismissed, timeout, error
+    /// A needs item: the user marked it done, or Claude or a new message cleared it.
+    case done, resolved
 }
 
 public struct QuestionAnnotation: Codable, Equatable, Sendable {
@@ -251,6 +265,8 @@ public struct StewResponse: Codable, Equatable, Sendable {
     public var risk: RiskAssessment?
     /// A standing approval chosen alongside the answer.
     public var grant: GrantChoice?
+    /// The needs item this answer is about, for `stew needs resolve ID`.
+    public var id: String?
     public var error: String?
 
     public init(
@@ -260,6 +276,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         annotations: [String: QuestionAnnotation]? = nil,
         risk: RiskAssessment? = nil,
         grant: GrantChoice? = nil,
+        id: String? = nil,
         error: String? = nil
     ) {
         self.status = status
@@ -268,13 +285,14 @@ public struct StewResponse: Codable, Equatable, Sendable {
         self.annotations = annotations
         self.risk = risk
         self.grant = grant
+        self.id = id
         self.error = error
     }
 
     /// Exit codes let a shell caller branch without parsing JSON: `stew permit ... && run`.
     public var exitCode: Int32 {
         switch status {
-        case .approved, .answered, .acknowledged, .shown: 0
+        case .approved, .answered, .acknowledged, .shown, .done, .resolved: 0
         case .denied: 1
         case .dismissed: 2
         case .timeout: 3

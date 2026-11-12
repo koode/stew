@@ -202,6 +202,9 @@ public struct StewConfig: Codable, Equatable, Sendable {
     /// Where Claude Code's AskUserQuestion goes: "unattended" (background and remote
     /// sessions), "always" or "never". Needs the hooks.
     public var routeQuestions: String
+    /// When the Stop hook turns a `needs input:` line in Claude's last message into a
+    /// needs item: "unattended" (background and remote sessions), "always" or "never".
+    public var autoNeeds: String
     public var sound: String?
     public var position: String
     /// A short burst of confetti where the panel was, after approving a permission request.
@@ -264,6 +267,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         responseTimeout = 60
         extendBy = 120
         routeQuestions = QuestionRouting.unattended
+        autoNeeds = QuestionRouting.unattended
         sound = "Glass"
         position = "top-right"
         confetti = false
@@ -284,6 +288,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         responseTimeout = try container.decodeIfPresent(Double.self, forKey: .responseTimeout) ?? defaults.responseTimeout
         extendBy = try container.decodeIfPresent(Double.self, forKey: .extendBy) ?? defaults.extendBy
         routeQuestions = try container.decodeIfPresent(String.self, forKey: .routeQuestions) ?? defaults.routeQuestions
+        autoNeeds = try container.decodeIfPresent(String.self, forKey: .autoNeeds) ?? defaults.autoNeeds
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti

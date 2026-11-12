@@ -376,7 +376,7 @@ struct ClaudeSettingsTab: View {
     var body: some View {
         Form {
             Section("Hooks") {
-                SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
+                SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
                     LabeledContent("Hooks") {
                         HStack {
                             switch model.hookState {
@@ -401,6 +401,16 @@ struct ClaudeSettingsTab: View {
                         Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
                         Text("Always in stew").tag(QuestionRouting.always)
                         Text("Always in the terminal").tag(QuestionRouting.never)
+                    }
+                }
+                SettingRow(hint: "When Claude ends a turn with a \"needs input:\" line, stew shows it as something that needs you, with its steps and commands. It goes away when you write to that session.") {
+                    Picker("Needs you from Claude Code", selection: Binding(
+                        get: { model.config.autoNeeds },
+                        set: { value in model.update { $0.autoNeeds = value } }
+                    )) {
+                        Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
+                        Text("Always in stew").tag(QuestionRouting.always)
+                        Text("Never").tag(QuestionRouting.never)
                     }
                 }
             }
