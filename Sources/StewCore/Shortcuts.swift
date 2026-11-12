@@ -86,6 +86,41 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
 
     public var description: String { modifiers.symbols + key.symbol }
 
+    /// One piece of a shortcut as macOS menus draw it: an SF Symbol for modifiers and
+    /// special keys, text for letters, digits and punctuation.
+    public enum Glyph: Equatable, Sendable {
+        case symbol(String)
+        case text(String)
+    }
+
+    /// The pieces in menu order (⌃⌥⇧⌘, then the key). Text glyphs such as ↩ sit higher
+    /// than the modifier symbols, so every special key is a symbol too.
+    public var glyphs: [Glyph] {
+        var glyphs: [Glyph] = []
+        if modifiers.contains(.control) { glyphs.append(.symbol("control")) }
+        if modifiers.contains(.option) { glyphs.append(.symbol("option")) }
+        if modifiers.contains(.shift) { glyphs.append(.symbol("shift")) }
+        if modifiers.contains(.command) { glyphs.append(.symbol("command")) }
+        switch key {
+        case .character(let character):
+            glyphs.append(.text(String(character).uppercased()))
+        case .special(let special):
+            let name = switch special {
+            case .return: "return"
+            case .escape: "escape"
+            case .tab: "arrow.right.to.line"
+            case .space: "space"
+            case .delete: "delete.left"
+            case .left: "arrow.left"
+            case .right: "arrow.right"
+            case .up: "arrow.up"
+            case .down: "arrow.down"
+            }
+            glyphs.append(.symbol(name))
+        }
+        return glyphs
+    }
+
     /// Config text for this shortcut, such as "cmd+shift+." or "ctrl+option+return".
     public var spec: String {
         var parts: [String] = []

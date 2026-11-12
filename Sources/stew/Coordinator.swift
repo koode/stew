@@ -79,7 +79,7 @@ final class Coordinator: ObservableObject {
     @Published var draft = ""
     @Published private(set) var keymap: Keymap
     @Published private(set) var configError: String?
-    @Published private(set) var hotkeyFailures: [String] = []
+    @Published private(set) var hotkeyFailures: [Shortcut] = []
     private(set) var config: StewConfig
     private var configModified: Date?
     var onChange: (() -> Void)?
@@ -315,7 +315,7 @@ final class Coordinator: ObservableObject {
         changed()
     }
 
-    func setHotkeyFailures(_ failures: [String]) {
+    func setHotkeyFailures(_ failures: [Shortcut]) {
         if failures != hotkeyFailures { hotkeyFailures = failures }
     }
 

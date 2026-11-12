@@ -40,9 +40,9 @@ struct RootView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
-            if let warning = coordinator.configError ?? hotkeyWarning {
+            if let warning = coordinator.configError.map(Text.init(verbatim:)) ?? hotkeyWarning {
                 Divider()
-                Label(warning, systemImage: "exclamationmark.triangle")
+                Label { warning } icon: { Image(systemName: "exclamationmark.triangle") }
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 16)
@@ -51,8 +51,8 @@ struct RootView: View {
         }
     }
 
-    private var hotkeyWarning: String? {
-        coordinator.hotkeyFailures.isEmpty ? nil : "Taken by another app: \(coordinator.hotkeyFailures.joined(separator: " ")). Click instead, or remap in config.json."
+    private var hotkeyWarning: Text? {
+        coordinator.hotkeyFailures.isEmpty ? nil : Text("Taken by another app: \(coordinator.hotkeyFailures.text). Click instead, or remap in config.json.")
     }
 
     private var width: CGFloat {
@@ -236,7 +236,7 @@ struct Keycap: View {
     var onTint = false
 
     var body: some View {
-        Text(shortcut.description)
+        ShortcutLabel(shortcut: shortcut)
             .font(.system(size: 11, weight: .medium, design: .rounded))
             .monospacedDigit()
             .padding(.horizontal, 5)
@@ -389,7 +389,7 @@ struct RiskBanner: View {
 struct ReplyEditor: View {
     @ObservedObject var coordinator: Coordinator
     let placeholder: String
-    let hint: String
+    let hint: Text
     var interactive: Bool
     @FocusState private var focused: Bool
 
@@ -416,7 +416,7 @@ struct ReplyEditor: View {
             .padding(6)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(nsColor: .textBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.accentColor.opacity(0.6)))
-            Text(hint)
+            hint
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -457,7 +457,7 @@ struct PermissionBody: View {
                 ReplyEditor(
                     coordinator: coordinator,
                     placeholder: "Note for Claude, sent with your answer",
-                    hint: "\(approveShortcut) approves and \(keymap[.deny]) denies with this note. Esc leaves the field.",
+                    hint: Text("\(approveShortcut.text) approves and \(keymap[.deny].text) denies with this note. Esc leaves the field."),
                     interactive: interactive
                 )
             }
@@ -623,7 +623,7 @@ struct QuestionBody: View {
                 VStack(alignment: .leading, spacing: 4) {
                     LongText(text: question.question, size: 15, weight: .semibold, maxLines: 5)
                     if question.multiSelect {
-                        Text("Choose any, then \(keymap[.submit].description) to confirm.")
+                        Text("Choose any, then \(keymap[.submit].text) to confirm.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -656,7 +656,7 @@ struct QuestionBody: View {
                     ReplyEditor(
                         coordinator: coordinator,
                         placeholder: "Type your answer",
-                        hint: "\(keymap[.submit]) sends. Esc leaves the field.",
+                        hint: Text("\(keymap[.submit].text) sends. Esc leaves the field."),
                         interactive: interactive
                     )
                 }

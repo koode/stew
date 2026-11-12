@@ -91,7 +91,7 @@ final class PanelController {
             })
         }
         let failures = hotkeys.set(bindings)
-        coordinator.setHotkeyFailures(failures.map(\.description))
+        coordinator.setHotkeyFailures(failures)
         if !failures.isEmpty {
             Log.write("could not register \(failures.map(\.description).joined(separator: " ")); another app may own them")
         }

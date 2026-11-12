@@ -301,7 +301,7 @@ struct KeyRecorder: View {
         Button {
             recording ? stop() : start()
         } label: {
-            Text(recording ? "Press keys…" : shortcut.description)
+            (recording ? Text("Press keys…") : shortcut.text)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .frame(minWidth: 110)
