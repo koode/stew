@@ -83,7 +83,7 @@ mkdir -p "$SITE/v0.2.0"
 "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/release" --version 0.2.0 --build 6 > /dev/null
 codesign --force --sign - --identifier nl.koode.stew "$WORK/release/Stew.app" 2> /dev/null
 ditto -c -k --keepParent "$WORK/release/Stew.app" "$SITE/v0.2.0/Stew-0.2.0.zip"
-PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+PORT=$(python3 -c 'import socket;probe=socket.socket();probe.bind(("127.0.0.1",0));print(probe.getsockname()[1]);probe.close()')
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$SITE" > "$WORK/http.log" 2>&1 &
 HTTP=$!
 trap 'kill $HTTP 2>/dev/null; wait $HTTP 2>/dev/null; rm -rf "$WORK"' EXIT

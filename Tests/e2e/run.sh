@@ -24,7 +24,7 @@ wait_items() { # count
 # here, and install into a temporary Stew.app. The private key lives only in a variable.
 UPD="$WORK/update"
 mkdir -p "$UPD/site" "$UPD/Applications"
-PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+PORT=$(python3 -c 'import socket;probe=socket.socket();probe.bind(("127.0.0.1",0));print(probe.getsockname()[1]);probe.close()')
 UPDATE_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/public.txt")
 OTHER_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/other-public.txt")
 export STEW_LOG="$WORK/stew.log" STEW_APP_PATH="$UPD/Applications/Stew.app" \
@@ -332,7 +332,7 @@ expect "approved request is recorded" "$(history_json)" '"outcome":"approved","r
 sleep 0.2
 missed=$(history_json --missed)
 expect "timeout is marked missed" "$missed" '"summary":"Wait for me"'
-python3 -c 'import json,sys; entries=json.loads(sys.argv[1]); sys.exit(0 if entries and all(e["outcome"]=="timedOut" for e in entries) else 1)' "$missed" \
+python3 -c 'import json,sys; entries=json.loads(sys.argv[1]); sys.exit(0 if entries and all(entry["outcome"]=="timedOut" for entry in entries) else 1)' "$missed" \
   && pass "--missed lists only timeouts" || fail "--missed lists only timeouts" "$missed"
 expect "--missed --json is newest first" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0]["summary"])' "$missed")" "Wait for me"
 "$STEW" permit --action "Gone" --reason "r" > /dev/null & client=$!
