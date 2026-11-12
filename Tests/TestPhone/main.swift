@@ -16,6 +16,7 @@ stew-test-phone COMMAND [options]
       ACTION is approve, deny, moreTime, option.N or other. Prints the Mac's result.
       --force skips the phone's own checks, to prove the Mac refuses too.
       --twice posts the same envelope again and adds the relay's status for it.
+      --age SECONDS dates the answer that far back, to prove the Mac refuses stale answers.
   unpair --state FILE
       End the pairing from the phone.
   pending --state FILE
@@ -214,7 +215,8 @@ func answer(_ values: [String: String]) throws {
         printJSON(["accepted": false, "refusedOnPhone": true, "message": refusal])
         exit(5)
     }
-    let answer = LinkAnswer(requestId: requestId, choice: choice, note: values["note"], phoneName: state.phoneName)
+    let age = Double(values["age"] ?? "0") ?? 0
+    let answer = LinkAnswer(requestId: requestId, choice: choice, note: values["note"], phoneName: state.phoneName, answeredAt: Date().addingTimeInterval(-age))
     let expires = min(request.deadline ?? .distantFuture, Date().addingTimeInterval(120))
     // A deadline already near still gets a minute, so the Mac can explain that it was late.
     let envelope = try channel.seal(answer, kind: .answer, requestId: requestId, expiresAt: max(expires, Date().addingTimeInterval(60)))

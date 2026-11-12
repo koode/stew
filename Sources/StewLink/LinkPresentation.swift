@@ -256,6 +256,11 @@ public enum LinkRefusal {
     }
 
     public static let alreadyAnswered = "You already answered this request."
+    public static let riskChecking = "Your Mac is still checking this command against your auto mode rules. Try again in a few seconds."
+    /// An answer older than this is refused, so a relay that held it back cannot apply it
+    /// after the user has moved on.
+    public static let answerLifetime: TimeInterval = 30
+    public static let tooSlow = "This answer took too long to reach your Mac. Answer again."
     public static let clockNotStarted = "This request waits behind another one on your Mac, so its clock has not started yet."
     public static let noTimeLimit = "This request has no time limit."
 

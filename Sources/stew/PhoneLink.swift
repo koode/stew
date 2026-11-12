@@ -38,6 +38,10 @@ final class PhoneLink: ObservableObject {
     static let unlimitedLifetime: TimeInterval = 24 * 3600
     /// A deadline that moved less than this is not worth a push.
     static let deadlineTolerance: TimeInterval = 3
+    /// A pairing code stops working after this. It is a secret on screen and possibly on
+    /// the clipboard, so it should not outlive the moment the user meant to pair.
+    static let codeLifetime: TimeInterval = 600
+    private var lastRefusalLog: [String: Date] = [:]
 
     var paired: [MacPairing] { pairings.filter { $0.state == .paired } }
     var confirming: MacPairing? { pairings.first { $0.state == .confirming } }
@@ -47,8 +51,8 @@ final class PhoneLink: ObservableObject {
         let store = PhoneStore()
         self.store = store
         pairings = store.pairings
-        // A code nobody scanned within a day is abandoned; it should not hold a socket.
-        for pairing in pairings where pairing.state == .waiting && Date().timeIntervalSince(pairing.createdAt) > 24 * 3600 {
+        // A waiting code is no longer on screen after a restart, so nobody should use it.
+        for pairing in pairings where pairing.state == .waiting {
             store.remove(pairing.pairingId)
         }
         pairings = store.pairings
@@ -100,15 +104,12 @@ final class PhoneLink: ObservableObject {
         }
     }
 
-    /// Shows a QR code for a new phone. A code still waiting is shown again rather than
-    /// replaced, so a phone that already scanned it can still register.
+    /// Shows a QR code for a new phone. Every call makes a new secret and drops any code
+    /// still waiting, so a secret is never on screen twice.
     func startPairing() {
         guard let store, let coordinator else { return }
+        cancelPairing()
         pairingError = nil
-        if let waiting = pairings.first(where: { $0.state == .waiting }) {
-            pairingCode = waiting.pairingCode(macKeys: store.identity.publicKeys)
-            return
-        }
         let relay = coordinator.config.phone.relay
         let code = PairingCode.generate(relay: relay, macName: macName, macKeys: store.identity.publicKeys)
         guard let claim = try? RelayClaim(code: code, identity: store.identity), let body = try? LinkJSON.encode(claim) else { return }
@@ -134,12 +135,18 @@ final class PhoneLink: ObservableObject {
         for pairing in pairings where pairing.state == .waiting { forget(pairing.pairingId) }
     }
 
-    func confirm(_ pairingId: String) {
-        guard var pairing = pairings.first(where: { $0.pairingId == pairingId }), pairing.state == .confirming else { return }
+    /// The user types the digits the phone shows. Clicking a button would also confirm a
+    /// phone that never showed digits, such as when another device used the code first.
+    @discardableResult
+    func confirm(_ pairingId: String, digits: String) -> Bool {
+        guard var pairing = pairings.first(where: { $0.pairingId == pairingId }), pairing.state == .confirming,
+              let expected = verificationCode(for: pairing),
+              digits.filter(\.isNumber) == expected.filter(\.isNumber) else { return false }
         pairing.state = .paired
         pairing.pairedAt = Date()
         save(pairing)
         if pairingCode?.pairingId == pairingId { pairingCode = nil }
+        return true
     }
 
     /// Ends a pairing on both sides: the phone hears about it through the relay.
@@ -193,7 +200,11 @@ final class PhoneLink: ObservableObject {
                 }
             }
         } catch {
-            Log.write("phone: refused a message for pairing \(pairingId): \(error)")
+            // At most one line a minute per pairing, so a misbehaving relay cannot fill the log.
+            if Date().timeIntervalSince(lastRefusalLog[pairingId] ?? .distantPast) > 60 {
+                lastRefusalLog[pairingId] = Date()
+                Log.write("phone: refused a message for pairing \(pairingId): \(error)")
+            }
         }
     }
 
@@ -217,10 +228,14 @@ final class PhoneLink: ObservableObject {
         if let deadline = item.deadline, deadline <= Date() {
             return refuse(LinkRefusal.tooLate(macName: macName, deadline: deadline))
         }
+        if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
+            return refuse(LinkRefusal.tooSlow)
+        }
         let note = answer.note.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         switch (answer.choice, item.request.prompt) {
         case (.approve, .permission):
             guard !item.isHardDeny else { return refuse(LinkRefusal.macOnly) }
+            if case .checking = item.risk { return refuse(LinkRefusal.riskChecking) }
             answeredBy[item.id] = pairingId
             coordinator.respond(item, StewResponse(status: .approved, note: note, risk: item.risk.assessment))
             return LinkResult(requestId: requestId, accepted: true, message: "Approved on \(macName).")
@@ -325,6 +340,11 @@ final class PhoneLink: ObservableObject {
     private func tick() {
         guard let coordinator else { return }
         let now = Date()
+        if let code = pairingCode, let waiting = pairings.first(where: { $0.pairingId == code.pairingId && $0.state == .waiting }),
+           now.timeIntervalSince(waiting.createdAt) > Self.codeLifetime {
+            cancelPairing()
+            pairingError = "The pairing code expired after 10 minutes. Pair again for a new one."
+        }
         recentlyResolved = recentlyResolved.filter { now.timeIntervalSince($0.value.at) < Self.recentLifetime }
         let liveIDs = Set(coordinator.items.map(\.id))
         for (itemID, entry) in pushed where !liveIDs.contains(itemID) {
@@ -336,6 +356,9 @@ final class PhoneLink: ObservableObject {
         guard !targets.isEmpty else { return }
         var presence: MacPresence?
         for item in coordinator.items where !item.isNeeds {
+            // The phone should see the risk verdict, and a hard deny must never be offered
+            // as approvable, so a request waits while its check runs.
+            if case .checking = item.risk { continue }
             if var entry = pushed[item.id] {
                 let fresh = linkRequest(for: item, previous: entry.sent)
                 guard Self.needsUpdate(entry.sent, fresh) else { continue }
@@ -382,8 +405,7 @@ final class PhoneLink: ObservableObject {
             return confirming.flatMap(verificationCode(for:)) ?? "none"
         case "confirm":
             guard let pairing = confirming else { return "nothing to confirm" }
-            confirm(pairing.pairingId)
-            return "confirmed"
+            return confirm(pairing.pairingId, digits: words.dropFirst(2).joined()) ? "confirmed" : "wrong digits"
         case "unpair":
             for pairing in pairings { unpair(pairing.pairingId) }
             return "unpaired"

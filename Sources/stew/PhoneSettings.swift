@@ -24,7 +24,7 @@ struct PhoneSettingsTab: View {
                     PairedPhoneRow(pairing: pairing, status: link.statuses[pairing.pairingId]) { unpairing = pairing }
                 }
                 if let confirming = link.confirming {
-                    ConfirmPairing(pairing: confirming, code: link.verificationCode(for: confirming) ?? "", link: link)
+                    ConfirmPairing(pairing: confirming, link: link)
                 } else if let code = link.pairingCode {
                     PairingCodeView(code: code) { link.cancelPairing() }
                 } else {
@@ -130,18 +130,31 @@ struct PairingCodeView: View {
                 Text("Scan with the stew app").font(.system(size: 13, weight: .semibold))
                 Text("On your iPhone, open stew, tap Pair a Mac and point the camera at this code.")
                     .fixedSize(horizontal: false, vertical: true)
-                SettingRow(hint: copied ? "Copied. Paste it in the stew app on your iPhone." : "Universal Clipboard brings it to your iPhone, where you can paste it instead of scanning.") {
-                    Button("Copy code") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(code.text, forType: .string)
-                        copied = true
-                    }
+                SettingRow(hint: copied ? "Copied for 1 minute. Paste it in the stew app on your iPhone." : "Universal Clipboard brings it to your iPhone, where you can paste it instead of scanning. The code works for 10 minutes.") {
+                    Button("Copy code") { copy() }
                 }
                 Button("Cancel", action: onCancel)
             }
             .font(.system(size: 12))
         }
         .padding(.vertical, 6)
+    }
+
+    /// Marked concealed and transient, so clipboard managers skip it, and cleared after a
+    /// minute: the code holds the pairing secret.
+    private func copy() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(code.text, forType: .string)
+        item.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        item.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+        pasteboard.writeObjects([item])
+        let written = pasteboard.changeCount
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            if pasteboard.changeCount == written { pasteboard.clearContents() }
+        }
     }
 
     static func qrImage(_ text: String) -> NSImage? {
@@ -154,28 +167,38 @@ struct PairingCodeView: View {
     }
 }
 
-/// A phone has registered with the code: the user checks the digits match, then confirms.
-/// Until then the phone's answers are ignored.
+/// A phone has registered with the code. The user types the digits the phone shows; the
+/// Mac never shows them itself, so they can only come from the phone. Until then the
+/// phone's answers are ignored.
 struct ConfirmPairing: View {
     let pairing: MacPairing
-    let code: String
     @ObservedObject var link: PhoneLink
+    @State private var digits = ""
+    @State private var mismatch = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("\(pairing.phoneName ?? "An iPhone") wants to pair").font(.system(size: 13, weight: .semibold))
-            Text(code)
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-            Text("Check that your iPhone shows the same six digits. If they differ, reject: someone else may have used the code.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            SettingRow(hint: mismatch
+                ? "These digits do not match. Check your iPhone again, or reject if it shows none."
+                : "Type the six digits your iPhone shows. If it shows none, reject: someone else may have used the code.") {
+                TextField("Code", text: $digits, prompt: Text("Six digits"))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .onSubmit(confirm)
+                    .onChange(of: digits) { mismatch = false }
+            }
             HStack {
                 Button("Reject") { link.unpair(pairing.pairingId) }
-                Button("Confirm") { link.confirm(pairing.pairingId) }.keyboardShortcut(.defaultAction)
+                Button("Confirm", action: confirm)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(digits.filter(\.isNumber).count != 6)
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private func confirm() {
+        mismatch = !link.confirm(pairing.pairingId, digits: digits)
     }
 }

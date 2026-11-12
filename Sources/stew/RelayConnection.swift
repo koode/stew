@@ -22,6 +22,7 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     /// Called on the main queue whenever the socket's status changes.
     var onStatus: ((Status) -> Void)?
     private(set) var status: Status = .connecting
+    private var lastBadFrameLog = Date.distantPast
 
     static let longestBackoff: TimeInterval = 60
     static let pingInterval: TimeInterval = 30
@@ -89,6 +90,9 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         do {
             onFrame?(try LinkJSON.decode(RelayFrame.self, from: data))
         } catch {
+            // At most one line a minute, so a misbehaving relay cannot fill the log.
+            guard Date().timeIntervalSince(lastBadFrameLog) > 60 else { return }
+            lastBadFrameLog = Date()
             Log.write("phone: unreadable frame from relay: \(error)")
         }
     }
