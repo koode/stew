@@ -543,3 +543,27 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
 private enum StewDefaults {
     static let route = StewConfig().routeQuestions
 }
+
+@Suite struct ConfettiTests {
+    static let permission = Prompt.permission(PermissionRequest(action: "Deploy", reason: "release"))
+
+    @Test func offByDefaultAndReadFromConfig() throws {
+        #expect(StewConfig().confetti == false)
+        let config = try JSONDecoder().decode(StewConfig.self, from: Data(#"{"confetti":true}"#.utf8))
+        #expect(config.confetti)
+    }
+
+    @Test func onlyAnApprovedPermissionCelebrates() {
+        var config = StewConfig()
+        config.confetti = true
+        let grant = GrantChoice(scope: GrantChoice.Scope(kind: .category, value: "Destructive"), duration: .hour)
+        #expect(config.celebrates(StewResponse(status: .approved), to: Self.permission))
+        #expect(config.celebrates(StewResponse(status: .approved, grant: grant), to: Self.permission))
+        #expect(!config.celebrates(StewResponse(status: .denied), to: Self.permission))
+        #expect(!config.celebrates(StewResponse(status: .timeout), to: Self.permission))
+        #expect(!config.celebrates(StewResponse(status: .acknowledged), to: .notify(NotifyRequest(title: "Done"))))
+        #expect(!config.celebrates(StewResponse(status: .answered), to: .question(QuestionSet(questions: []))))
+        config.confetti = false
+        #expect(!config.celebrates(StewResponse(status: .approved), to: Self.permission))
+    }
+}

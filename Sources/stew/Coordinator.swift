@@ -85,6 +85,10 @@ final class Coordinator: ObservableObject {
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
     var onOpenSettings: ((SettingsTab) -> Void)?
+    /// Shows confetti where the panel is. Called just before an approved request leaves it.
+    var onCelebrate: (() -> Void)?
+    /// How many approvals asked for confetti, for the end-to-end tests.
+    private(set) var celebrations = 0
 
     var current: Item? { items.first }
 
@@ -204,7 +208,7 @@ final class Coordinator: ObservableObject {
         var clockState = "none"
         if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
         if let remaining = current?.pausedRemaining { clockState = "paused:\(Int(remaining.rounded()))" }
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) keys=\(bindings)"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) keys=\(bindings)"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -222,6 +226,11 @@ final class Coordinator: ObservableObject {
 
     func respond(_ item: Item, _ response: StewResponse) {
         guard items.contains(where: { $0.id == item.id }) else { return }
+        if config.celebrates(response, to: item.request.prompt) {
+            // Before the item goes, so the panel is still where the user looked.
+            celebrations += 1
+            onCelebrate?()
+        }
         item.connection?.send((try? Wire.encode(response)) ?? Data())
         item.connection = nil
         remove(item)

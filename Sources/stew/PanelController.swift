@@ -41,6 +41,9 @@ final class PanelController {
         panel.contentView = hosting
     }
 
+    /// Where the panel is on screen, or nil while it is hidden.
+    var visibleFrame: NSRect? { panel.isVisible ? panel.frame : nil }
+
     func update() {
         // Let SwiftUI apply the change before measuring.
         DispatchQueue.main.async { [self] in apply() }

@@ -130,6 +130,10 @@ enum Daemon {
         if !Paths.headless {
             let panel = PanelController(coordinator: coordinator)
             coordinator.onChange = { panel.update() }
+            let confetti = ConfettiController()
+            coordinator.onCelebrate = {
+                if let frame = panel.visibleFrame { confetti.burst(around: frame) }
+            }
             let settings = SettingsWindowController { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
         }

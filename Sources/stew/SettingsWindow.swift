@@ -196,6 +196,9 @@ struct GeneralSettings: View {
                     ForEach(Self.sounds, id: \.self) { Text($0).tag($0) }
                 }
             }
+            SettingRow(hint: "A short burst when you approve a request.") {
+                Toggle("Confetti", isOn: binding(\.confetti))
+            }
         }
         .formStyle(.grouped)
     }

@@ -169,6 +169,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var routeQuestions: String
     public var sound: String?
     public var position: String
+    /// A short burst of confetti where the panel was, after approving a permission request.
+    public var confetti: Bool
     public var classifier: ClassifierConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
@@ -225,6 +227,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         routeQuestions = QuestionRouting.unattended
         sound = "Glass"
         position = "top-right"
+        confetti = false
         classifier = ClassifierConfig()
     }
 
@@ -242,6 +245,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         routeQuestions = try container.decodeIfPresent(String.self, forKey: .routeQuestions) ?? defaults.routeQuestions
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
+        confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
     }
 }
@@ -292,5 +296,15 @@ public struct Keymap: Equatable, Sendable {
         }
         self.actions = actions
         self.options = options
+    }
+}
+
+extension StewConfig {
+    /// Confetti follows an approved permission request, also one approved together with
+    /// an "Allow more…" choice. Answers to questions and notifications get none.
+    public func celebrates(_ response: StewResponse, to prompt: Prompt) -> Bool {
+        guard confetti, response.status == .approved else { return false }
+        if case .permission = prompt { return true }
+        return false
     }
 }
