@@ -40,6 +40,8 @@ final class Item: ObservableObject, Identifiable {
     }
     @Published var flow: QuestionFlow?
     @Published var risk: RiskState = .off
+    /// stew's own notice, such as the return summary: kept out of the history.
+    var isInternal = false
     /// Option under the mouse, so its preview shows.
     @Published var hoveredOption: Int?
 
@@ -91,6 +93,10 @@ final class Coordinator: ObservableObject {
     private(set) var celebrations = 0
     /// Called after every change while no request is open, so a waiting update can install.
     var onIdle: (() -> Void)?
+    /// Where finished requests are recorded. Nil when rendering snapshots.
+    var history: HistoryStore?
+    /// Opens the settings window on History; true shows only missed requests.
+    var onOpenHistory: ((Bool) -> Void)?
     /// `stew update`: check and install now, then reply with the outcome.
     var onUpdate: ((@escaping (UpdateOutcome) -> Void) -> Void)?
 
@@ -139,6 +145,9 @@ final class Coordinator: ObservableObject {
         case "approvals", "settings":
             connection.send(Data("opened\n".utf8))
             onOpenSettings?(control == "approvals" ? .approvals : .general)
+        case "history", "history missed":
+            connection.send(Data("opened\n".utf8))
+            onOpenHistory?(control == "history missed")
         case "update":
             guard let onUpdate else {
                 connection.send((try? Wire.encode(UpdateOutcome(status: .checkFailed, message: "this daemon cannot update"))) ?? Data())
@@ -201,6 +210,9 @@ final class Coordinator: ObservableObject {
             choose(option: number - 1)
         case "type":
             draft = argument
+        case "returned":
+            // Simulates the user coming back after `argument` seconds away.
+            userReturned(awaySince: Date().addingTimeInterval(-(Double(argument) ?? 0)))
         case "state":
             break
         default:
@@ -231,6 +243,7 @@ final class Coordinator: ObservableObject {
     func connectionClosed(_ connectionID: UUID) {
         guard let item = items.first(where: { $0.connection?.id == connectionID }) else { return }
         item.connection = nil
+        record(item, nil)
         remove(item)
     }
 
@@ -241,6 +254,7 @@ final class Coordinator: ObservableObject {
             celebrations += 1
             onCelebrate?()
         }
+        record(item, response)
         item.connection?.send((try? Wire.encode(response)) ?? Data())
         item.connection = nil
         remove(item)
@@ -261,9 +275,31 @@ final class Coordinator: ObservableObject {
 
     func dismissAllForShutdown() {
         for item in items {
-            item.connection?.send((try? Wire.encode(StewResponse(status: .dismissed, note: "stew daemon stopped"))) ?? Data())
+            let response = StewResponse(status: .dismissed, note: "stew daemon stopped")
+            record(item, response)
+            item.connection?.send((try? Wire.encode(response)) ?? Data())
         }
         items = []
+        history?.flush()
+    }
+
+    /// No response means the caller went away before an answer.
+    private func record(_ item: Item, _ response: StewResponse?) {
+        guard let history, !item.isInternal else { return }
+        history.append(HistoryEntry.record(item.request, received: item.received, response: response, ended: Date()))
+    }
+
+    /// The user is back after being away since `awaySince`. One notice for every
+    /// request that timed out meanwhile; nothing when none did.
+    func userReturned(awaySince: Date) {
+        guard let history else { return }
+        let missed = History.missed(history.read(), since: awaySince)
+        guard !missed.isEmpty else { return }
+        let notice = NotifyRequest(title: History.returnSummary(missedCount: missed.count), level: .warning, action: .openHistory)
+        let item = Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(notice), wait: false), connection: nil)
+        item.isInternal = true
+        items.append(item)
+        changed()
     }
 
     private func changed() {
@@ -344,8 +380,9 @@ final class Coordinator: ObservableObject {
             respond(item, StewResponse(status: .denied, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
         case (.permission, .other), (.question, .other):
             setTextMode(!textMode)
-        case (.notify, .approve):
+        case (.notify(let notify), .approve):
             respond(item, StewResponse(status: .acknowledged))
+            if notify.action == .openHistory { onOpenHistory?(true) }
         case (.question, .submit):
             guard var flow = item.flow else { return }
             let outcome = textMode ? flow.answerOther(draft) : flow.submitCurrent()

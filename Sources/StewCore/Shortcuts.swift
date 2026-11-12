@@ -208,6 +208,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var confetti: Bool
     /// Check for a new version at start and once a day, and install it when no request is open.
     public var autoUpdate: Bool
+    /// Days of request history to keep.
+    public var historyDays: Int
     public var classifier: ClassifierConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
@@ -266,6 +268,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         position = "top-right"
         confetti = false
         autoUpdate = true
+        historyDays = History.defaultKeepDays
         classifier = ClassifierConfig()
     }
 
@@ -285,6 +288,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
+        historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
     }
 }

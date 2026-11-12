@@ -600,7 +600,9 @@ struct NotifyBody: View {
             }
             HStack {
                 Spacer()
-                ActionButton(title: "OK", shortcut: coordinator.keymap[.approve], prominent: true) { coordinator.perform(.approve) }
+                ActionButton(title: notify.action == .openHistory ? "Open history" : "OK", shortcut: coordinator.keymap[.approve], prominent: true) {
+                    coordinator.perform(.approve)
+                }
             }
         }
     }

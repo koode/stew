@@ -127,6 +127,8 @@ enum Daemon {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         let coordinator = Coordinator()
+        let history = HistoryStore()
+        coordinator.history = history
         let updater = Updater(log: Log.write)
         updater.restartsInBackground = true
         updater.isIdle = { coordinator.items.isEmpty }
@@ -141,6 +143,8 @@ enum Daemon {
             }
             let settings = SettingsWindowController(updater: updater) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
+            coordinator.onOpenHistory = { missedOnly in settings.showHistory(missedOnly: missedOnly) }
+            awayWatcher.start { awaySince in coordinator.userReturned(awaySince: awaySince) }
         }
 
         let server = SocketServer(path: Paths.socket)
@@ -173,6 +177,11 @@ enum Daemon {
         }
         RiskChecker.mainLoopRunning = true
         Log.write("stew daemon \(AppVersion.running) listening on \(Paths.socket)")
+        history.prune(keepDays: coordinator.config.historyDays)
+        historyPruner = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { _ in
+            coordinator.reloadConfigIfChanged()
+            history.prune(keepDays: coordinator.config.historyDays)
+        }
         updater.cleanUpAfterUpdate()
         updater.startSchedule {
             coordinator.reloadConfigIfChanged()
@@ -183,4 +192,6 @@ enum Daemon {
     }
 
     private static var signalSources: [DispatchSourceSignal] = []
+    private static let awayWatcher = AwayWatcher()
+    private static var historyPruner: Timer?
 }

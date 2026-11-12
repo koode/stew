@@ -3,7 +3,7 @@ import SwiftUI
 import StewCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, keys, claude, approvals
+    case general, keys, claude, approvals, history
     var id: String { rawValue }
 }
 
@@ -85,6 +85,7 @@ final class SettingsModel: ObservableObject {
 final class SettingsWindowController {
     private let model = SettingsModel()
     private let approvals = ApprovalsModel()
+    private let history = HistoryModel()
     private let updater: Updater
     private var window: NSWindow?
 
@@ -93,9 +94,16 @@ final class SettingsWindowController {
         model.onSaved = onSaved
     }
 
+    /// The History tab, optionally showing only the requests that timed out.
+    func showHistory(missedOnly: Bool) {
+        history.missedOnly = missedOnly
+        show(.history)
+    }
+
     func show(_ tab: SettingsTab) {
         model.load()
         approvals.reload()
+        history.reload()
         model.tab = tab
         if window == nil {
             let window = NSWindow(
@@ -106,7 +114,7 @@ final class SettingsWindowController {
             )
             window.title = "stew Settings"
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, updater: updater))
+            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, history: history, updater: updater))
             window.center()
             self.window = window
         }
@@ -118,6 +126,7 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var approvals: ApprovalsModel
+    @ObservedObject var history: HistoryModel
     let updater: Updater
 
     var body: some View {
@@ -127,6 +136,7 @@ struct SettingsView: View {
                 KeySettings(model: model).tabItem { Text("Keys") }.tag(SettingsTab.keys)
                 ClaudeSettingsTab(model: model).tabItem { Text("Claude Code") }.tag(SettingsTab.claude)
                 ApprovalsView(model: approvals).tabItem { Text("Approvals") }.tag(SettingsTab.approvals)
+                HistoryView(model: history).tabItem { Text("History") }.tag(SettingsTab.history)
             }
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle")

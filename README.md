@@ -127,6 +127,22 @@ Permission requests and questions get 1 minute by default (`responseTimeout`). T
 
 For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session as context. The verdict shows above the command after approximately 5 seconds. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
 
+### History: what you missed
+
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not.
+
+When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩).
+
+```bash
+stew history                    # open the History tab
+stew history --missed           # the same, showing only missed requests
+stew history --missed --json    # print them as a JSON array, for scripts
+```
+
+For a missed call that auto mode blocked, the History tab offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
+
+The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
+
 ## Keys
 
 Every key is ⌘ plus one key, and works only while a panel is visible. Presses in the first 0.5 seconds after a panel appears are ignored, so a shortcut meant for another app cannot answer it.
@@ -177,12 +193,13 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 ![The settings window](docs/images/settings-general-light.png)
 
-The window has four tabs:
+The window has five tabs:
 
 - **General:** time to answer, more time, arming delay, position, sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the auto mode hooks, and set up the risk check.
 - **Approvals:** the same list as `stew approvals`.
+- **History:** finished requests, with a Missed only switch (see History).
 
 ```json
 {
@@ -199,6 +216,7 @@ The window has four tabs:
   "position": "top-right",
   "confetti": false,
   "autoUpdate": true,
+  "historyDays": 30,
   "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
 }
 ```
@@ -212,6 +230,7 @@ The window has four tabs:
 - `sound` is a name from `/System/Library/Sounds` (such as `"Glass"`), or `""` for none.
 - `confetti` shows a short burst of confetti where the panel was when you approve a request. It is off by default, and never plays when "Reduce motion" is on in macOS.
 - `autoUpdate` installs new versions by itself (see Updates).
+- `historyDays` is how many days of request history to keep.
 - `classifier` controls the risk check on direct `stew permit` calls.
 
 ## Security model

@@ -33,6 +33,14 @@ export STEW_LOG="$WORK/stew.log" STEW_APP_PATH="$UPD/Applications/Stew.app" \
 HTTP=""
 SCHEDULED=""
 
+# History older than historyDays (30) goes when the daemon starts.
+seed_entry() { # summary, days ago
+  python3 -c 'import json,sys,datetime
+ended=(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=float(sys.argv[2]))).strftime("%Y-%m-%dT%H:%M:%SZ")
+print(json.dumps({"id":"00000000-0000-0000-0000-%012d"%int(float(sys.argv[2])),"received":ended,"ended":ended,"session":"seed","kind":"notify","summary":sys.argv[1],"outcome":"timedOut"}))' "$1" "$2"
+}
+{ seed_entry "seeded long ago" 40; seed_entry "seeded yesterday" 1; } > "$WORK/history.jsonl"
+
 "$STEW" daemon 2> "$WORK/daemon.log" &
 DAEMON=$!
 stop_all() {
@@ -306,6 +314,43 @@ control press grant > /dev/null; control choose 1 > /dev/null; control press app
 wait $hook
 expect "approve with a grant shows confetti" "$(control state)" "confetti=2"
 set_config ""
+
+# history: every finished request, secrets masked, timeouts marked missed
+history_json() { "$STEW" history --json "$@"; }
+expect "old history is pruned at start" "[$(history_json | grep -o 'seeded long ago')]" "[]"
+expect "recent history is kept" "$(history_json)" '"summary":"seeded yesterday"'
+"$STEW" permit --action "Ship it" --command "deploy --token ghp_abcdefghijklmnopqrstuvwxyz0123456789" --reason "release" > /dev/null & client=$! # gitleaks:allow (test fixture)
+wait_items 1
+control press approve > /dev/null
+wait $client
+sleep 0.2
+expect "history has the masked command" "$(history_json)" '"command":"deploy --token ••••"'
+[[ "$(cat "$WORK/history.jsonl")" != *"ghp_"* ]] && pass "history never stores the secret" || fail "history never stores the secret" "raw token in history.jsonl"
+expect "history file is private" "$(stat -f %Lp "$WORK/history.jsonl")" "600"
+expect "approved request is recorded" "$(history_json)" '"outcome":"approved","received"'
+"$STEW" permit --action "Wait for me" --reason "r" --timeout 1 > /dev/null
+sleep 0.2
+missed=$(history_json --missed)
+expect "timeout is marked missed" "$missed" '"summary":"Wait for me"'
+python3 -c 'import json,sys; entries=json.loads(sys.argv[1]); sys.exit(0 if entries and all(e["outcome"]=="timedOut" for e in entries) else 1)' "$missed" \
+  && pass "--missed lists only timeouts" || fail "--missed lists only timeouts" "$missed"
+expect "--missed --json is newest first" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0]["summary"])' "$missed")" "Wait for me"
+"$STEW" permit --action "Gone" --reason "r" > /dev/null & client=$!
+wait_items 1
+kill $client; wait $client 2>/dev/null
+wait_items 0; sleep 0.2
+expect "a caller that left is recorded" "$(history_json)" '"outcome":"callerGone"'
+[[ "$(history_json --missed)" != *'"summary":"Gone"'* ]] && pass "caller gone is not missed" || fail "caller gone is not missed" "$(history_json --missed)"
+
+# Coming back after timeouts shows one summary; with none, nothing shows.
+control returned 600 > /dev/null
+state=$(control state)
+expect "return summary appears" "$state" "items=1 kind=notify"
+control press approve > /dev/null
+wait_items 0 && pass "return summary closes with approve" || fail "return summary closes with approve" "$(control state)"
+[[ "$(history_json)" != *"timed out while you were away"* ]] && pass "return summary stays out of history" || fail "return summary stays out of history" "$(history_json)"
+control returned 0 > /dev/null
+expect "nothing missed, no summary" "$(control state)" "items=0"
 
 # updates
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$UPD/site" > "$UPD/http.log" 2>&1 &

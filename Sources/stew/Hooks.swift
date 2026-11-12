@@ -191,7 +191,7 @@ enum Hooks {
                 try GrantFile.update { grants in
                     grants.append(GrantBook.once(for: call))
                     if let choice = response.grant {
-                        try apply(choice, call: call, projectRoot: root, grants: &grants)
+                        try apply(choice, toolName: call.toolName, projectRoot: root, grants: &grants)
                     }
                 }
                 print(HookOutput.retry())
@@ -211,7 +211,7 @@ enum Hooks {
 
     /// Always on a command pattern goes into the project's Claude Code allow list.
     /// Hour grants and category grants stay in stew's store.
-    static func apply(_ choice: GrantChoice, call: HookCall, projectRoot: String, grants: inout [Grant]) throws {
+    static func apply(_ choice: GrantChoice, toolName: String, projectRoot: String, grants: inout [Grant]) throws {
         if choice.writesClaudeRule {
             let rule = "Bash(\(choice.scope.value))"
             let settingsPath = projectRoot + "/.claude/settings.local.json"
@@ -219,7 +219,7 @@ enum Hooks {
             let updated = try ClaudeSettings.addingAllowRule(rule, to: FileManager.default.contents(atPath: settingsPath))
             try updated.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
             grants.append(Grant(kind: .claudeRule, toolName: "Bash", value: rule, projectRoot: projectRoot, settingsPath: settingsPath))
-        } else if let standing = GrantBook.standing(choice, toolName: call.toolName, projectRoot: projectRoot) {
+        } else if let standing = GrantBook.standing(choice, toolName: toolName, projectRoot: projectRoot) {
             grants.append(standing)
         }
     }

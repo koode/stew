@@ -17,6 +17,9 @@ USAGE
   stew keys          Show the shortcuts in effect.
   stew settings      Open the settings window (time limit, keys, hooks, risk check).
   stew approvals     Open the settings window on the list of standing approvals.
+  stew history [--missed] [--json]
+      Open the settings window on the history of finished requests. --missed
+      shows only those that timed out. --json prints them as a JSON array instead.
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
@@ -54,14 +57,20 @@ struct Arguments {
 
     static let booleanFlags: Set<String> = ["wait", "help", "check"]
 
-    init(_ arguments: ArraySlice<String>) throws {
+    /// Flags that take no value for one command only. `ask --json` takes JSON, while
+    /// `history --json` is a switch.
+    static func booleanFlags(for command: String) -> Set<String> {
+        command == "history" ? booleanFlags.union(["missed", "json"]) : booleanFlags
+    }
+
+    init(_ arguments: ArraySlice<String>, booleanFlags: Set<String> = Arguments.booleanFlags) throws {
         var iterator = arguments.makeIterator()
         while let argument = iterator.next() {
             if argument.hasPrefix("--") {
                 let name = String(argument.dropFirst(2))
                 if let equals = name.firstIndex(of: "=") {
                     options[String(name[..<equals])] = String(name[name.index(after: equals)...])
-                } else if Self.booleanFlags.contains(name) {
+                } else if booleanFlags.contains(name) {
                     flags.insert(name)
                 } else {
                     guard let value = iterator.next() else { throw UsageError("--\(name) needs a value") }
@@ -263,6 +272,15 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
     case "approvals", "settings":
         print(Client.sendControl(command, startDaemon: true) ?? "could not reach the daemon")
 
+    case "history":
+        let missedOnly = arguments.flags.contains("missed")
+        if arguments.flags.contains("json") {
+            let entries = History.filtered(HistoryStore.readFile(), missedOnly: missedOnly)
+            FileHandle.standardOutput.write(try History.json(entries) + Data("\n".utf8))
+        } else {
+            print(Client.sendControl(missedOnly ? "history missed" : "history", startDaemon: true) ?? "could not reach the daemon")
+        }
+
     case "stop":
         print(Client.sendControl("stop") ?? "daemon not running")
 
@@ -324,7 +342,7 @@ guard commandLine.count > 1, !["-h", "--help", "help"].contains(commandLine[1]) 
     exit(commandLine.count > 1 ? 0 : 64)
 }
 do {
-    try runCommand(commandLine[1], try Arguments(commandLine.dropFirst(2)))
+    try runCommand(commandLine[1], try Arguments(commandLine.dropFirst(2), booleanFlags: Arguments.booleanFlags(for: commandLine[1])))
 } catch {
     FileHandle.standardError.write(Data("stew: \(error)\n\nRun `stew --help` for usage.\n".utf8))
     exit(64)

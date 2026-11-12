@@ -19,13 +19,16 @@ enum Snapshot {
                 print(path)
             }
         }
-        for tab in [SettingsTab.general, .keys, .claude] {
+        for tab in [SettingsTab.general, .keys, .claude, .history] {
             for dark in [false, true] {
                 let model = SettingsModel()
                 model.load()
                 model.tab = tab
+                // History shows what is in history.jsonl next to STEW_SOCKET.
+                let history = HistoryModel()
+                history.reload()
                 let path = "\(directory)/settings-\(tab.rawValue)-\(dark ? "dark" : "light").png"
-                write(SettingsView(model: model, approvals: ApprovalsModel(), updater: Updater(log: { _ in })).frame(width: 720, height: 560), dark: dark, to: path)
+                write(SettingsView(model: model, approvals: ApprovalsModel(), history: history, updater: Updater(log: { _ in })).frame(width: 720, height: 640), dark: dark, to: path)
                 print(path)
             }
         }
@@ -240,6 +243,13 @@ enum Snapshot {
                 body: "The release build is ready. Run `make deploy` when you want it live.",
                 level: .success
             ))), connection: nil))
+        }),
+        ("return-summary", { coordinator in
+            coordinator.show(Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(NotifyRequest(
+                title: History.returnSummary(missedCount: 3),
+                level: .warning,
+                action: .openHistory
+            )), wait: false), connection: nil))
         }),
     ]
 

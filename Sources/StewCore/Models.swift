@@ -41,15 +41,23 @@ public enum NotifyLevel: String, Codable, Sendable, CaseIterable {
     case info, success, warning, error
 }
 
+/// What the OK button of a notification does besides closing it.
+public enum NotifyAction: String, Codable, Sendable {
+    /// The return summary: open the history of missed requests.
+    case openHistory
+}
+
 public struct NotifyRequest: Codable, Equatable, Sendable {
     public var title: String
     public var body: String?
     public var level: NotifyLevel
+    public var action: NotifyAction?
 
-    public init(title: String, body: String? = nil, level: NotifyLevel = .info) {
+    public init(title: String, body: String? = nil, level: NotifyLevel = .info, action: NotifyAction? = nil) {
         self.title = title
         self.body = body
         self.level = level
+        self.action = action
     }
 }
 
