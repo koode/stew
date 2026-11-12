@@ -252,10 +252,10 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
     @Test func masksKnownSecretShapes() {
         let cases: [(String, String)] = [
             ("GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123 gh pr list", "GITHUB_TOKEN=•••• gh pr list"),
-            (#"curl -H "Authorization: Bearer abc.def-123" https://api.example.com"#, #"curl -H "Authorization: Bearer ••••" https://api.example.com"#),
+            (#"curl -H "Authorization: Bearer abc.def-123" https://api.example.com"#, #"curl -H "Authorization: Bearer ••••" https://api.example.com"#), // gitleaks:allow (test fixture)
             ("psql postgres://app:hunter2@db.internal/app", "psql postgres://app:••••@db.internal/app"),
             ("mytool --password 's3cr3t value' --verbose", "mytool --password '••••' --verbose"),
-            ("aws s3 ls --profile x AKIAABCDEFGHIJKLMNOP", "aws s3 ls --profile x ••••"),
+            ("aws s3 ls --profile x AKIAABCDEFGHIJKLMNOP", "aws s3 ls --profile x ••••"), // gitleaks:allow (test fixture)
             ("curl -u admin:pa55word https://x", "curl -u admin:•••• https://x"),
         ]
         for (command, expected) in cases {
@@ -299,7 +299,7 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
     }
 
     @Test func suggestionsNeverContainSecrets() {
-        let suggestions = CommandText.ruleSuggestions(for: #"curl -H "Authorization: Bearer abcdef123456" https://api.example.com/items"#)
+        let suggestions = CommandText.ruleSuggestions(for: #"curl -H "Authorization: Bearer abcdef123456" https://api.example.com/items"#) // gitleaks:allow (test fixture)
         #expect(suggestions.allSatisfy { !$0.pattern.contains("abcdef123456") })
         #expect(suggestions.first?.pattern == #"curl -H "Authorization: Bearer *" https://api.example.com/items"#)
     }
