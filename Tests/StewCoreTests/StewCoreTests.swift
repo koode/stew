@@ -429,10 +429,16 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect((hooks["PreToolUse"] as! [[String: Any]]).count == 2)
         #expect((hooks["PermissionDenied"] as! [[String: Any]]).count == 1)
         #expect(ClaudeSettings.hasHooks(executable: "/u/.local/bin/stew", in: twice))
-        let removed = try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: twice)
+        let removed = try #require(try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: twice))
         let left = (try JSONSerialization.jsonObject(with: removed) as! [String: Any])["hooks"] as! [String: Any]
         #expect((left["PreToolUse"] as! [[String: Any]]).count == 1)
         #expect(left["PermissionDenied"] == nil)
+    }
+
+    @Test func uninstallWithoutHooksLeavesTheFileAlone() throws {
+        let untouched = Data(#"{"zeta": 1,   "alpha": {"b": true}}"#.utf8)
+        #expect(try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: untouched) == nil)
+        #expect(try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: nil) == nil)
     }
 }
 

@@ -61,8 +61,7 @@ final class PanelController {
             armedAt = Date().addingTimeInterval(coordinator.config.armDelay)
         }
         registerHotkeys()
-        hosting.layoutSubtreeIfNeeded()
-        let size = hosting.fittingSize
+        let size = fittedSize()
         if isNewItem || !panel.isVisible {
             panel.setFrame(defaultFrame(for: size), display: true)
         } else {
@@ -95,11 +94,35 @@ final class PanelController {
         }
     }
 
-    private func defaultFrame(for size: NSSize) -> NSRect {
+    private var heightLimit: CGFloat?
+    private let margin: CGFloat = 14
+
+    private func targetScreen() -> NSScreen {
+        if panel.isVisible, let screen = panel.screen { return screen }
         let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let visible = screen.visibleFrame
-        let margin: CGFloat = 14
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    /// Natural height first. Taller than the screen: cap it and let the panel scroll.
+    private func fittedSize() -> NSSize {
+        if heightLimit != nil {
+            heightLimit = nil
+            hosting.rootView = RootView(coordinator: coordinator, interactive: true)
+        }
+        hosting.layoutSubtreeIfNeeded()
+        var size = hosting.fittingSize
+        let maximum = (targetScreen().visibleFrame.height - 2 * margin).rounded(.down)
+        if size.height > maximum {
+            heightLimit = maximum
+            hosting.rootView = RootView(coordinator: coordinator, interactive: true, heightLimit: maximum)
+            hosting.layoutSubtreeIfNeeded()
+            size = hosting.fittingSize
+        }
+        return size
+    }
+
+    private func defaultFrame(for size: NSSize) -> NSRect {
+        let visible = targetScreen().visibleFrame
         let x: CGFloat
         switch coordinator.config.position {
         case "top-center": x = visible.midX - size.width / 2

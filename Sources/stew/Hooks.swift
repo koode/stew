@@ -218,8 +218,14 @@ enum Hooks {
     static func uninstall() throws {
         let path = claudeSettingsPath
         let current = FileManager.default.contents(atPath: path)
-        let updated = try ClaudeSettings.removingHooks(executable: installedExecutable, from: current)
-        guard updated != current else { print("no stew hooks in \(path)"); return }
+        guard let updated = try ClaudeSettings.removingHooks(executable: installedExecutable, from: current) else {
+            print("no stew hooks in \(path)")
+            return
+        }
+        if let current {
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+            try current.write(to: URL(fileURLWithPath: "\(path).bak-stew-\(stamp)"))
+        }
         try updated.write(to: URL(fileURLWithPath: path), options: .atomic)
         print("removed stew hooks from \(path)")
     }

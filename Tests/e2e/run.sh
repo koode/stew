@@ -193,6 +193,8 @@ expect "hooks install keeps other hooks" "$(python3 -c 'import json,sys;d=json.l
 expect "hooks status" "$("$STEW" hooks status)" "hooks: installed"
 "$STEW" hooks uninstall > /dev/null
 expect "hooks uninstall" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["hooks"]["PreToolUse"]), "PermissionDenied" in d["hooks"])' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
+before=$(shasum "$STEW_CLAUDE_USER_SETTINGS"); "$STEW" hooks uninstall > /dev/null
+expect "uninstall without hooks leaves the file untouched" "$(shasum "$STEW_CLAUDE_USER_SETTINGS")" "$before"
 
 # time limit: expiry note, pause while typing, more time, question, hook
 out=$("$STEW" permit --action "x" --reason "y" --timeout 1); code=$?

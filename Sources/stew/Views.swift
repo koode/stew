@@ -6,8 +6,27 @@ struct RootView: View {
     @ObservedObject var coordinator: Coordinator
     /// False in snapshots, where there is no live panel to focus.
     var interactive: Bool
+    /// Set when the content is taller than the screen: the panel takes this height and scrolls.
+    var heightLimit: CGFloat? = nil
 
     var body: some View {
+        Group {
+            if let heightLimit {
+                ScrollView { content }
+                    .scrollIndicators(.visible)
+                    .frame(height: heightLimit)
+            } else {
+                content
+            }
+        }
+        .frame(width: width)
+        .environment(\.panelTextWidth, width - 32)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let item = coordinator.current {
                 ItemCard(item: item, coordinator: coordinator, interactive: interactive)
@@ -30,10 +49,6 @@ struct RootView: View {
                     .padding(.vertical, 8)
             }
         }
-        .frame(width: width)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
     }
 
     private var hotkeyWarning: String? {
@@ -104,51 +119,67 @@ struct Header: View {
     var body: some View {
         let style = KindStyle(item.request.prompt)
         let session = item.request.session
-        HStack(alignment: .center, spacing: 10) {
+        // The name shares the top row with the controls; the subtitle gets its own
+        // row, as wide as the panel allows, so a long path keeps most of its length.
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: style.symbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(style.tint)
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(style.tint.opacity(0.15)))
             VStack(alignment: .leading, spacing: 1) {
-                Text(session.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(([style.title] + [session.cwd, session.shortID].compactMap { $0 }).joined(separator: " · "))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 8)
-            if coordinator.items.count > 1 {
-                Text("1 of \(coordinator.items.count)")
-                    .fixedSize()
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.07)))
-                    .help("Older requests show first; the rest wait below")
-            }
-            if item.timeLimit != nil {
-                TimeLimit(item: item, coordinator: coordinator)
-            }
-            Button { coordinator.perform(.dismiss) } label: {
-                HStack(spacing: 5) {
-                    Keycap(shortcut: coordinator.keymap[.dismiss])
-                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                HStack(alignment: .center, spacing: 8) {
+                    Text(session.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(session.name)
+                    Spacer(minLength: 8)
+                    controls
                 }
+                // The kind stays whole; only the path shrinks, from the middle, so its
+                // last folders stay visible. The session id is in the tooltip.
+                HStack(spacing: 0) {
+                    Text(style.title).fixedSize()
+                    if let cwd = session.cwd {
+                        Text(" · ").fixedSize()
+                        Text(cwd).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .help([session.cwd, session.id.map { "Session \($0)" }].compactMap { $0 }.joined(separator: "\n"))
+            }
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
+        if coordinator.items.count > 1 {
+            Text("1 of \(coordinator.items.count)")
+                .fixedSize()
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help("Dismiss without answering")
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                .help("Older requests show first; the rest wait below")
         }
+        if item.timeLimit != nil {
+            TimeLimit(item: item, coordinator: coordinator)
+        }
+        Button { coordinator.perform(.dismiss) } label: {
+            HStack(spacing: 5) {
+                Keycap(shortcut: coordinator.keymap[.dismiss])
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .help("Dismiss without answering")
     }
 }
 
@@ -255,6 +286,7 @@ struct SectionLabel: View {
 struct CommandBox: View {
     let command: String
     @State private var revealed = false
+    @Environment(\.panelTextWidth) private var textWidth
 
     var body: some View {
         let hasSecrets = CommandText.hasSecrets(command)
@@ -277,7 +309,8 @@ struct CommandBox: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
         return Group {
-            if command.split(separator: "\n", omittingEmptySubsequences: false).count > 12 || command.count > 900 {
+            // Monospaced glyphs are 0.6 of the font size; the box has 10 pt padding each side.
+            if LongText.estimatedLines(command, perLine: Int((textWidth - 20) / 7.2)) > 12 {
                 ScrollView { text }.frame(height: 220)
             } else {
                 text.fixedSize(horizontal: false, vertical: true)
@@ -405,7 +438,9 @@ struct PermissionBody: View {
                 SectionLabel(text: "Claude wants to")
                 Text(permission.action)
                     .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
+                    .help(permission.action)
             }
             RiskBanner(state: item.risk)
             if let command = permission.command, !command.isEmpty {
@@ -416,10 +451,7 @@ struct PermissionBody: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 SectionLabel(text: item.blocked == nil ? "Why" : "Claude's last message")
-                Text(permission.reason)
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                LongText(text: permission.reason, maxLines: 6)
             }
             if coordinator.textMode {
                 ReplyEditor(
@@ -500,7 +532,7 @@ struct GrantPicker: View {
     private func alwaysHint(_ scope: GrantChoice.Scope) -> String {
         switch scope.kind {
         case .exact, .pattern:
-            return "Always adds Bash(\(scope.value)) to this project's .claude/settings.local.json. An hour keeps it in stew."
+            return "Always adds the selected rule to this project's .claude/settings.local.json. An hour keeps it in stew."
         case .category:
             return "Kept in stew for this project. Revoke it under Manage approvals."
         }
@@ -559,13 +591,11 @@ struct NotifyBody: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(notify.title)
                     .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .help(notify.title)
                 if let body = notify.body, !body.isEmpty {
-                    Text(body)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    LongText(text: body, secondary: true, maxLines: 10)
                 }
             }
             HStack {
@@ -591,9 +621,7 @@ struct QuestionBody: View {
                     QuestionTabs(flow: flow) { coordinator.goToQuestion($0) }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(question.question)
-                        .font(.system(size: 15, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
+                    LongText(text: question.question, size: 15, weight: .semibold, maxLines: 5)
                     if question.multiSelect {
                         Text("Choose any, then \(keymap[.submit].description) to confirm.")
                             .font(.system(size: 11))
@@ -672,6 +700,9 @@ struct QuestionTabs: View {
                         Text(question.header.isEmpty ? "Q\(index + 1)" : question.header)
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: 100)
+                            .help(question.header)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -697,12 +728,18 @@ struct OptionRow: View {
                 Keycap(shortcut: shortcut)
                     .frame(width: 44, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label).font(.system(size: 13, weight: .medium))
+                    Text(option.label)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(option.label)
                     if !option.description.isEmpty {
                         Text(option.description)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
+                            .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
+                            .help(option.description)
                     }
                 }
                 Spacer(minLength: 0)
@@ -757,16 +794,77 @@ struct OtherRow: View {
     }
 }
 
+/// Previews are mockups: lines never wrap, and the box scrolls both ways when they
+/// are wider or longer than it.
 struct PreviewBox: View {
     let text: String
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 11.5, design: .monospaced))
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
+        ScrollView([.vertical, .horizontal]) {
+            Text(text)
+                .font(.system(size: 11.5, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize()
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollIndicators(.visible)
+        .frame(height: min(max(CGFloat(lines) * 15 + 20, 120), 280))
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+}
+
+private struct PanelTextWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 488
+}
+
+extension EnvironmentValues {
+    /// Width available to text in the panel, used to estimate line counts.
+    var panelTextWidth: CGFloat {
+        get { self[PanelTextWidthKey.self] }
+        set { self[PanelTextWidthKey.self] = newValue }
+    }
+}
+
+/// Body text that grows up to `maxLines`, then scrolls in a box of that height.
+struct LongText: View {
+    let text: String
+    var size: CGFloat = 13
+    var weight: Font.Weight = .regular
+    var secondary = false
+    var maxLines = 6
+    @Environment(\.panelTextWidth) private var textWidth
+
+    /// Average glyph width relative to the font size, for the system font.
+    private var charactersPerLine: Int {
+        Int(textWidth / (size * (weight == .regular ? 0.5 : 0.54)))
+    }
+
+    var body: some View {
+        let label = Text(text)
+            .font(.system(size: size, weight: weight))
+            .foregroundStyle(secondary ? Color.secondary : Color.primary)
             .textSelection(.enabled)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if Self.estimatedLines(text, perLine: charactersPerLine) > maxLines {
+            ScrollView { label.padding(.trailing, 12).padding(.bottom, 10) }
+                .scrollIndicators(.visible)
+                .frame(height: (CGFloat(maxLines) * size * 1.3).rounded())
+                // The fade at the bottom shows there is more to scroll.
+                .mask(VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                })
+        } else {
+            label.fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func estimatedLines(_ text: String, perLine: Int) -> Int {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { total, line in total + max(1, Int((Double(line.count) / Double(perLine)).rounded(.up))) }
     }
 }
 

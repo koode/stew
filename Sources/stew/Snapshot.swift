@@ -12,7 +12,10 @@ enum Snapshot {
                 let coordinator = Coordinator()
                 build(coordinator)
                 let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
-                write(RootView(coordinator: coordinator, interactive: false), dark: dark, to: path)
+                // Same two passes as the panel, on a small laptop screen (800 pt visible).
+                let natural = NSHostingView(rootView: RootView(coordinator: coordinator, interactive: false)).fittingSize.height
+                let limit: CGFloat? = natural > smallScreenHeight ? smallScreenHeight : nil
+                write(RootView(coordinator: coordinator, interactive: false, heightLimit: limit), dark: dark, to: path)
                 print(path)
             }
         }
@@ -28,6 +31,8 @@ enum Snapshot {
         }
         exit(0)
     }
+
+    private static let smallScreenHeight: CGFloat = 772
 
     private static let session = SessionInfo(name: "refactor auth middleware", id: "5b0e3c71-2f4d-4c1a-9e0b-7d6f1a2b3c4d", cwd: "~/code/web-app")
     private static let otherSession = SessionInfo(name: "mobile-app", id: "9c1d2e77-8a6b-4f3e-b2d1-0c9e8f7a6b5d", cwd: "~/code/mobile-app")
@@ -53,6 +58,13 @@ enum Snapshot {
         )
         item.risk = risk
         return item
+    }
+
+    /// Requests for the stress scenarios, which use their own sessions.
+    private enum RequestShim {
+        static func make(session: SessionInfo, prompt: Prompt) -> StewRequest {
+            StewRequest(session: session, prompt: prompt)
+        }
     }
 
     private static func blockedItem(command: String, description: String, reason: String) -> Item {
@@ -125,6 +137,77 @@ enum Snapshot {
             ))
             coordinator.perform(.grant)
             coordinator.choose(option: 1)
+        }),
+        ("stress-permission", { coordinator in
+            let longSession = SessionInfo(
+                name: "migrate the billing service from the legacy invoicing pipeline to the new event-sourced ledger, phase two",
+                id: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+                cwd: "~/code/clients/very-long-organisation-name/monorepo/services/billing/ledger-migration/tools"
+            )
+            let command = (1...40).map { "psql \"$DATABASE_URL\" -c \"UPDATE invoices SET ledger_id = gen_random_uuid() WHERE batch = \($0) AND migrated IS NOT TRUE;\"" }.joined(separator: "\n")
+            let item = Item(request: RequestShim.make(
+                session: longSession,
+                prompt: .permission(PermissionRequest(
+                    action: String(repeating: "Rewrite every unmigrated invoice row in the production billing database so it points at a ledger entry, in forty batches, ", count: 3),
+                    command: command,
+                    reason: String(repeating: "The ledger migration stalled at batch 14 because invoices created during the cutover window never got a ledger id. Without this the monthly close fails. ", count: 8)
+                ))
+            ), connection: nil)
+            item.risk = .done(RiskAssessment(verdict: .softDeny, risk: .high, rule: "Production Writes", summary: String(repeating: "Writes to the production billing database in forty separate statements without a transaction. ", count: 6)))
+            coordinator.show(item)
+            for index in 1...8 {
+                coordinator.show(Item(request: RequestShim.make(
+                    session: SessionInfo(name: "background job number \(index) with a rather long descriptive name that keeps going", cwd: "~/code/x"),
+                    prompt: .notify(NotifyRequest(title: "A notification title that is also far longer than anything sensible, number \(index)"))
+                ), connection: nil))
+            }
+        }),
+        ("stress-token", { coordinator in
+            let token = String(repeating: "QmFzZTY0RW5jb2RlZERhdGFUaGF0TmV2ZXJFbmRz", count: 10)
+            coordinator.show(Item(request: RequestShim.make(
+                session: session,
+                prompt: .permission(PermissionRequest(
+                    action: "Upload the build artifact",
+                    command: "curl -X PUT https://artifacts.example.com/upload/\(token)?signature=\(token.prefix(60)) && ls /var/lib/" + String(repeating: "verylongdirectorynamewithoutanybreaks", count: 8),
+                    reason: "The CI cache is cold."
+                ))
+            ), connection: nil))
+        }),
+        ("stress-question", { coordinator in
+            let wide = (1...60).map { "\($0): " + String(repeating: "─", count: 180) + "┤" }.joined(separator: "\n")
+            coordinator.show(Item(request: RequestShim.make(
+                session: session,
+                prompt: .question(QuestionSet(questions: [
+                    Question(question: String(repeating: "Which of these approaches should the migration take, given that the old pipeline must keep running during the cutover? ", count: 3), header: "A header that is much too long", options: (1...4).map { number in
+                        QuestionOption(
+                            label: "Option \(number): " + String(repeating: "a long label that keeps going ", count: 4),
+                            description: String(repeating: "This description explains the trade-offs in far more detail than fits on one line. ", count: 5),
+                            preview: number == 1 ? wide : nil
+                        )
+                    }),
+                    Question(question: "Second?", header: "Another very long header text", options: [QuestionOption(label: "A", description: ""), QuestionOption(label: "B", description: "")]),
+                    Question(question: "Third?", header: "Third long header here", options: [QuestionOption(label: "A", description: ""), QuestionOption(label: "B", description: "")]),
+                    Question(question: "Fourth?", header: "Fourth long header too", options: [QuestionOption(label: "A", description: ""), QuestionOption(label: "B", description: "")]),
+                ]))
+            ), connection: nil))
+        }),
+        ("stress-notify", { coordinator in
+            coordinator.show(Item(request: RequestShim.make(
+                session: session,
+                prompt: .notify(NotifyRequest(
+                    title: String(repeating: "The nightly import finished with warnings in several tables ", count: 4),
+                    body: String(repeating: "Table invoices: 1,204 rows skipped because the currency code was missing. Table customers: 31 duplicates merged. ", count: 25),
+                    level: .warning
+                ))
+            ), connection: nil))
+        }),
+        ("stress-grant", { coordinator in
+            coordinator.show(blockedItem(
+                command: "terraform apply -auto-approve -var-file=environments/production/very/deeply/nested/config/with/a/long/path/terraform.tfvars -target=module.billing_ledger_migration_service_cluster",
+                description: String(repeating: "Apply the Terraform plan for the production billing cluster ", count: 3),
+                reason: String(repeating: "The plan only adds the ledger read replica and changes no existing resources. ", count: 9)
+            ))
+            coordinator.perform(.grant)
         }),
         ("question-preview", { coordinator in
             coordinator.show(Item(request: StewRequest(session: session, prompt: .question(QuestionSet(questions: [

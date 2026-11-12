@@ -9,7 +9,7 @@ final class HotkeyCenter {
     private var handlers: [UInt32: () -> Void] = [:]
     private var nextID: UInt32 = 1
     private var eventHandler: EventHandlerRef?
-    private static let signature: OSType = 0x4841_494C // "STEW"
+    private static let signature: OSType = 0x5354_4557 // "STEW"
 
     init() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))

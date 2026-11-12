@@ -367,9 +367,14 @@ public enum ClaudeSettings {
         return try self.data(from: object)
     }
 
-    public static func removingHooks(executable: String, from data: Data?) throws -> Data {
+    /// Nil when the file holds none of stew's hooks: the file must then stay untouched,
+    /// byte for byte, instead of being re-serialized.
+    public static func removingHooks(executable: String, from data: Data?) throws -> Data? {
         var object = try object(from: data)
-        guard var hooks = object["hooks"] as? [String: Any] else { return try self.data(from: object) }
+        guard var hooks = object["hooks"] as? [String: Any],
+              ["PermissionDenied", "PreToolUse"].contains(where: { event in
+                  (hooks[event] as? [[String: Any]] ?? []).contains { isStewHook($0, executable: executable) }
+              }) else { return nil }
         for event in ["PermissionDenied", "PreToolUse"] {
             guard let list = hooks[event] as? [[String: Any]] else { continue }
             let kept = list.filter { !isStewHook($0, executable: executable) }
