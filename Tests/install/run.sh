@@ -45,6 +45,7 @@ expect "LaunchAgent runs the app binary" "$(/usr/libexec/PlistBuddy -c 'Print :P
 expect "daemon stopped, then started" "$(tr '\n' ' ' < "$LAUNCHCTL_LOG")" "launchctl bootout gui/$(id -u)/nl.koode.stew launchctl bootstrap gui/$(id -u) $FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist"
 [[ -f "$FAKE_HOME/.claude/skills/stew/SKILL.md" ]] && pass "skill installed" || fail "skill installed" "no SKILL.md"
 expect "hooks installed" "$(cat "$WORK/claude-settings.json" 2>/dev/null)" "stew hook denied"
+expect "needs hooks installed" "$(python3 -c 'import json,sys;hooks=json.load(open(sys.argv[1]))["hooks"];print(hooks["Stop"][0]["hooks"][0]["command"].split(" hook ")[1], hooks["UserPromptSubmit"][0]["hooks"][0]["command"].split(" hook ")[1])' "$WORK/claude-settings.json" 2>&1)" "stop prompt"
 expect "the link runs the app" "$("$FAKE_HOME/.local/bin/stew" version)" "stew 0.1.0 (build 3)"
 [[ ! -e "$FAKE_HOME/Applications/.Stew.app.installing" && ! -e "$FAKE_HOME/Applications/.Stew.app.previous" ]] \
   && pass "no staging left behind" || fail "no staging left behind" "$(ls -a "$FAKE_HOME/Applications")"

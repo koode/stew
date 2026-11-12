@@ -355,6 +355,187 @@ wait_items 0 && pass "return summary closes with approve" || fail "return summar
 control returned 0 > /dev/null
 expect "nothing missed, no summary" "$(control state)" "items=0"
 
+# needs: things only the user can do. Shown at once, kept in needs.json until resolved.
+id_of() { python3 -c 'import json,sys;print(json.loads(sys.argv[1]).get("id",""))' "$1"; }
+needs_count() { # outcome, title: history entries for a needs item
+  python3 -c 'import json,sys;print(sum(1 for entry in json.loads(sys.argv[1]) if entry["kind"]=="needs" and entry["outcome"]==sys.argv[2] and entry["summary"]==sys.argv[3]))' "$(history_json)" "$1" "$2"
+}
+TOKEN="ghp_abcdefghijklmnopqrstuvwxyz0123456789" # gitleaks:allow (test fixture)
+out=$("$STEW" needs "Log in to npm" --why "publish failed with E401" --step "Run the command" --step "Finish in the browser" \
+  --command "npm login --token $TOKEN" --command "npm whoami" --link https://www.npmjs.com/login); code=$?
+expect "needs returns at once" "$out$code" '"status":"shown"}0'
+NPM=$(id_of "$out")
+[[ ${#NPM} -eq 8 ]] && pass "needs returns a short id" || fail "needs returns a short id" "$out"
+state=$(control state)
+expect "needs shows in the panel" "$state" "items=1 kind=needs"
+expect "needs has no clock" "$state" "clock=none"
+expect "needs keys" "$state" "keys=⌘. ⌘↩ ⌘D ⌘O"
+expect "needs list" "$("$STEW" needs list)" "$NPM  e2e · Log in to npm"
+expect "needs list --json" "$("$STEW" needs list --json)" '"title" : "Log in to npm"'
+expect "needs.json is private" "$(stat -f %Lp "$WORK/needs.json")" "600"
+expect "needs.json keeps the command to copy" "$(cat "$WORK/needs.json")" "npm login --token $TOKEN"
+control press approve > /dev/null
+wait_items 0 && pass "done closes the item" || fail "done closes the item" "$(control state)"
+expect "done item leaves the list" "$("$STEW" needs list)" "Nothing needs you."
+sleep 0.2
+expect "done is recorded" "$(needs_count done 'Log in to npm')" "1"
+[[ "$(cat "$WORK/history.jsonl")" != *"$TOKEN"* ]] && pass "history masks needs commands" || fail "history masks needs commands" "raw token in history.jsonl"
+
+"$STEW" needs "x" --timeout 5 2> "$WORK/err"; code=$?
+expect "--timeout without --wait is refused" "$code$(cat "$WORK/err")" "64stew: --timeout applies only with --wait"
+"$STEW" needs "x" --link "file:///Applications/Calculator.app" 2> "$WORK/err"; code=$?
+expect "a link that is not http is refused" "$code$(cat "$WORK/err")" "64stew: \"file:///Applications/Calculator.app\" is not an http or https URL"
+
+out=$("$STEW" needs "Approve the release in App Store Connect")
+REL=$(id_of "$out")
+out=$("$STEW" needs resolve "$REL"); code=$?
+expect "resolve from the CLI" "$out$code" "{\"id\":\"$REL\",\"status\":\"resolved\"}0"
+expect "resolved item leaves the panel" "$(control state)" "items=0"
+sleep 0.2
+expect "resolve is recorded" "$(needs_count resolvedByClaude 'Approve the release in App Store Connect')" "1"
+out=$("$STEW" needs resolve nosuchid); code=$?
+expect "resolve an unknown id" "$out$code" "no open needs item with id nosuchid"
+expect "unknown id exits 4" "$code" "4"
+
+"$STEW" needs "Plug in the YubiKey" --wait > "$WORK/out" & client=$!
+wait_items 1
+control press other > /dev/null
+control type "plugged into the left port" > /dev/null
+control press approve > /dev/null
+wait $client; code=$?
+expect "--wait returns done with the note" "$(cat "$WORK/out")$code" '"note":"plugged into the left port","status":"done"}0'
+
+"$STEW" needs "Buy more GPU credits" --wait > "$WORK/out" & client=$!
+wait_items 1
+control press deny > /dev/null
+wait $client; code=$?
+expect "decline returns dismissed" "$(cat "$WORK/out")$code" '"status":"dismissed"}2'
+sleep 0.2
+expect "decline is recorded as dismissed" "$(needs_count dismissed 'Buy more GPU credits')" "1"
+
+out=$("$STEW" needs "Sign the contract" --wait --timeout 1); code=$?
+expect "--wait --timeout stops waiting" "$out$code" '"status":"timeout"'
+expect "timeout tells Claude how to resolve" "$out" "stew needs resolve $(id_of "$out")"
+SIGN=$(id_of "$out")
+expect "the item stays open after the wait" "$(control state)" "items=1 kind=needs"
+control press dismiss > /dev/null
+expect "not now parks it" "$(control state)" "items=0 kind=none"
+expect "a parked item stays open" "$(control state)" "needs=1 parked=1"
+sleep 0.2
+expect "not now records nothing" "$(python3 -c 'import json,sys;print(sum(1 for entry in json.loads(sys.argv[1]) if entry["summary"]=="Sign the contract"))' "$(history_json)")" "0"
+control open "$SIGN" > /dev/null
+expect "the menu bar opens a parked item" "$(control state)" "items=1 kind=needs"
+expect "opening unparks it" "$(control state)" "parked=0 front=$SIGN"
+
+# a permission request goes ahead of a needs item, unless the user is typing on it
+"$STEW" permit --action "Push" --reason "r" > "$WORK/out" & client=$!
+wait_items 2
+expect "permission jumps ahead of needs" "$(control state)" "kind=permission"
+control press approve > /dev/null; wait $client
+expect "needs comes back after the permission" "$(control state)" "items=1 kind=needs"
+control press other > /dev/null
+"$STEW" permit --action "Push" --reason "r" > "$WORK/out" & client=$!
+wait_items 2
+expect "a note in progress keeps the needs item in front" "$(control state)" "kind=needs"
+control press other > /dev/null
+expect "closing the note lets the permission go first" "$(control state)" "kind=permission"
+control press approve > /dev/null; wait $client
+control press dismissAll > /dev/null
+state=$(control state)
+expect "dismiss all empties the panel" "$state" "items=0 kind=none"
+expect "dismiss all parks needs items" "$state" "needs=1 parked=1"
+
+# the return summary counts open needs, and a parked item comes back once
+control returned 1 > /dev/null
+state=$(control state)
+expect "return shows the summary first" "$state" "items=2 kind=notify"
+expect "return brings the parked item back" "$state" "parked=0"
+control press approve > /dev/null
+expect "the needs item follows the summary" "$(control state)" "items=1 kind=needs"
+control press dismiss > /dev/null
+control returned 1 > /dev/null
+expect "a parked item comes back only once" "$(control state)" "items=1 kind=notify"
+expect "the summary still counts it" "$(control state)" "needs=1 parked=1"
+control press approve > /dev/null
+
+# open items survive a daemon restart; parked ones stay parked
+out=$("$STEW" needs "Rotate the staging password" --command "op item edit staging")
+ROT=$(id_of "$out")
+"$STEW" stop > /dev/null
+wait "$DAEMON" 2>/dev/null
+"$STEW" daemon 2>> "$WORK/daemon.log" &
+DAEMON=$!
+for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && control state > /dev/null 2>&1 && break; sleep 0.1; done
+state=$(control state)
+expect "open item is back after a restart" "$state" "items=1 kind=needs"
+expect "parked item stays parked after a restart" "$state" "needs=2 parked=1 front=$ROT"
+"$STEW" needs resolve "$ROT" > /dev/null
+"$STEW" needs resolve "$SIGN" > /dev/null
+expect "nothing open" "$(control state)" "items=0 kind=none"
+
+# Stop hook: a "needs input:" line in Claude's last message becomes an item, for
+# unattended sessions by default. UserPromptSubmit clears it when the user writes.
+turn_json() { # event, session, message
+  python3 -c 'import json,sys;print(json.dumps({"session_id":sys.argv[2],"cwd":sys.argv[4],"hook_event_name":sys.argv[1],"transcript_path":"/nonexistent","last_assistant_message":sys.argv[3],"prompt":"ok"}))' "$1" "$2" "$3" "$PROJ"
+}
+NEEDS_MESSAGE=$'The push failed.\n\nneeds input: log in to the registry\n\n1. Run the login\n   ```\n   docker login ghcr.io\n   ```\n2. Tell me when it worked'
+stop_hook() { turn_json Stop "$1" "$2" | CLAUDE_CODE_SESSION_ATTENDED="$3" "$STEW" hook stop; }
+expect "stop hook is silent" "[$(stop_hook auto-1 "$NEEDS_MESSAGE" 1)]" "[]"
+expect "attended session gets no item" "$(control state)" "items=0 kind=none"
+expect "unattended stop hook is silent" "[$(stop_hook auto-1 "$NEEDS_MESSAGE" 0)]" "[]"
+wait_items 1
+expect "unattended session gets an item" "$(control state)" "kind=needs"
+listed=$("$STEW" needs list --json)
+expect "item title from the needs line" "$listed" '"title" : "log in to the registry"'
+expect "steps from the numbered list" "$listed" '"Tell me when it worked"'
+expect "commands from code blocks" "$listed" '"command" : "docker login ghcr.io"'
+expect "item is marked automatic" "$listed" '"automatic" : true'
+stop_hook auto-1 $'needs input: log in to the registry again' 0 > /dev/null
+expect "a session keeps one automatic item" "$(control state)" "needs=1 "
+expect "the newer item replaces the older" "$("$STEW" needs list)" "log in to the registry again"
+stop_hook auto-2 "All done, tests pass." 0 > /dev/null
+expect "no needs line, no item" "$(control state)" "needs=1"
+set_config ',"autoNeeds":"never"'
+stop_hook auto-3 "$NEEDS_MESSAGE" 0 > /dev/null
+expect "autoNeeds never makes no item" "$(control state)" "needs=1"
+set_config ',"autoNeeds":"always"'
+stop_hook auto-3 "$NEEDS_MESSAGE" 1 > /dev/null
+expect "autoNeeds always covers attended sessions" "$(control state)" "needs=2"
+set_config ""
+prompt_hook() { turn_json UserPromptSubmit "$1" "" | "$STEW" hook prompt; }
+expect "prompt hook is silent" "[$(prompt_hook auto-1)]" "[]"
+expect "a message to the session resolves its item" "$(control state)" "needs=1"
+expect "only that session's item goes" "[$(prompt_hook someone-else)]" "[]"
+expect "other sessions keep theirs" "$(control state)" "needs=1"
+sleep 0.2
+expect "answered in session is recorded" "$(needs_count answeredInSession 'log in to the registry again')" "1"
+prompt_hook auto-3 > /dev/null
+expect "every automatic item answered" "$(control state)" "items=0 kind=none"
+# The Stop input of an older Claude Code has no last_assistant_message: read the transcript.
+printf '%s\n' "$(python3 -c 'import json;print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":"needs input: approve the deploy"}]}}))')" > "$WORK/transcript.jsonl"
+python3 -c 'import json,sys;print(json.dumps({"session_id":"auto-4","cwd":sys.argv[1],"hook_event_name":"Stop","transcript_path":sys.argv[2]}))' "$PROJ" "$WORK/transcript.jsonl" \
+  | CLAUDE_CODE_SESSION_ATTENDED=0 "$STEW" hook stop
+expect "transcript fallback" "$("$STEW" needs list)" "e2e · approve the deploy"
+prompt_hook auto-4 > /dev/null
+expect "prompt hook ignores input without a session" "[$(echo '{}' | "$STEW" hook prompt)]" "[]"
+
+# hooks install adds Stop and UserPromptSubmit, once, and keeps other hooks
+echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}' > "$STEW_CLAUDE_USER_SETTINGS"
+"$STEW" hooks install > /dev/null; "$STEW" hooks install > /dev/null
+expect "hooks install adds Stop and UserPromptSubmit once" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), len(d["UserPromptSubmit"]), [h["hooks"][0].get("async") for h in d["Stop"]], d["UserPromptSubmit"][0]["hooks"][0]["command"].endswith(" hook prompt"))' "$STEW_CLAUDE_USER_SETTINGS")" "2 1 [None, True] True"
+expect "hooks status after install" "$("$STEW" hooks status)" "hooks: installed"
+# An install from before needs items: only the first three hooks.
+python3 -c 'import json,sys
+path=sys.argv[1]; settings=json.load(open(path)); hooks=settings["hooks"]
+hooks["Stop"]=[entry for entry in hooks["Stop"] if " hook stop" not in entry["hooks"][0]["command"]]
+del hooks["UserPromptSubmit"]
+json.dump(settings, open(path, "w"))' "$STEW_CLAUDE_USER_SETTINGS"
+expect "an install without the needs hooks is partial" "$("$STEW" hooks status)" "hooks: partly installed"
+"$STEW" hooks install > /dev/null
+expect "install completes a partial install" "$("$STEW" hooks status)" "hooks: installed"
+"$STEW" hooks uninstall > /dev/null
+expect "uninstall keeps only the other Stop hook" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), "UserPromptSubmit" in d)' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
+
 # updates
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$UPD/site" > "$UPD/http.log" 2>&1 &
 HTTP=$!
