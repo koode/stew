@@ -53,6 +53,14 @@ final class PhoneLink: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
     }
 
+    /// Sample state for `stew snapshot`, which never starts the link.
+    func showSample(pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, store: PhoneStore) {
+        self.store = store
+        self.pairings = pairings
+        self.statuses = statuses
+        pairingCode = code
+    }
+
     func verificationCode(for pairing: MacPairing) -> String? {
         guard let store, let phoneKeys = pairing.phoneKeys else { return nil }
         return pairing.pairingCode(macKeys: store.identity.publicKeys).verificationCode(phoneSigning: phoneKeys.signing)

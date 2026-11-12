@@ -41,6 +41,7 @@ enum Snapshot {
             write(SettingsView(model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: updater).frame(width: 720, height: 640), dark: dark, to: path)
             print(path)
         }
+        PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
     }
 

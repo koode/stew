@@ -5,6 +5,7 @@ import StewCore
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general, keys, claude, approvals, history
     var id: String { rawValue }
+    case phone
 }
 
 /// Reads and writes ~/.config/stew/config.json. Every change is checked and saved at once.
@@ -135,6 +136,7 @@ struct SettingsView: View {
                 GeneralSettings(model: model, updater: updater).tabItem { Text("General") }.tag(SettingsTab.general)
                 KeySettings(model: model).tabItem { Text("Keys") }.tag(SettingsTab.keys)
                 ClaudeSettingsTab(model: model).tabItem { Text("Claude Code") }.tag(SettingsTab.claude)
+                PhoneSettingsTab(model: model, link: PhoneLink.shared).tabItem { Text("iPhone") }.tag(SettingsTab.phone)
                 ApprovalsView(model: approvals).tabItem { Text("Approvals") }.tag(SettingsTab.approvals)
                 HistoryView(model: history).tabItem { Text("History") }.tag(SettingsTab.history)
             }

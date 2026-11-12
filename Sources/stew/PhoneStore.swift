@@ -47,8 +47,18 @@ final class PhoneStore {
     private(set) var identity: LinkIdentity
     private(set) var pairings: [MacPairing]
     private let filePath: String?
+    private let persists: Bool
+
+    /// Keeps everything in memory, for `stew snapshot`.
+    init(sampleIdentity: LinkIdentity) {
+        filePath = nil
+        persists = false
+        identity = sampleIdentity
+        pairings = []
+    }
 
     init(headless: Bool = Paths.headless) {
+        persists = true
         filePath = headless ? (Paths.socket as NSString).deletingLastPathComponent + "/phone-link.json" : nil
         let stored = Self.read(filePath: filePath).flatMap { try? JSONDecoder().decode(Contents.self, from: $0) }
         if let stored, let identity = try? LinkIdentity(stored: stored.identity) {
@@ -75,7 +85,7 @@ final class PhoneStore {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(Contents(identity: identity.stored, pairings: pairings)) else { return }
+        guard persists, let data = try? JSONEncoder().encode(Contents(identity: identity.stored, pairings: pairings)) else { return }
         do {
             try Self.write(data, filePath: filePath)
         } catch {
