@@ -25,6 +25,9 @@ USAGE
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
   stew version       Print the version and build (also --version).
+  stew update [--check]
+      Install the latest version now (the daemon also checks daily), or with
+      --check only report whether there is one.
 
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
@@ -36,6 +39,9 @@ COMMON
 EXIT CODES
   0 approved / answered / acknowledged / shown, 1 denied, 2 dismissed,
   3 timeout, 4 error
+  stew update: 0 up to date or installed, 10 update available (--check),
+  11 newer version needs a newer macOS, 12 installs once no request is open,
+  20 check failed, 21 download rejected by verification, 22 install failed
 """
 
 struct Arguments {
@@ -43,7 +49,7 @@ struct Arguments {
     var options: [String: String] = [:]
     var flags: Set<String> = []
 
-    static let booleanFlags: Set<String> = ["wait", "help"]
+    static let booleanFlags: Set<String> = ["wait", "help", "check"]
 
     init(_ arguments: ArraySlice<String>) throws {
         var iterator = arguments.makeIterator()
@@ -121,6 +127,47 @@ func loadConfig() -> (StewConfig, String?) {
     } catch {
         return (StewConfig(), "\(Paths.config): \(error)")
     }
+}
+
+/// Runs an update in this process, for `stew update --check` and when no daemon answers.
+func updateInProcess(install: Bool) -> UpdateOutcome {
+    let updater = Updater { message in Log.append(message) }
+    var result: UpdateOutcome?
+    updater.run(install: install) { outcome in result = outcome }
+    // The updater reports on the main queue, so keep the main run loop turning.
+    while result == nil {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+    }
+    return result!
+}
+
+/// Release tooling: makes a new release signing key pair. The public key goes to
+/// --public-key-file (or stderr). The private key goes to stdout, as a bare base64
+/// value or, with --1password-title, as an item template for `op item create`, so the
+/// release script can pipe it into 1Password without writing it to disk.
+func updateKeygen(_ arguments: Arguments) throws {
+    let keys = UpdateSigner.generateKeyPair()
+    if let path = arguments.options["public-key-file"] {
+        try (keys.publicKey + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    } else {
+        FileHandle.standardError.write(Data("public key: \(keys.publicKey)\n".utf8))
+    }
+    guard let title = arguments.options["1password-title"] else {
+        print(keys.privateKey)
+        return
+    }
+    let template: [String: Any] = [
+        "title": title,
+        "category": "SECURE_NOTE",
+        "fields": [
+            ["id": "notesPlain", "type": "STRING", "purpose": "NOTES", "label": "notesPlain",
+             "value": "Ed25519 key that signs stew update zips. The public key is Updater.embeddedPublicKey in Sources/stew/Updater.swift."],
+            ["id": "private_key", "type": "CONCEALED", "label": "private key", "value": keys.privateKey],
+            ["id": "public_key", "type": "STRING", "label": "public key", "value": keys.publicKey],
+        ],
+    ]
+    let data = try JSONSerialization.data(withJSONObject: template, options: [.sortedKeys])
+    FileHandle.standardOutput.write(data + Data("\n".utf8))
 }
 
 func runCommand(_ command: String, _ arguments: Arguments) throws {
@@ -221,6 +268,38 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
 
     case "version", "--version":
         print("stew \(AppVersion.running)")
+
+    case "update":
+        let outcome: UpdateOutcome
+        if arguments.flags.contains("check") {
+            outcome = updateInProcess(install: false)
+        } else if let reply = Client.sendControl("update"),
+                  let decoded = try? Wire.decode(UpdateOutcome.self, line: Data(reply.utf8)) {
+            // The daemon installs, because only it knows whether a request is open.
+            outcome = decoded
+        } else {
+            outcome = updateInProcess(install: true)
+        }
+        print(outcome.message)
+        exit(outcome.exitCode)
+
+    case "_sign-update":
+        // Release tooling: the private key arrives on stdin and never touches disk.
+        guard let path = arguments.positional.first, let data = FileManager.default.contents(atPath: path) else {
+            throw UsageError("_sign-update needs a readable file")
+        }
+        print(try UpdateSigner.sign(data, privateKey: readStandardInput()))
+
+    case "_verify-update":
+        guard let path = arguments.positional.first, let data = FileManager.default.contents(atPath: path) else {
+            throw UsageError("_verify-update needs a readable file")
+        }
+        let archive = UpdateManifest.Archive(url: "", sha256: UpdateVerifier.sha256Hex(data), size: data.count, ed25519: try arguments.required("signature"))
+        try UpdateVerifier.verify(data, against: archive, publicKey: try arguments.required("public-key"))
+        print("signature valid")
+
+    case "_update-keygen":
+        try updateKeygen(arguments)
 
     case "snapshot":
         Snapshot.render(to: try arguments.required("out"))

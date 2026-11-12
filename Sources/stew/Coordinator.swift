@@ -89,6 +89,10 @@ final class Coordinator: ObservableObject {
     var onCelebrate: (() -> Void)?
     /// How many approvals asked for confetti, for the end-to-end tests.
     private(set) var celebrations = 0
+    /// Called after every change while no request is open, so a waiting update can install.
+    var onIdle: (() -> Void)?
+    /// `stew update`: check and install now, then reply with the outcome.
+    var onUpdate: ((@escaping (UpdateOutcome) -> Void) -> Void)?
 
     var current: Item? { items.first }
 
@@ -135,6 +139,12 @@ final class Coordinator: ObservableObject {
         case "approvals", "settings":
             connection.send(Data("opened\n".utf8))
             onOpenSettings?(control == "approvals" ? .approvals : .general)
+        case "update":
+            guard let onUpdate else {
+                connection.send((try? Wire.encode(UpdateOutcome(status: .checkFailed, message: "this daemon cannot update"))) ?? Data())
+                return
+            }
+            onUpdate { outcome in connection.send((try? Wire.encode(outcome)) ?? Data()) }
         default:
             if Paths.headless, let reply = handleTestControl(control) {
                 connection.send(Data((reply + "\n").utf8))
@@ -259,6 +269,7 @@ final class Coordinator: ObservableObject {
     private func changed() {
         syncTimer()
         onChange?()
+        if items.isEmpty { onIdle?() }
     }
 
     /// The clock runs only for the request on screen, and pauses while the user types

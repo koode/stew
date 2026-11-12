@@ -127,6 +127,11 @@ enum Daemon {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         let coordinator = Coordinator()
+        let updater = Updater(log: Log.write)
+        updater.restartsInBackground = true
+        updater.isIdle = { coordinator.items.isEmpty }
+        coordinator.onIdle = { updater.idle() }
+        coordinator.onUpdate = { reply in updater.run(install: true, completion: reply) }
         if !Paths.headless {
             let panel = PanelController(coordinator: coordinator)
             coordinator.onChange = { panel.update() }
@@ -134,7 +139,7 @@ enum Daemon {
             coordinator.onCelebrate = {
                 if let frame = panel.visibleFrame { confetti.burst(around: frame) }
             }
-            let settings = SettingsWindowController { coordinator.configChanged() }
+            let settings = SettingsWindowController(updater: updater) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
         }
 
@@ -167,7 +172,12 @@ enum Daemon {
             signalSources.append(source)
         }
         RiskChecker.mainLoopRunning = true
-        Log.write("stew daemon listening on \(Paths.socket)")
+        Log.write("stew daemon \(AppVersion.running) listening on \(Paths.socket)")
+        updater.cleanUpAfterUpdate()
+        updater.startSchedule {
+            coordinator.reloadConfigIfChanged()
+            return coordinator.config.autoUpdate
+        }
         application.run()
         exit(0)
     }

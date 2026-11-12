@@ -25,7 +25,7 @@ enum Snapshot {
                 model.load()
                 model.tab = tab
                 let path = "\(directory)/settings-\(tab.rawValue)-\(dark ? "dark" : "light").png"
-                write(SettingsView(model: model, approvals: ApprovalsModel()).frame(width: 720, height: 560), dark: dark, to: path)
+                write(SettingsView(model: model, approvals: ApprovalsModel(), updater: Updater(log: { _ in })).frame(width: 720, height: 560), dark: dark, to: path)
                 print(path)
             }
         }

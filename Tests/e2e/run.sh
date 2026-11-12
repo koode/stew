@@ -20,9 +20,27 @@ wait_items() { # count
   return 1
 }
 
+# Updates come from a local server on a free port, signed with a throwaway key made
+# here, and install into a temporary Stew.app. The private key lives only in a variable.
+UPD="$WORK/update"
+mkdir -p "$UPD/site" "$UPD/Applications"
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+UPDATE_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/public.txt")
+OTHER_KEY=$("$STEW" _update-keygen --public-key-file "$UPD/other-public.txt")
+export STEW_LOG="$WORK/stew.log" STEW_APP_PATH="$UPD/Applications/Stew.app" \
+  STEW_UPDATE_URL="http://127.0.0.1:$PORT/latest.json" STEW_UPDATE_PUBLIC_KEY="$(cat "$UPD/public.txt")" \
+  STEW_UPDATE_SKIP_TEAM_CHECK=1
+HTTP=""
+SCHEDULED=""
+
 "$STEW" daemon 2> "$WORK/daemon.log" &
 DAEMON=$!
-trap 'kill $DAEMON 2>/dev/null; wait $DAEMON 2>/dev/null; rm -rf "$WORK"' EXIT
+stop_all() {
+  for pid in $DAEMON $HTTP $SCHEDULED; do kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; done
+  # E2E_KEEP=1 leaves the work folder for a look at the logs.
+  if [[ "${E2E_KEEP:-0}" == "1" ]]; then echo "kept $WORK"; else rm -rf "$WORK"; fi
+}
+trap stop_all EXIT
 for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && break; sleep 0.1; done
 
 # version: from the source checkout, and from Stew.app, also through a symlink
@@ -288,6 +306,93 @@ control press grant > /dev/null; control choose 1 > /dev/null; control press app
 wait $hook
 expect "approve with a grant shows confetti" "$(control state)" "confetti=2"
 set_config ""
+
+# updates
+python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$UPD/site" > "$UPD/http.log" 2>&1 &
+HTTP=$!
+for _ in $(seq 1 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break; sleep 0.1; done
+release() { # version build [minimumMacOS] [badsig|badsha]
+  local dir="$UPD/build-$1-$2" zip="$UPD/site/v$1/Stew-$1.zip" sha size signature
+  "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$dir" --version "$1" --build "$2" > /dev/null
+  codesign --force --sign - --identifier nl.koode.stew "$dir/Stew.app" 2> /dev/null
+  mkdir -p "$UPD/site/v$1"
+  rm -f "$zip"
+  ditto -c -k --keepParent "$dir/Stew.app" "$zip"
+  sha=$(shasum -a 256 "$zip" | cut -d' ' -f1)
+  size=$(stat -f%z "$zip")
+  signature=$(printf '%s' "$UPDATE_KEY" | "$STEW" _sign-update "$zip")
+  case "${4:-}" in
+    badsig) signature=$(printf '%s' "$OTHER_KEY" | "$STEW" _sign-update "$zip") ;;
+    badsha) sha=$(printf '0%.0s' $(seq 1 64)) ;;
+  esac
+  cat > "$UPD/site/latest.json" <<JSON
+{"version":"$1","build":$2,"published":"2026-11-20T10:00:00Z","minimumMacOS":"${3:-14.0}","notes":"https://stewcli.com/changelog#$1",
+ "archive":{"url":"http://127.0.0.1:$PORT/v$1/Stew-$1.zip","sha256":"$sha","size":$size,"ed25519":"$signature"}}
+JSON
+}
+installed_version() { /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$STEW_APP_PATH/Contents/Info.plist" 2>/dev/null; }
+
+release 0.1.0 5
+ditto "$UPD/build-0.1.0-5/Stew.app" "$STEW_APP_PATH"
+out=$("$STEW" update --check); code=$?
+expect "same version is up to date" "$out$code" "Stew is up to date: 0.1.0 (build 5).0"
+
+release 0.2.0 9
+out=$("$STEW" update --check); code=$?
+expect "newer version is detected" "$out" "Version 0.2.0 (build 9) is available."
+expect "check exit 10" "$code" "10"
+expect "check installs nothing" "$(installed_version)" "0.1.0"
+
+release 0.2.0 9 99.0
+out=$("$STEW" update); code=$?
+expect "too new for this macOS is skipped" "$out$code" "needs macOS 99.0 or later.11"
+expect "skipped release installs nothing" "$(installed_version)" "0.1.0"
+
+release 0.2.0 9 14.0 badsig
+out=$("$STEW" update); code=$?
+expect "bad signature is rejected" "$out$code" "the Ed25519 signature does not match the zip21"
+expect "rejected release installs nothing" "$(installed_version)" "0.1.0"
+
+release 0.2.0 9 14.0 badsha
+out=$("$STEW" update); code=$?
+expect "sha mismatch is rejected" "$out$code" "update rejected: sha256 is"
+expect "sha mismatch exit 21" "$code" "21"
+
+out=$(STEW_SOCKET="$WORK/none.sock" STEW_UPDATE_PUBLIC_KEY="" "$STEW" update); code=$?
+expect "no signing key, no install" "$out$code" "has no update signing key, so it cannot install updates21"
+
+release 0.2.0 9
+out=$(STEW_SOCKET="$WORK/none.sock" env -u STEW_UPDATE_SKIP_TEAM_CHECK "$STEW" update); code=$?
+expect "ad hoc signature fails the team check" "$out$code" "signed by team none, not PXD36584ME"
+expect "team check exit 21" "$code" "21"
+
+"$STEW" notify "Busy" > /dev/null
+out=$("$STEW" update); code=$?
+expect "open request defers the install" "$out$code" "installs when no request is open.12"
+expect "deferred install waits" "$(installed_version)" "0.1.0"
+control press dismiss > /dev/null
+for _ in $(seq 1 50); do [[ "$(installed_version)" == "0.2.0" ]] && break; sleep 0.1; done
+expect "install runs once the panel is empty" "$(installed_version)" "0.2.0"
+
+release 0.3.0 11
+out=$("$STEW" update); code=$?
+expect "update installs at once when idle" "$out$code" "Installed version 0.3.0 (build 11).0"
+expect "new app in place" "$(installed_version)" "0.3.0"
+expect "previous app kept as backup" "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$UPD/Applications/.stew-update/backup/Stew.app/Contents/Info.plist")" "0.2.0"
+expect "update steps are logged" "$(cat "$WORK/daemon.log")" "update: code signature valid; team check skipped"
+expect "last check is recorded" "$(cat "$WORK/update-state.json")" "Installed version 0.3.0"
+out=$("$STEW" update); code=$?
+expect "installed version is now current" "$out$code" "Stew is up to date: 0.3.0 (build 11).0"
+
+# The daemon's own schedule installs without being asked.
+release 0.4.0 12
+STEW_SOCKET="$WORK/scheduled.sock" STEW_UPDATE_FIRST_CHECK=0.5 "$STEW" daemon 2> "$WORK/scheduled.log" &
+SCHEDULED=$!
+for _ in $(seq 1 100); do [[ "$(installed_version)" == "0.4.0" ]] && break; sleep 0.1; done
+expect "scheduled check installs the update" "$(installed_version)" "0.4.0"
+expect "new daemon removed the previous update's leftovers" "$(cat "$WORK/scheduled.log")" "update/Applications/.stew-update"
+kill "$SCHEDULED"; wait "$SCHEDULED" 2>/dev/null; SCHEDULED=""
+kill "$HTTP"; wait "$HTTP" 2>/dev/null; HTTP=""
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then
   echo '{"classifier":{"enabled":true,"model":"haiku"},"sound":""}' > "$STEW_CONFIG"

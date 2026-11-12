@@ -171,6 +171,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var position: String
     /// A short burst of confetti where the panel was, after approving a permission request.
     public var confetti: Bool
+    /// Check for a new version at start and once a day, and install it when no request is open.
+    public var autoUpdate: Bool
     public var classifier: ClassifierConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
@@ -228,6 +230,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         sound = "Glass"
         position = "top-right"
         confetti = false
+        autoUpdate = true
         classifier = ClassifierConfig()
     }
 
@@ -246,6 +249,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
+        autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
     }
 }

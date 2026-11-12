@@ -27,7 +27,11 @@ enum Paths {
     /// Test mode: no panel, no hotkeys, and the socket accepts simulated key presses.
     /// Never on for the real daemon, or a caller could approve its own request.
     static var headless: Bool { ProcessInfo.processInfo.environment["STEW_HEADLESS"] == "1" }
-    static var log: String { home + "/Library/Logs/stew.log" }
+    /// STEW_LOG keeps test runs out of the real log.
+    static var log: String { ProcessInfo.processInfo.environment["STEW_LOG"] ?? home + "/Library/Logs/stew.log" }
+
+    /// Last update check, next to the socket, so a test daemon keeps its own.
+    static var updateState: String { (socket as NSString).deletingLastPathComponent + "/update-state.json" }
     static var launchAgent: String { home + "/Library/LaunchAgents/\(launchAgentLabel).plist" }
 
     static var executable: String {

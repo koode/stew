@@ -85,9 +85,11 @@ final class SettingsModel: ObservableObject {
 final class SettingsWindowController {
     private let model = SettingsModel()
     private let approvals = ApprovalsModel()
+    private let updater: Updater
     private var window: NSWindow?
 
-    init(onSaved: @escaping () -> Void) {
+    init(updater: Updater, onSaved: @escaping () -> Void) {
+        self.updater = updater
         model.onSaved = onSaved
     }
 
@@ -104,7 +106,7 @@ final class SettingsWindowController {
             )
             window.title = "stew Settings"
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals))
+            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, updater: updater))
             window.center()
             self.window = window
         }
@@ -116,11 +118,12 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var approvals: ApprovalsModel
+    let updater: Updater
 
     var body: some View {
         VStack(spacing: 0) {
             TabView(selection: $model.tab) {
-                GeneralSettings(model: model).tabItem { Text("General") }.tag(SettingsTab.general)
+                GeneralSettings(model: model, updater: updater).tabItem { Text("General") }.tag(SettingsTab.general)
                 KeySettings(model: model).tabItem { Text("Keys") }.tag(SettingsTab.keys)
                 ClaudeSettingsTab(model: model).tabItem { Text("Claude Code") }.tag(SettingsTab.claude)
                 ApprovalsView(model: approvals).tabItem { Text("Approvals") }.tag(SettingsTab.approvals)
@@ -158,6 +161,7 @@ struct SettingRow<Content: View>: View {
 
 struct GeneralSettings: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var updater: Updater
 
     private static let limits: [(String, Double)] = [("No limit", 0), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300), ("10 minutes", 600)]
     private static let extensions: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300)]
@@ -199,8 +203,33 @@ struct GeneralSettings: View {
             SettingRow(hint: "A short burst when you approve a request.") {
                 Toggle("Confetti", isOn: binding(\.confetti))
             }
+            Section("Updates") {
+                SettingRow(hint: "Stew checks once a day and installs a new version when no request is open.") {
+                    Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
+                }
+                SettingRow(hint: updateHint) {
+                    LabeledContent("Version") {
+                        HStack {
+                            Text(AppVersion.running.description).foregroundStyle(.secondary)
+                            Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: true) { _ in } }
+                                .disabled(updater.busy)
+                        }
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
+    }
+
+    /// When stew last looked for an update, and what it found.
+    private var updateHint: String {
+        guard let lastCheck = updater.state.lastCheck else { return "Never checked for updates." }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        let result = updater.state.lastResult.map { " \($0)" } ?? ""
+        return "Last checked: \(formatter.string(from: lastCheck)).\(result)"
     }
 
     private func binding<Value: Hashable>(_ keyPath: WritableKeyPath<StewConfig, Value>) -> Binding<Value> {
