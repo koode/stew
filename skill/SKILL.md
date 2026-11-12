@@ -74,7 +74,7 @@ stew needs "Log in to npm so I can publish 2.4.0" \
 - To wait for the user instead: `--wait` (with the Bash tool's `run_in_background: true`). It returns `"done"` with the user's note, or `"dismissed"` if they declined. `--timeout SECONDS` limits only how long you wait: on `"timeout"` the item stays open.
 - `stew needs list --json` shows what is open.
 
-Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote sessions (a numbered list after it becomes the steps and code blocks in the message become commands), and it goes away when the user next writes to you.
+Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote sessions (a numbered list after it becomes the steps, code blocks in the message become commands, and web addresses outside them become links), and it goes away when the user next writes to you or when a later reply of yours has no `needs input:` line. When you already called `stew needs`, the line adds no second item.
 
 ## Waiting
 

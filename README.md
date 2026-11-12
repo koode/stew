@@ -113,7 +113,7 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 - When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
 - Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
 
-Claude can make one with `stew needs` (the skill tells it when). With the hooks, Claude Code also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, and code blocks in the message into commands. A session has at most one of these at a time. The `UserPromptSubmit` hook clears it as soon as you send that session a message. By default this happens only in unattended sessions (background and remote). Change it in `stew settings` → Claude Code → "Needs you from Claude Code", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
+Claude can make one with `stew needs` (the skill tells it when). With the hooks, Claude Code also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, code blocks in the message into commands, and up to 4 web addresses outside the code blocks into links. A session has at most one of these at a time, and none while it has an open item from `stew needs`. The `UserPromptSubmit` hook clears it as soon as you send that session a message, and a later turn that ends without a `needs input:` line clears it too (Moved on in the history). Claude Code also runs `UserPromptSubmit` for scheduled tasks, background agents reporting back and messages from other sessions, so those clear the item as well. By default this happens only in unattended sessions (background and remote). Change it in `stew settings` → Claude Code → "Needs you from Claude Code", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
 
 ### The skill
 
@@ -154,7 +154,7 @@ For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Dismissed (declined), Resolved by Claude, or Answered in session. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. Not now is not an ending, so it is not recorded.
 
 When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts open needs items ("2 things need you"), and shows on its own when only those are open.
 
