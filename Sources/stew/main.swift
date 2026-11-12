@@ -15,7 +15,8 @@ USAGE
   stew check --action TEXT --reason TEXT [--command TEXT|-]
       Run only the auto mode risk check and print its verdict.
   stew keys          Show the shortcuts in effect.
-  stew approvals     Open the window that lists standing approvals.
+  stew settings      Open the settings window (time limit, keys, hooks, risk check).
+  stew approvals     Open the settings window on the list of standing approvals.
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
@@ -26,7 +27,10 @@ USAGE
 
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
-  --timeout SECONDS  Give up after this long and answer "timeout".
+  --timeout SECONDS  Time to answer once on screen (default: responseTimeout in
+                     the config, 1 min, for permit and ask). 0 means no limit.
+                     When it runs out the answer is "timeout" with a note for
+                     Claude. The user can add time with ⌘E.
 
 EXIT CODES
   0 approved / answered / acknowledged / shown, 1 denied, 2 dismissed,
@@ -67,7 +71,7 @@ struct Arguments {
     var timeout: Double? {
         get throws {
             guard let text = options["timeout"] else { return nil }
-            guard let value = Double(text), value > 0 else { throw UsageError("--timeout must be a positive number") }
+            guard let value = Double(text), value >= 0 else { throw UsageError("--timeout must be 0 (no limit) or a positive number") }
             return value
         }
     }
@@ -204,8 +208,8 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         default: throw UsageError("hooks needs install, uninstall or status")
         }
 
-    case "approvals":
-        print(Client.sendControl("approvals", startDaemon: true) ?? "could not reach the daemon")
+    case "approvals", "settings":
+        print(Client.sendControl(command, startDaemon: true) ?? "could not reach the daemon")
 
     case "stop":
         print(Client.sendControl("stop") ?? "daemon not running")

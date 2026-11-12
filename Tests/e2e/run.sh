@@ -27,7 +27,7 @@ for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && break; sleep 0.1; done
 # permission approved
 "$STEW" permit --action "List files" --command "ls -la" --reason "look around" > "$WORK/out" & client=$!
 wait_items 1
-expect "permission keys" "$(control state)" "keys=⌘. ⌘↩ ⌘D ⌘O"
+expect "permission keys" "$(control state)" "keys=⌘. ⌘E ⌘↩ ⌘D ⌘O"
 control press approve > /dev/null
 wait $client; code=$?
 expect "approve status" "$(cat "$WORK/out")" '"status":"approved"'
@@ -64,7 +64,7 @@ QUESTIONS='{"questions":[
  {"question":"Which extras?","header":"Extras","multiSelect":true,"options":[{"label":"Auth","description":""},{"label":"Billing","description":""},{"label":"Search","description":""}]}]}'
 echo "$QUESTIONS" | "$STEW" ask > "$WORK/out" & client=$!
 wait_items 1
-expect "question keys" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘O ⌘↩ ⌘] ⌘["
+expect "question keys" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘O ⌘↩ ⌘E ⌘] ⌘["
 control choose 2 > /dev/null
 expect "advances to question 2" "$(control state)" "question=1"
 control choose 1 > /dev/null
@@ -170,7 +170,7 @@ expect "always rule is listed for revoking" "$(cat "$STEW_GRANTS")" '"kind" : "c
 denied "rm -rf node_modules" "[Irreversible Local Destruction]" > "$WORK/out" & hook=$!
 wait_items 1
 control press grant > /dev/null
-expect "category is the last scope" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘3 ⌘↩"
+expect "category is the last scope" "$(control state)" "keys=⌘. ⌘E ⌘1 ⌘2 ⌘3 ⌘↩"
 control choose 3 > /dev/null; control press always > /dev/null
 wait $hook
 out=$(denied "rm -rf .cache" "[Irreversible Local Destruction]")
@@ -193,6 +193,33 @@ expect "hooks install keeps other hooks" "$(python3 -c 'import json,sys;d=json.l
 expect "hooks status" "$("$STEW" hooks status)" "hooks: installed"
 "$STEW" hooks uninstall > /dev/null
 expect "hooks uninstall" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["hooks"]["PreToolUse"]), "PermissionDenied" in d["hooks"])' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
+
+# time limit: expiry note, pause while typing, more time, question, hook
+out=$("$STEW" permit --action "x" --reason "y" --timeout 1); code=$?
+expect "timeout tells Claude to move on" "$out" "didn't respond within 1 s"
+"$STEW" permit --action "x" --reason "y" --timeout 2 > "$WORK/out" & client=$!
+wait_items 1
+control press other > /dev/null
+expect "typing a note pauses the clock" "$(control state)" "clock=paused:"
+sleep 3
+expect "paused request is still waiting" "$(control state)" "items=1"
+control press other > /dev/null
+wait $client
+expect "clock resumes after the note closes" "$(cat "$WORK/out")" '"status":"timeout"'
+"$STEW" permit --action "x" --reason "y" --timeout 2 > "$WORK/out" & client=$!
+wait_items 1
+expect "more time key is live" "$(control state)" "⌘E"
+control press extend > /dev/null
+clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)
+[[ "${clock:-0}" -gt 100 ]] && pass "more time adds the configured extension" || fail "more time adds the configured extension" "clock=$clock"
+control press dismiss > /dev/null; wait $client
+out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
+expect "question timeout note" "$out" "didn't answer within 1 s"
+echo '{"classifier":{"enabled":false},"sound":"","responseTimeout":1}' > "$STEW_CONFIG"
+out=$(denied "git push --force origin main" "$SOFT")
+expect "unanswered hook returns retry" "$out" '"retry":true'
+expect "retry is denied with the time note" "$(pre 'git push --force origin main')" "didn't respond within 1 s"
+echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then
   echo '{"classifier":{"enabled":true,"model":"haiku"},"sound":""}' > "$STEW_CONFIG"

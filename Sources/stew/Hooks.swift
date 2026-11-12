@@ -140,7 +140,9 @@ enum Hooks {
                 reason: claudeReason(transcriptPath: call.transcriptPath),
                 blocked: blocked
             )
-            let request = StewRequest(session: session, prompt: .permission(permission), timeout: Double(deniedTimeout - 20))
+            // The user's time limit comes from the config; maxWait keeps any extension
+            // inside Claude Code's hook timeout.
+            let request = StewRequest(session: session, prompt: .permission(permission), maxWait: Double(deniedTimeout - 20))
             let response = Client.send(request)
             let note = response.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -153,8 +155,9 @@ enum Hooks {
                     }
                 }
                 print(HookOutput.retry())
-            case .denied where !note.isEmpty:
-                // The retry gets denied again, this time with the user's note as the reason.
+            case .denied where !note.isEmpty, .timeout where !note.isEmpty:
+                // The retry gets denied again, this time with the user's note (or the
+                // "did not respond in time" note) as the reason, so Claude can move on.
                 GrantFile.update { $0.append(GrantBook.denyNote(for: call, note: note)) }
                 print(HookOutput.retry())
             default:

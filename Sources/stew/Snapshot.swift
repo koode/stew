@@ -16,6 +16,16 @@ enum Snapshot {
                 print(path)
             }
         }
+        for tab in [SettingsTab.general, .keys, .claude] {
+            for dark in [false, true] {
+                let model = SettingsModel()
+                model.load()
+                model.tab = tab
+                let path = "\(directory)/settings-\(tab.rawValue)-\(dark ? "dark" : "light").png"
+                write(SettingsView(model: model, approvals: ApprovalsModel()).frame(width: 720, height: 560), dark: dark, to: path)
+                print(path)
+            }
+        }
         exit(0)
     }
 
@@ -58,7 +68,7 @@ enum Snapshot {
             request: StewRequest(
                 session: session,
                 prompt: .permission(PermissionRequest(action: description, command: command, reason: reason, blocked: blocked)),
-                timeout: 1780
+                maxWait: 1780
             ),
             connection: nil
         )

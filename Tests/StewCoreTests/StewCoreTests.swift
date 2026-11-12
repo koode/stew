@@ -448,3 +448,55 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(RiskCheck.lastAssistantText(transcript: Data()) == nil)
     }
 }
+
+@Suite struct TimeLimitTests {
+    let session = SessionInfo(name: "s")
+
+    @Test func defaultAppliesToPermissionsAndQuestionsOnly() {
+        let permission = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")))
+        let notify = StewRequest(session: session, prompt: .notify(NotifyRequest(title: "t")))
+        #expect(permission.timeLimit(defaultTimeout: 300) == 300)
+        #expect(notify.timeLimit(defaultTimeout: 300) == nil)
+        #expect(permission.timeLimit(defaultTimeout: 0) == nil)
+    }
+
+    @Test func explicitTimeoutWinsAndZeroMeansNone() {
+        var request = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")), timeout: 30)
+        #expect(request.timeLimit(defaultTimeout: 300) == 30)
+        request.timeout = 0
+        #expect(request.timeLimit(defaultTimeout: 300) == nil)
+    }
+
+    @Test func noteTellsClaudeToMoveOn() {
+        let request = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")))
+        #expect(request.timeoutNote(after: 300).hasPrefix("The user didn't respond within 5 min."))
+        #expect(request.timeoutNote(after: 20).contains("within 20 s"))
+    }
+
+    @Test func maxWaitRoundTrips() throws {
+        let request = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")), maxWait: 1780)
+        #expect(try Wire.decode(StewRequest.self, line: try Wire.encode(request).dropLast()).maxWait == 1780)
+    }
+
+    @Test func extendKeyDoesNotClash() throws {
+        let keymap = try Keymap(config: StewConfig())
+        #expect(keymap[.extend].description == "⌘E")
+        let clash = try JSONDecoder().decode(StewConfig.self, from: Data(#"{"keys":{"extend":"d"}}"#.utf8))
+        #expect(throws: Shortcut.ParseError.self) { try Keymap(config: clash) }
+    }
+}
+
+@Suite struct ShortcutSpecTests {
+    @Test func specRoundTrips() throws {
+        let keymap = try Keymap(config: StewConfig())
+        for shortcut in Array(keymap.actions.values) + keymap.options + [Shortcut(modifiers: [.control, .option], key: .special(.left))] {
+            #expect(try Shortcut.parse(shortcut.spec, chord: []) == shortcut, "\(shortcut.spec)")
+        }
+        #expect(keymap[.dismissAll].spec == "shift+cmd+.")
+    }
+
+    @Test func defaultsGiveOneMinute() {
+        #expect(StewConfig().responseTimeout == 60)
+        #expect(StewConfig().extendBy == 120)
+    }
+}

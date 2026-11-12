@@ -140,26 +140,55 @@ public enum Prompt: Equatable, Sendable {
 public struct StewRequest: Codable, Equatable, Sendable {
     public var session: SessionInfo
     public var prompt: Prompt
-    /// Seconds before the request answers itself with `timeout`. Nil waits forever.
+    /// Seconds the user has to answer once the request is on screen. Nil uses the
+    /// configured `responseTimeout` (permissions and questions only); 0 means no limit.
     public var timeout: Double?
+    /// Hard ceiling in seconds from arrival, even with "more time". The hook sets it to
+    /// stay inside Claude Code's hook timeout.
+    public var maxWait: Double?
     /// For notifications: block until the user acknowledges. Other kinds always wait.
     public var wait: Bool
 
-    public init(session: SessionInfo, prompt: Prompt, timeout: Double? = nil, wait: Bool = true) {
+    public init(session: SessionInfo, prompt: Prompt, timeout: Double? = nil, maxWait: Double? = nil, wait: Bool = true) {
         self.session = session
         self.prompt = prompt
         self.timeout = timeout
+        self.maxWait = maxWait
         self.wait = wait
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, session, timeout, wait, permission, notify, question
+        case kind, session, timeout, maxWait, wait, permission, notify, question
+    }
+
+    /// The effective time limit, given the configured default. Nil means none.
+    public func timeLimit(defaultTimeout: Double) -> Double? {
+        let fallback: Double?
+        switch prompt {
+        case .permission, .question: fallback = defaultTimeout
+        case .notify: fallback = nil
+        }
+        guard let limit = timeout ?? fallback, limit > 0 else { return nil }
+        return limit
+    }
+
+    /// The note Claude gets when nobody answered in time.
+    public func timeoutNote(after seconds: Double) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        let span = seconds < 60 ? "\(Int(seconds)) s" : "\(minutes) min"
+        switch prompt {
+        case .question:
+            return "The user didn't answer within \(span). They may be away: continue with a safe choice that does not need this answer, or ask again later."
+        case .permission, .notify:
+            return "The user didn't respond within \(span). They may be away: treat this as denied and continue another way, or ask again later."
+        }
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         session = try container.decode(SessionInfo.self, forKey: .session)
         timeout = try container.decodeIfPresent(Double.self, forKey: .timeout)
+        maxWait = try container.decodeIfPresent(Double.self, forKey: .maxWait)
         wait = try container.decodeIfPresent(Bool.self, forKey: .wait) ?? true
         let kind = try container.decode(String.self, forKey: .kind)
         switch kind {
@@ -179,6 +208,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
         try container.encode(prompt.kind, forKey: .kind)
         try container.encode(session, forKey: .session)
         try container.encodeIfPresent(timeout, forKey: .timeout)
+        try container.encodeIfPresent(maxWait, forKey: .maxWait)
         try container.encode(wait, forKey: .wait)
         switch prompt {
         case .permission(let permission): try container.encode(permission, forKey: .permission)

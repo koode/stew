@@ -49,11 +49,11 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 # or: stew ask --file q.json, or JSON on stdin
 ```
 
-Common flags: `--session NAME` overrides the label, `--timeout SECONDS` gives up with status `timeout`.
+Common flags: `--session NAME` overrides the label. `--timeout SECONDS` sets the time to answer (default from the user's settings, 1 minute; `0` means no limit). The user can add time.
 
 ## Waiting
 
-`permit` and `ask` block until the user answers, which can take a long time. Run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. If the Bash call is killed, the request disappears from the panel.
+`permit` and `ask` block until the user answers or the time to answer runs out (1 minute by default, but the user can extend it). Run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. If the Bash call is killed, the request disappears from the panel.
 
 ## Reading the answer
 
@@ -67,6 +67,7 @@ Common flags: `--session NAME` overrides the label, `--timeout SECONDS` gives up
 - `note` is free text the user typed with their answer. Follow it; it can change what "approved" means.
 - `answers` maps question text to the chosen label. Multi-select labels are joined with ", ". An "Other" answer is the user's own text.
 - `dismissed` means the user closed it without answering. Do not repeat the same request. Stop or choose the safe path.
+- `timeout` means the user did not answer in time (1 minute by default) and may be away. Read the `note`, continue another way that does not need this, and ask again later only if there is no other way.
 - `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command.
 
 ## Writing a good request

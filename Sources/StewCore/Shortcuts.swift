@@ -86,6 +86,20 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
 
     public var description: String { modifiers.symbols + key.symbol }
 
+    /// Config text for this shortcut, such as "cmd+shift+." or "ctrl+option+return".
+    public var spec: String {
+        var parts: [String] = []
+        if modifiers.contains(.control) { parts.append("ctrl") }
+        if modifiers.contains(.option) { parts.append("option") }
+        if modifiers.contains(.shift) { parts.append("shift") }
+        if modifiers.contains(.command) { parts.append("cmd") }
+        switch key {
+        case .character(let character): parts.append(String(character))
+        case .special(let special): parts.append(special.rawValue)
+        }
+        return parts.joined(separator: "+")
+    }
+
     public func adding(_ extra: Modifiers) -> Shortcut {
         Shortcut(modifiers: modifiers.union(extra), key: key)
     }
@@ -132,7 +146,7 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
-    case approve, deny, dismiss, dismissAll, other, submit, next, previous, grant
+    case approve, deny, dismiss, dismissAll, other, submit, next, previous, grant, extend
 }
 
 /// User config at ~/.config/stew/config.json. Every field is optional.
@@ -145,6 +159,11 @@ public struct StewConfig: Codable, Equatable, Sendable {
     /// Seconds after a panel appears during which its hotkeys do nothing, so a shortcut
     /// pressed for another app just as the panel shows cannot answer it.
     public var armDelay: Double
+    /// Seconds the user has to answer a permission request or question before it
+    /// answers itself with "timeout" and a note for Claude. 0 turns the limit off.
+    public var responseTimeout: Double
+    /// Seconds one "more time" press adds.
+    public var extendBy: Double
     public var sound: String?
     public var position: String
     public var classifier: ClassifierConfig
@@ -189,6 +208,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         HotkeyAction.next.rawValue: "]",
         HotkeyAction.previous.rawValue: "[",
         HotkeyAction.grant.rawValue: "g",
+        HotkeyAction.extend.rawValue: "e",
     ]
 
     public init() {
@@ -197,6 +217,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
         optionKeys = ["1", "2", "3", "4"]
         hardDenyExtra = "shift"
         armDelay = 0.5
+        responseTimeout = 60
+        extendBy = 120
         sound = "Glass"
         position = "top-right"
         classifier = ClassifierConfig()
@@ -211,6 +233,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
         optionKeys = try container.decodeIfPresent([String].self, forKey: .optionKeys) ?? defaults.optionKeys
         hardDenyExtra = try container.decodeIfPresent(String.self, forKey: .hardDenyExtra) ?? defaults.hardDenyExtra
         armDelay = try container.decodeIfPresent(Double.self, forKey: .armDelay) ?? defaults.armDelay
+        responseTimeout = try container.decodeIfPresent(Double.self, forKey: .responseTimeout) ?? defaults.responseTimeout
+        extendBy = try container.decodeIfPresent(Double.self, forKey: .extendBy) ?? defaults.extendBy
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
@@ -247,10 +271,10 @@ public struct Keymap: Equatable, Sendable {
         let common: [HotkeyAction] = [.dismiss, .dismissAll]
         let approveExtra = ("approve past a hard deny, or always", actions[.approve]!.adding(hardDenyExtra))
         let groups = [
-            named(common + [.approve, .deny, .other, .grant]) + [approveExtra],
-            named(common + [.approve, .grant]) + [approveExtra] + optionNames,
+            named(common + [.approve, .deny, .other, .grant, .extend]) + [approveExtra],
+            named(common + [.approve, .grant, .extend]) + [approveExtra] + optionNames,
             named(common + [.approve]),
-            named(common + [.other, .submit, .next, .previous]) + optionNames,
+            named(common + [.other, .submit, .next, .previous, .extend]) + optionNames,
         ]
         for group in groups {
             var seen: [Shortcut: String] = [:]

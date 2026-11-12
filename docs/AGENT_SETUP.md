@@ -16,7 +16,7 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 ## 2. Ask the user two questions
 
 1. **Auto mode hooks.** "Should stew ask you when Claude Code's auto mode blocks a call? This adds two hooks to `~/.claude/settings.json` (a backup is written first). A blocked call then waits up to 30 minutes for your answer in stew."
-2. **Keys.** "stew uses ⌘↩ to approve, ⌘D to deny, ⌘1 to ⌘4 for options and ⌘. to dismiss, while a panel is visible. Do you want different keys?"
+2. **Keys and time.** "stew uses ⌘↩ to approve, ⌘D to deny, ⌘1 to ⌘4 for options and ⌘. to dismiss, while a panel is visible. You get 1 minute to answer before Claude is told you did not respond; ⌘E adds 2 minutes. Do you want different keys or times?"
 
 ## 3. Install
 
@@ -31,12 +31,12 @@ The script builds a release binary, installs it to `~/.local/bin/stew`, starts t
 
 If `~/.local/bin` is not on the user's PATH, the script says so. Add it to their shell profile only if they agree.
 
-## 4. Change keys, if the user asked
+## 4. Change keys or times, if the user asked
 
-Write `~/.config/stew/config.json` with only the fields that change. Example for Control+Option instead of Command:
+The user can do this themselves in the settings window: `stew settings`. To do it for them, write `~/.config/stew/config.json` with only the fields that change. Example for Control+Option instead of Command, and 2 minutes to answer:
 
 ```json
-{ "chord": "ctrl+option", "keys": { "approve": "y", "deny": "n", "dismiss": "w" } }
+{ "chord": "ctrl+option", "keys": { "approve": "y", "deny": "n", "dismiss": "w" }, "responseTimeout": 120 }
 ```
 
 A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys without Control, Option or Command are refused. Run `stew keys` to show the result; it reports conflicts.

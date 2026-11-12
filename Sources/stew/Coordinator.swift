@@ -21,8 +21,23 @@ final class Item: ObservableObject, Identifiable {
     let id = UUID()
     let request: StewRequest
     var connection: Connection?
-    var deadline: Date?
+    let received = Date()
+    /// Seconds the user gets once the item is at the front of the panel. Nil: no limit.
+    var timeLimit: Double?
+    /// The limit plus every extension, for the note Claude gets on timeout.
+    var grantedSeconds: Double = 0
+    /// Running clock. Nil while waiting behind another request or while paused.
+    @Published var deadline: Date?
+    /// Time left, kept while the clock is paused for typing a note or picking a grant.
+    @Published var pausedRemaining: TimeInterval?
     var timer: DispatchWorkItem?
+
+    /// The caller's hard ceiling, such as Claude Code's hook timeout.
+    var latestDeadline: Date? { request.maxWait.map { received.addingTimeInterval($0) } }
+
+    func capped(_ date: Date) -> Date {
+        latestDeadline.map { min(date, $0) } ?? date
+    }
     @Published var flow: QuestionFlow?
     @Published var risk: RiskState = .off
     /// Option under the mouse, so its preview shows.
@@ -33,9 +48,6 @@ final class Item: ObservableObject, Identifiable {
         self.connection = connection
         if case .question(let set) = request.prompt {
             flow = QuestionFlow(questions: set.questions)
-        }
-        if let timeout = request.timeout {
-            deadline = Date().addingTimeInterval(timeout)
         }
     }
 
@@ -72,7 +84,7 @@ final class Coordinator: ObservableObject {
     private var configModified: Date?
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
-    var onOpenApprovals: (() -> Void)?
+    var onOpenSettings: ((SettingsTab) -> Void)?
 
     var current: Item? { items.first }
 
@@ -116,9 +128,9 @@ final class Coordinator: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.onStop?() }
         case "status":
             connection.send(Data("\(items.count) pending\n".utf8))
-        case "approvals":
+        case "approvals", "settings":
             connection.send(Data("opened\n".utf8))
-            onOpenApprovals?()
+            onOpenSettings?(control == "approvals" ? .approvals : .general)
         default:
             if Paths.headless, let reply = handleTestControl(control) {
                 connection.send(Data((reply + "\n").utf8))
@@ -136,14 +148,7 @@ final class Coordinator: ObservableObject {
             connection?.send((try? Wire.encode(StewResponse(status: .shown))) ?? Data())
             item.connection = nil
         }
-        if let timeout = request.timeout {
-            let timer = DispatchWorkItem { [weak self, weak item] in
-                guard let self, let item else { return }
-                self.respond(item, StewResponse(status: .timeout, risk: item.risk.assessment))
-            }
-            item.timer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
-        }
+        item.timeLimit = request.timeLimit(defaultTimeout: config.responseTimeout)
         if case .permission(let permission) = request.prompt, let blocked = permission.blocked {
             item.risk = .blocked(blocked)
         } else if case .permission(let permission) = request.prompt, config.classifier.enabled {
@@ -196,11 +201,15 @@ final class Coordinator: ObservableObject {
         case .off, nil: risk = "off"
         }
         let bindings = activeBindings().map { "\($0.0)" }.joined(separator: " ")
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) risk=\(risk) keys=\(bindings)"
+        var clockState = "none"
+        if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
+        if let remaining = current?.pausedRemaining { clockState = "paused:\(Int(remaining.rounded()))" }
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) keys=\(bindings)"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
     func show(_ item: Item) {
+        item.timeLimit = item.timeLimit ?? item.request.timeLimit(defaultTimeout: config.responseTimeout)
         items.append(item)
         changed()
     }
@@ -239,7 +248,51 @@ final class Coordinator: ObservableObject {
     }
 
     private func changed() {
+        syncTimer()
         onChange?()
+    }
+
+    /// The clock runs only for the request on screen, and pauses while the user types
+    /// a note or picks a grant, so taking care over an answer never times it out.
+    private func syncTimer() {
+        guard let item = current, let limit = item.timeLimit else { return }
+        if item.deadline == nil && item.pausedRemaining == nil {
+            item.grantedSeconds = limit
+            item.deadline = item.capped(Date().addingTimeInterval(limit))
+        }
+        let shouldPause = textMode || grantMode
+        if shouldPause, let deadline = item.deadline {
+            item.pausedRemaining = max(0, deadline.timeIntervalSinceNow)
+            item.deadline = nil
+        } else if !shouldPause, let remaining = item.pausedRemaining {
+            item.pausedRemaining = nil
+            item.deadline = item.capped(Date().addingTimeInterval(remaining))
+        }
+        item.timer?.cancel()
+        item.timer = nil
+        guard let deadline = item.deadline else { return }
+        let timer = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item else { return }
+            self.expire(item)
+        }
+        item.timer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
+    }
+
+    private func expire(_ item: Item) {
+        respond(item, StewResponse(status: .timeout, note: item.request.timeoutNote(after: item.grantedSeconds), risk: item.risk.assessment))
+    }
+
+    /// "More time": adds `extendBy` to the clock, running or paused.
+    func extendTime() {
+        guard let item = current, item.timeLimit != nil else { return }
+        item.grantedSeconds += config.extendBy
+        if let remaining = item.pausedRemaining {
+            item.pausedRemaining = remaining + config.extendBy
+        } else if let deadline = item.deadline {
+            item.deadline = item.capped(deadline.addingTimeInterval(config.extendBy))
+        }
+        changed()
     }
 
     func setHotkeyFailures(_ failures: [String]) {
@@ -254,6 +307,8 @@ final class Coordinator: ObservableObject {
         guard let item = current else { return }
         let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         switch (item.request.prompt, action) {
+        case (_, .extend):
+            extendTime()
         case (_, .dismiss):
             respond(item, StewResponse(status: .dismissed, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
         case (.permission, .approve):
@@ -311,7 +366,13 @@ final class Coordinator: ObservableObject {
     }
 
     func openApprovals() {
-        onOpenApprovals?()
+        onOpenSettings?(.approvals)
+    }
+
+    /// The settings window saved a change: pick it up and re-register the keys.
+    func configChanged() {
+        reloadConfigIfChanged()
+        changed()
     }
 
     func choose(option index: Int) {
@@ -356,6 +417,7 @@ final class Coordinator: ObservableObject {
         if items.count > 1 { bindings.append((keymap[.dismissAll], .action(.dismissAll))) }
         switch item.request.prompt {
         case .permission:
+            if item.timeLimit != nil { bindings.append((keymap[.extend], .action(.extend))) }
             if grantMode, let scopes = item.blocked?.grantScopes {
                 for index in scopes.indices {
                     bindings.append((keymap.options[index], .option(index)))
@@ -380,6 +442,7 @@ final class Coordinator: ObservableObject {
                 bindings.append((keymap.options[index], .option(index)))
             }
             bindings += [(keymap[.other], .action(.other)), (keymap[.submit], .action(.submit))]
+            if item.timeLimit != nil { bindings.append((keymap[.extend], .action(.extend))) }
             if flow.questions.count > 1 {
                 bindings += [(keymap[.next], .action(.next)), (keymap[.previous], .action(.previous))]
             }

@@ -31,30 +31,6 @@ final class ApprovalsModel: ObservableObject {
     }
 }
 
-final class ApprovalsWindowController {
-    private let model = ApprovalsModel()
-    private var window: NSWindow?
-
-    func show() {
-        model.reload()
-        if window == nil {
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 820, height: 380),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "stew approvals"
-            window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: ApprovalsView(model: model))
-            window.center()
-            self.window = window
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
-    }
-}
-
 struct ApprovalsView: View {
     @ObservedObject var model: ApprovalsModel
 

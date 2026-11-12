@@ -41,10 +41,10 @@ struct RootView: View {
     }
 
     private var width: CGFloat {
-        if coordinator.current?.blocked != nil { return 540 }
+        if coordinator.current?.blocked != nil { return 560 }
         guard case .question = coordinator.current?.request.prompt,
               let flow = coordinator.current?.flow,
-              flow.current.options.contains(where: { $0.preview != nil }) else { return 480 }
+              flow.current.options.contains(where: { $0.preview != nil }) else { return 520 }
         return 720
     }
 }
@@ -56,7 +56,7 @@ struct ItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Header(item: item, queueCount: coordinator.items.count, closeShortcut: coordinator.keymap[.dismiss]) { coordinator.perform(.dismiss) }
+            Header(item: item, coordinator: coordinator)
             switch item.request.prompt {
             case .permission(let permission):
                 PermissionBody(permission: permission, item: item, coordinator: coordinator, interactive: interactive)
@@ -99,10 +99,7 @@ private struct KindStyle {
 
 struct Header: View {
     @ObservedObject var item: Item
-    /// Requests on the panel, this one included. The one shown is always the oldest.
-    let queueCount: Int
-    let closeShortcut: Shortcut
-    let close: () -> Void
+    @ObservedObject var coordinator: Coordinator
 
     var body: some View {
         let style = KindStyle(item.request.prompt)
@@ -125,8 +122,9 @@ struct Header: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            if queueCount > 1 {
-                Text("1 of \(queueCount)")
+            if coordinator.items.count > 1 {
+                Text("1 of \(coordinator.items.count)")
+                    .fixedSize()
                     .font(.system(size: 11, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -135,12 +133,12 @@ struct Header: View {
                     .background(Capsule().fill(Color.primary.opacity(0.07)))
                     .help("Older requests show first; the rest wait below")
             }
-            if let deadline = item.deadline {
-                Countdown(deadline: deadline)
+            if item.timeLimit != nil {
+                TimeLimit(item: item, coordinator: coordinator)
             }
-            Button(action: close) {
+            Button { coordinator.perform(.dismiss) } label: {
                 HStack(spacing: 5) {
-                    Keycap(shortcut: closeShortcut)
+                    Keycap(shortcut: coordinator.keymap[.dismiss])
                     Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
                 }
                 .foregroundStyle(.secondary)
@@ -154,18 +152,51 @@ struct Header: View {
     }
 }
 
-struct Countdown: View {
-    let deadline: Date
+/// Time left to answer, and the "more time" button. Paused while typing a note.
+struct TimeLimit: View {
+    @ObservedObject var item: Item
+    @ObservedObject var coordinator: Coordinator
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remaining = max(0, Int(deadline.timeIntervalSince(context.date).rounded()))
-            Text(String(format: "%d:%02d", remaining / 60, remaining % 60))
-                .font(.system(size: 11, weight: .medium))
-                .monospacedDigit()
+        HStack(spacing: 6) {
+            Group {
+                if let deadline = item.deadline {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let remaining = deadline.timeIntervalSince(context.date)
+                        Text(Self.format(remaining))
+                            .foregroundStyle(remaining <= 30 ? Color.orange : Color.secondary)
+                    }
+                } else if let remaining = item.pausedRemaining {
+                    Text("Paused \(Self.format(remaining))").foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 11, weight: .medium))
+            .monospacedDigit()
+            .fixedSize()
+            .help("When this runs out, Claude is told you did not respond in time")
+            Button { coordinator.perform(.extend) } label: {
+                HStack(spacing: 4) {
+                    Text(Self.extendLabel(coordinator.config.extendBy)).font(.system(size: 11, weight: .medium))
+                    Keycap(shortcut: coordinator.keymap[.extend])
+                }
                 .foregroundStyle(.secondary)
-                .help("Answers \"timeout\" when this runs out")
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+                .fixedSize()
+            }
+            .buttonStyle(.plain)
+            .help("More time")
         }
+    }
+
+    static func format(_ seconds: TimeInterval) -> String {
+        let whole = max(0, Int(seconds.rounded()))
+        return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+
+    static func extendLabel(_ seconds: Double) -> String {
+        seconds >= 60 ? "+\(Int(seconds / 60)) min" : "+\(Int(seconds)) s"
     }
 }
 

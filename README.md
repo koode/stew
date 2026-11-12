@@ -8,6 +8,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 - **Permission, questions, notifications.** Claude can call `stew` itself: a permission request with the exact command and the reason, a question in the same format as Claude Code's AskUserQuestion tool, or a notification.
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
+- **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
 
 ## Requirements
 
@@ -48,7 +49,7 @@ With `--with-hooks`, two Claude Code hooks are added to `~/.claude/settings.json
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
-3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.).
+3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.). If the time to answer runs out, Claude is told you did not respond in time.
 4. On approval, stew tells Claude Code that Claude may retry. The `PreToolUse` hook lets that identical call through once. A changed call goes back to auto mode.
 
 **Allow more…** (⌘G) skips the question next time:
@@ -91,6 +92,10 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 
 Answers print as one JSON line. `stew --help` lists every command and flag.
 
+### Time to answer
+
+Permission requests and questions get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away and that it should continue another way or ask again later. `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
 For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session as context. The verdict shows above the command after approximately 5 seconds. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
@@ -105,6 +110,7 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 | ⌘D | Deny |
 | ⌘O | Open the note or "Other" field (the only thing that takes keyboard focus) |
 | ⌘G | Allow more… on a call auto mode blocked |
+| ⌘E | More time (+2 minutes) |
 | ⌘1 to ⌘4 | Pick an option |
 | ⌘↩ | Confirm a multi-select question, or send typed text |
 | ⌘[ / ⌘] | Previous or next question |
@@ -118,16 +124,27 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 ## Configuration
 
-`~/.config/stew/config.json`. Every field is optional, and changes apply to the next request without a restart. `stew keys` shows the keys in effect and reports conflicts.
+Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` directly. The window writes the same file. Every field is optional, and changes apply to the next request without a restart. `stew keys` shows the keys in effect and reports conflicts.
+
+![The settings window](docs/images/settings-general-light.png)
+
+The window has four tabs:
+
+- **General:** time to answer, more time, arming delay, position, sound.
+- **Keys:** click a key and press the new combination.
+- **Claude Code:** install or remove the auto mode hooks, and set up the risk check.
+- **Approvals:** the same list as `stew approvals`.
 
 ```json
 {
   "chord": "cmd",
   "keys": { "approve": "return", "deny": "d", "dismiss": ".", "dismissAll": "cmd+shift+.",
-            "other": "o", "submit": "return", "next": "]", "previous": "[", "grant": "g" },
+            "other": "o", "submit": "return", "next": "]", "previous": "[", "grant": "g", "extend": "e" },
   "optionKeys": ["1", "2", "3", "4"],
   "hardDenyExtra": "shift",
   "armDelay": 0.5,
+  "responseTimeout": 60,
+  "extendBy": 120,
   "sound": "Glass",
   "position": "top-right",
   "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
@@ -137,6 +154,7 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 - A bare key (`"d"`) joins `chord`. A full spec (`"ctrl+option+y"`) stands alone.
 - Keys without Control, Option or Command are refused.
 - Approve and submit may share a key, because they never show on the same panel. Other clashes are refused.
+- `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
 - `position` is `top-right`, `top-center` or `top-left`.
 - `classifier` controls the risk check on direct `stew permit` calls.
 
