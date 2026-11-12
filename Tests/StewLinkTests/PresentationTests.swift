@@ -142,6 +142,42 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(LinkPresentation.needsRequestId("ab12cd34") == "needs-ab12cd34")
     }
 
+    @Test func needsItemWithItsOwnAnswersOffersThemAsActions() {
+        let needs = NeedsRequest(title: "Sign in to App Store Connect", doneLabel: "Signed in", answers: ["Can't sign in", "Use another account"])
+        let request = linkRequest(.needs(needs), deadline: nil, extendBy: nil)
+        let content = LinkPresentation.notification(for: request, pairingId: "pair", time: clock)
+        #expect(content.categoryIdentifier == "stew.needs.request1")
+        #expect(content.actions.map(\.identifier) == ["done", "answer.0", "answer.1", "notNow"])
+        #expect(content.actions.map(\.title) == ["Signed in", "Can't sign in", "Use another account", "Not now"])
+        #expect(content.actions.allSatisfy { action in !action.requiresAuthentication })
+        #expect(LinkPresentation.choice(forAction: "done", typedText: nil, request: request) == .done)
+        #expect(LinkPresentation.choice(forAction: "answer.1", typedText: nil, request: request) == .needsAnswer("Use another account"))
+        #expect(LinkPresentation.choice(forAction: "answer.2", typedText: nil, request: request) == nil)
+        #expect(LinkPresentation.choice(forAction: "answer.0", typedText: nil, request: linkRequest(permission)) == nil)
+        #expect(LinkRefusal.beforeSending(.needsAnswer("Can't sign in"), for: request, now: received) == nil)
+        #expect(LinkRefusal.beforeSending(.needsAnswer("Gave up"), for: request, now: received) == LinkRefusal.unknownAnswer)
+        #expect(LinkRefusal.beforeSending(.needsAnswer("Can't sign in"), for: linkRequest(permission), now: received) != nil)
+        // A plain item keeps the shared category, so older registrations still match.
+        let plain = linkRequest(.needs(NeedsRequest(title: "Plug in the YubiKey")), deadline: nil, extendBy: nil)
+        #expect(LinkPresentation.categoryIdentifier(plain) == "stew.needs")
+    }
+
+    @Test func doneKeepsItsWireFormSoOlderMacsAndPhonesAgree() throws {
+        let done = try LinkJSON.encode(LinkAnswer(requestId: "needs-1", choice: .done, phoneName: "phone", answeredAt: received))
+        #expect(String(decoding: done, as: UTF8.self).contains(#""choice":{"done":{}}"#))
+        let other = LinkAnswer(requestId: "needs-1", choice: .needsAnswer("Can't sign in"), note: "later", phoneName: "phone", answeredAt: received)
+        #expect(try LinkJSON.decode(LinkAnswer.self, from: try LinkJSON.encode(other)) == other)
+        // A Mac's request with labels still decodes where the labels are unknown: the
+        // fields are optional, so an older phone reads the item and answers Done.
+        let labelled = StewRequest(session: SessionInfo(name: "job"), prompt: .needs(NeedsRequest(title: "Sign in", doneLabel: "Signed in", answers: ["Later"])))
+        var object = try #require(try JSONSerialization.jsonObject(with: try JSONEncoder().encode(labelled)) as? [String: Any])
+        var needs = try #require(object["needs"] as? [String: Any])
+        needs["futureField"] = "ignored"
+        object["needs"] = needs
+        let decoded = try JSONDecoder().decode(StewRequest.self, from: try JSONSerialization.data(withJSONObject: object))
+        #expect(decoded == labelled)
+    }
+
     @Test func shortPath() {
         #expect(LinkPresentation.shortPath("/Users/someone/Projects/x") == "~/Projects/x")
         #expect(LinkPresentation.shortPath("/Users/someone") == "~")

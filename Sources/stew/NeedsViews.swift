@@ -8,8 +8,8 @@ enum NeedsStyle {
     static let tint = Color.teal
 }
 
-/// What Claude needs the user to do: the steps, commands to copy, links to open, and
-/// Done or Not now. No time limit, so no clock.
+/// What Claude needs the user to do: the steps, commands to copy, links to open, the
+/// other answers Claude offered, and Done or Not now. No time limit, so no clock.
 struct NeedsBody: View {
     let needs: NeedsRequest
     @ObservedObject var coordinator: Coordinator
@@ -54,22 +54,70 @@ struct NeedsBody: View {
                     }
                 }
             }
+            if !needs.answers.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionLabel(text: needs.answers.count == 1 ? "Other answer" : "Other answers")
+                    ForEach(Array(needs.answers.prefix(NeedsRequest.maxAnswers).enumerated()), id: \.offset) { index, answer in
+                        OptionRow(
+                            option: QuestionOption(label: answer, description: ""),
+                            shortcut: keymap.options[index],
+                            selected: false,
+                            multiSelect: false
+                        ) {
+                            coordinator.choose(option: index)
+                        }
+                    }
+                }
+            }
             if coordinator.textMode {
                 ReplyEditor(
                     coordinator: coordinator,
                     placeholder: "Note for Claude, sent with your answer",
-                    hint: Text("\(keymap[.approve].text) marks it done and \(keymap[.deny].text) declines, with this note. Esc leaves the field."),
+                    hint: noteHint(keymap),
                     interactive: interactive
                 )
             }
-            HStack(spacing: 8) {
-                ActionButton(title: "Decline", shortcut: keymap[.deny]) { coordinator.perform(.deny) }
-                ActionButton(title: "Note", shortcut: keymap[.other]) { coordinator.perform(.other) }
-                Spacer()
-                ActionButton(title: "Not now", shortcut: keymap[.dismiss]) { coordinator.perform(.dismiss) }
-                ActionButton(title: "Done", shortcut: keymap[.approve], prominent: true) { coordinator.perform(.approve) }
+            // A long Done label gets a row of its own, still at the bottom right.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    secondaryButtons(keymap)
+                    doneButton(keymap)
+                }
+                VStack(alignment: .trailing, spacing: 8) {
+                    HStack(spacing: 8) { secondaryButtons(keymap) }
+                    doneButton(keymap)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func secondaryButtons(_ keymap: Keymap) -> some View {
+        ActionButton(title: "Decline", shortcut: keymap[.deny]) { coordinator.perform(.deny) }
+        ActionButton(title: "Note", shortcut: keymap[.other]) { coordinator.perform(.other) }
+        Spacer(minLength: 8)
+        ActionButton(title: "Not now", shortcut: keymap[.dismiss]) { coordinator.perform(.dismiss) }
+    }
+
+    private func doneButton(_ keymap: Keymap) -> some View {
+        ActionButton(title: needs.doneTitle, shortcut: keymap[.approve], prominent: true) { coordinator.perform(.approve) }
+            .help(needs.doneTitle)
+    }
+
+    /// Which keys send the note: Done's, each other answer's, and Decline's.
+    private func noteHint(_ keymap: Keymap) -> Text {
+        let approve = keymap[.approve].text
+        let deny = keymap[.deny].text
+        guard needs.hasCustomAnswers else {
+            return Text("\(approve) marks it done and \(deny) declines, with this note. Esc leaves the field.")
+        }
+        guard let lastIndex = needs.answers.indices.last else {
+            return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D} and \(deny) declines, with this note. Esc leaves the field.")
+        }
+        let answerKeys = lastIndex == 0
+            ? keymap.options[0].text
+            : Text("\(keymap.options[0].text) to \(keymap.options[lastIndex].text)")
+        return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D}, \(answerKeys) the other answers, and \(deny) declines, with this note. Esc leaves the field.")
     }
 }
 

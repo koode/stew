@@ -13,12 +13,17 @@ USAGE
       Input has the AskUserQuestion shape: {"questions":[{"question","header",
       "options":[{"label","description","preview"?}],"multiSelect"}]}
   stew needs TITLE [--why TEXT] [--step TEXT]... [--command CMD|-]... [--link URL]...
-             [--wait [--timeout SECONDS]] [--session NAME]
+             [--done LABEL] [--answer LABEL]... [--wait [--timeout SECONDS]] [--session NAME]
       Tell the user you need them to do something only they can do (log in, buy,
       approve in a web page, a physical action). Returns at once with the item's
       id; it stays open, also across restarts, until it is resolved. --wait blocks
       until the user marks it done ("done", with their note) or declines it
       ("dismissed"); --timeout limits only that wait.
+      --done names the Done button after the state the user reaches ("Signed in",
+      at most 24 characters). --answer (up to 3, at most 40 characters each) adds
+      another way it can end ("Can't sign in"), on ⌘1 to ⌘3. With either, the
+      answer names the label the user picked: "done" with the --done label, or
+      "answered" with one of the --answer labels.
   stew needs list [--json]       The open items.
   stew needs resolve ID          Clear an item once you can see it is done.
   stew check --action TEXT --reason TEXT [--command TEXT|-]
@@ -233,12 +238,15 @@ func runNeeds(_ arguments: Arguments) throws {
         if let stdinIndex = commands.firstIndex(of: "-") {
             commands[stdinIndex] = readStandardInput().trimmingCharacters(in: .newlines)
         }
+        if (arguments.lists["done"] ?? []).count > 1 { throw UsageError("needs takes one --done; add other outcomes with --answer") }
         let needs = NeedsRequest(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             why: arguments.options["why"],
             steps: arguments.lists["step"] ?? [],
             commands: commands.map { NeedsCommand(command: $0) },
-            links: (arguments.lists["link"] ?? []).map { NeedsLink(url: $0) }
+            links: (arguments.lists["link"] ?? []).map { NeedsLink(url: $0) },
+            doneLabel: arguments.options["done"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            answers: (arguments.lists["answer"] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         )
         do {
             try needs.validate()

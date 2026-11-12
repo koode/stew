@@ -13,8 +13,10 @@ stew-test-phone COMMAND [options]
   wait-push --state FILE [--kind request|update|resolved|unpair] [--timeout SECONDS]
       Wait for the next recorded push of that kind, decrypt it, print it as JSON.
   answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
-      ACTION is approve, deny, moreTime, option.N or other. Prints the Mac's result.
-      --force skips the phone's own checks, to prove the Mac refuses too.
+      ACTION is approve, deny, moreTime, option.N, other, done, answer.N or notNow.
+      Prints the Mac's result.
+      --force skips the phone's own checks, to prove the Mac refuses too. With it,
+      ACTION label:TEXT sends a needs answer with any label.
       --twice posts the same envelope again and adds the relay's status for it.
       --age SECONDS dates the answer that far back, to prove the Mac refuses stale answers.
   unpair --state FILE
@@ -170,6 +172,7 @@ func waitPush(_ values: [String: String]) throws {
                 output["body"] = content.body
                 output["category"] = content.categoryIdentifier ?? ""
                 output["actions"] = content.actions.map(\.identifier)
+                output["actionTitles"] = content.actions.map(\.title)
                 output["hasDeadline"] = request.deadline != nil
                 output["queued"] = request.queued
                 if let deadline = request.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
@@ -192,6 +195,9 @@ func waitPush(_ values: [String: String]) throws {
     throw Failure("no \(kind.rawValue) push within \(Int(timeout)) s")
 }
 
+/// With --force: a needs answer naming any label, as a phone with stale or forged labels would.
+let answerLabelAction = "label:"
+
 func answer(_ values: [String: String]) throws {
     let statePath = try required(values, "state")
     let state = try loadState(statePath)
@@ -207,6 +213,8 @@ func answer(_ values: [String: String]) throws {
         choice = offered
     } else if forced, action == LinkPresentation.approveAction {
         choice = .approve
+    } else if forced, action.hasPrefix(answerLabelAction) {
+        choice = .needsAnswer(String(action.dropFirst(answerLabelAction.count)))
     } else {
         printJSON(["accepted": false, "refusedOnPhone": true, "message": "This action is not offered for this request."])
         exit(5)

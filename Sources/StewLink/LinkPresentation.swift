@@ -8,6 +8,8 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case option(Int)
         case other
         case done, notNow
+        /// One of a needs item's other answers, by index.
+        case answer(Int)
     }
 
     public var identifier: String
@@ -52,6 +54,10 @@ public enum LinkPresentation {
     /// Handled on the phone alone: the notification goes, the item stays open on the Mac.
     public static let notNowAction = "notNow"
     public static let needsCategory = "stew.needs"
+    /// Needs items with their own answers get a category per request, because the
+    /// action titles are the item's labels.
+    public static let needsCategoryPrefix = "stew.needs."
+    public static let needsAnswerActionPrefix = "answer."
 
     /// Request ids for needs items, which have short ids of their own on the Mac.
     public static func needsRequestId(_ needsID: String) -> String { "needs-" + needsID }
@@ -109,8 +115,8 @@ public enum LinkPresentation {
         switch request.request.prompt {
         case .notify:
             return nil
-        case .needs:
-            return needsCategory
+        case .needs(let needs):
+            return needs.hasCustomAnswers ? needsCategoryPrefix + request.requestId : needsCategory
         case .permission:
             let base = request.hardDeny ? "stew.permission.macOnly" : "stew.permission"
             return canExtend(request) ? base : base + ".noTime"
@@ -128,12 +134,15 @@ public enum LinkPresentation {
         switch request.request.prompt {
         case .notify:
             return []
-        case .needs:
-            // Done needs no Face ID: it only tells Claude to go on, it runs nothing.
-            return [
-                LinkNotificationAction(identifier: doneAction, title: "Done", role: .done),
-                LinkNotificationAction(identifier: notNowAction, title: "Not now", role: .notNow),
-            ]
+        case .needs(let needs):
+            // Done and the other answers need no Face ID: they only tell Claude how to go
+            // on, they run nothing.
+            let answers = needs.answers.prefix(NeedsRequest.maxAnswers).enumerated().map { index, label in
+                LinkNotificationAction(identifier: needsAnswerActionPrefix + String(index), title: label, role: .answer(index))
+            }
+            return [LinkNotificationAction(identifier: doneAction, title: needs.doneTitle, role: .done)]
+                + answers
+                + [LinkNotificationAction(identifier: notNowAction, title: "Not now", role: .notNow)]
         case .permission:
             var actions: [LinkNotificationAction] = []
             if !request.hardDeny {
@@ -240,6 +249,11 @@ public enum LinkPresentation {
         case doneAction:
             guard case .needs = request.request.prompt else { return nil }
             return .done
+        case _ where identifier.hasPrefix(needsAnswerActionPrefix):
+            guard case .needs(let needs) = request.request.prompt,
+                  let index = Int(identifier.dropFirst(needsAnswerActionPrefix.count)),
+                  needs.answers.indices.contains(index) else { return nil }
+            return .needsAnswer(needs.answers[index])
         case otherAction:
             let text = (typedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard notificationQuestion(request) != nil, !text.isEmpty else { return nil }
@@ -284,6 +298,7 @@ public enum LinkRefusal {
     public static let tooSlow = "This answer took too long to reach your Mac. Answer again."
     public static let clockNotStarted = "This request waits behind another one on your Mac, so its clock has not started yet."
     public static let noTimeLimit = "This request has no time limit."
+    public static let unknownAnswer = "This item does not offer that answer. Open stew to see its answers."
 
     /// Checked on the phone before anything is sent.
     public static func beforeSending(_ choice: LinkChoice, for request: LinkRequest, now: Date = Date()) -> String? {
@@ -298,6 +313,8 @@ public enum LinkRefusal {
             return request.deadline == nil ? noTimeLimit : nil
         case (.deny, .permission), (.answers, .question), (.done, .needs):
             return nil
+        case (.needsAnswer(let label), .needs(let needs)):
+            return needs.answers.contains(label) ? nil : unknownAnswer
         default:
             return "This answer does not fit this request."
         }

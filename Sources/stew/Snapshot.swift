@@ -298,6 +298,39 @@ enum Snapshot {
             )))
             coordinator.show(needsItem(NeedsRequest(title: "Plug in the test iPhone"), session: otherSession))
         }),
+        ("needs-answers", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Sign in to App Store Connect in the open Playwright Chrome window",
+                why: "The upload needs a session in that browser, and only you have the 2FA device.",
+                links: [NeedsLink(label: "App Store Connect", url: "https://appstoreconnect.apple.com/apps")],
+                doneLabel: "Signed in",
+                answers: ["Can't sign in", "Use another account"]
+            )))
+        }),
+        // The longest labels validation allows: a 24 character Done and three 40 character answers.
+        ("needs-answers-long", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Buy more GPU credits for the training run on the shared team account before Friday",
+                steps: ["Open the billing page.", "Add 500 credits to the team account."],
+                links: [NeedsLink(url: "https://console.example.com/billing/credits")],
+                doneLabel: "Bought the extra credits",
+                answers: [
+                    "The card was declined, use the other one",
+                    "Wait until the budget resets next month",
+                    "Move the run to the cheaper spot cluster",
+                ]
+            )))
+            coordinator.show(needsItem(NeedsRequest(title: "Plug in the test iPhone"), session: otherSession))
+        }),
+        ("needs-answers-note", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Sign in to App Store Connect in the open Playwright Chrome window",
+                doneLabel: "Signed in",
+                answers: ["Can't sign in", "Use another account", "Sign in later today"]
+            ), session: otherSession))
+            coordinator.setTextMode(true)
+            coordinator.draft = "The 2FA code goes to the old phone."
+        }),
     ]
 
     private static func needsItem(_ needs: NeedsRequest, session itemSession: SessionInfo = session) -> Item {

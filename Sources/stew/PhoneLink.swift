@@ -282,7 +282,8 @@ final class PhoneLink: ObservableObject {
         }
     }
 
-    /// A needs item has one answer from a phone: Done. "Not now" never leaves the phone.
+    /// A needs item takes Done, or one of its other answers by label, from a phone. "Not
+    /// now" never leaves the phone.
     private func applyNeeds(_ answer: LinkAnswer, needsID: String, from pairingId: String) -> LinkResult {
         let requestId = answer.requestId
         func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
@@ -295,10 +296,25 @@ final class PhoneLink: ObservableObject {
         if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
             return refuse(LinkRefusal.tooSlow)
         }
-        guard answer.choice == .done else { return refuse("This answer does not fit this request.") }
-        needsDoneBy[needsID] = pairingId
-        coordinator.markNeedsDone(id: needsID)
-        return LinkResult(requestId: requestId, accepted: true, message: "Marked done on \(macName).")
+        let note = answer.note.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        switch answer.choice {
+        case .done:
+            needsDoneBy[needsID] = pairingId
+            coordinator.answerNeeds(id: needsID, answerIndex: nil, note: note)
+            return LinkResult(requestId: requestId, accepted: true, message: "Marked done on \(macName).")
+        case .needsAnswer(let label):
+            guard let record = coordinator.needsStore.item(needsID), let index = record.needs.answers.firstIndex(of: label) else {
+                return refuse(LinkRefusal.unknownAnswer)
+            }
+            needsDoneBy[needsID] = pairingId
+            guard coordinator.answerNeeds(id: needsID, answerIndex: index, note: note) else {
+                needsDoneBy[needsID] = nil
+                return refuse(LinkRefusal.unknownAnswer)
+            }
+            return LinkResult(requestId: requestId, accepted: true, message: "Answered \u{201C}\(label)\u{201D} on \(macName).")
+        default:
+            return refuse("This answer does not fit this request.")
+        }
     }
 
     private func needsFinished(_ record: NeedsItem, _ outcome: HistoryEntry.Outcome) {
@@ -307,6 +323,7 @@ final class PhoneLink: ObservableObject {
         let linkOutcome: LinkOutcome
         switch outcome {
         case .done: linkOutcome = .done
+        case .answered: linkOutcome = .answered
         case .resolvedByClaude: linkOutcome = .resolvedByClaude
         case .answeredInSession: linkOutcome = .answeredInSession
         case .movedOn: linkOutcome = .movedOn

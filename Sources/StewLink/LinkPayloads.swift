@@ -73,6 +73,10 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     case answers([LinkQuestionAnswer])
     /// A needs item is done. "Not now" sends nothing: on the Mac it changes nothing.
     case done
+    /// One of a needs item's other answers, by its label. The Mac refuses a label the
+    /// item does not offer. Done stays `done`, also with a label of its own, so a phone
+    /// that does not know the labels can still answer it.
+    case needsAnswer(String)
 }
 
 /// Phone to Mac.

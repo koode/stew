@@ -344,13 +344,13 @@ final class Coordinator: ObservableObject {
     }
 
     /// Ends a needs item for good: history entry, answer for a waiting caller, gone from
-    /// the panel and needs.json.
+    /// the panel and needs.json. `answer` is the label of the answer the user picked.
     @discardableResult
-    private func finishNeeds(id: String, outcome: HistoryEntry.Outcome, status: StewStatus, note: String?) -> Bool {
+    private func finishNeeds(id: String, outcome: HistoryEntry.Outcome, status: StewStatus, note: String?, answer: String? = nil) -> Bool {
         guard let record = needsStore.remove(id) else { return false }
-        history?.append(HistoryEntry.record(record, outcome: outcome, note: note, ended: Date()))
+        history?.append(HistoryEntry.record(record, outcome: outcome, note: note, answer: answer, ended: Date()))
         onNeedsFinished?(record, outcome)
-        answerWaiter(id, StewResponse(status: status, note: note, id: id))
+        answerWaiter(id, StewResponse(status: status, note: note, id: id, answer: answer))
         if let panelItem = items.first(where: { $0.needsID == id }) {
             remove(panelItem)
         } else {
@@ -360,10 +360,17 @@ final class Coordinator: ObservableObject {
         return true
     }
 
-    /// Done from a paired phone: the same ending as Done in the panel.
+    /// Done (`answerIndex` nil) or one of the item's other answers, from the panel or a
+    /// paired phone. False when the item is gone or has no answer at `answerIndex`.
     @discardableResult
-    func markNeedsDone(id: String) -> Bool {
-        finishNeeds(id: id, outcome: .done, status: .done, note: nil)
+    func answerNeeds(id: String, answerIndex: Int?, note: String?) -> Bool {
+        guard let record = needsStore.item(id) else { return false }
+        let label = record.needs.answerLabel(at: answerIndex)
+        guard let answerIndex else {
+            return finishNeeds(id: id, outcome: .done, status: .done, note: note, answer: label)
+        }
+        guard label != nil, record.needs.answers.indices.contains(answerIndex) else { return false }
+        return finishNeeds(id: id, outcome: .answered, status: .answered, note: note, answer: label)
     }
 
     /// "Not now": out of the panel, still open in the menu bar. A waiting caller keeps waiting.
@@ -591,7 +598,7 @@ final class Coordinator: ObservableObject {
         case (.needs, .dismiss):
             park(item)
         case (.needs, .approve):
-            if let id = item.needsID { finishNeeds(id: id, outcome: .done, status: .done, note: note.isEmpty ? nil : note) }
+            if let id = item.needsID { answerNeeds(id: id, answerIndex: nil, note: note.isEmpty ? nil : note) }
         case (.needs, .deny):
             if let id = item.needsID { finishNeeds(id: id, outcome: .dismissed, status: .dismissed, note: note.isEmpty ? nil : note) }
         case (.needs, .other):
@@ -664,6 +671,11 @@ final class Coordinator: ObservableObject {
     }
 
     func choose(option index: Int) {
+        if let item = current, item.isNeeds {
+            let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let id = item.needsID { answerNeeds(id: id, answerIndex: index, note: note.isEmpty ? nil : note) }
+            return
+        }
         if grantMode {
             guard let scopes = current?.blocked?.grantScopes, scopes.indices.contains(index) else { return }
             grantSelection = index
@@ -726,7 +738,10 @@ final class Coordinator: ObservableObject {
             }
         case .notify:
             bindings.append((keymap[.approve], .action(.approve)))
-        case .needs:
+        case .needs(let needs):
+            for index in needs.answers.indices.prefix(NeedsRequest.maxAnswers) {
+                bindings.append((keymap.options[index], .option(index)))
+            }
             bindings += [(keymap[.approve], .action(.approve)), (keymap[.deny], .action(.deny)), (keymap[.other], .action(.other))]
         case .question:
             guard let flow = item.flow else { break }

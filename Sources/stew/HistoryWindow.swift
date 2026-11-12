@@ -156,6 +156,7 @@ struct HistoryDetail: View {
                 // Claude hears about a needs item only when it waited for it, so the
                 // row shows the user's note instead.
                 if entry.kind == "needs" {
+                    if let answer = entry.answer, !answer.isEmpty { row("Answer", answer) }
                     if let note = entry.note, !note.isEmpty { row("Note", note) }
                 } else {
                     row("Claude was told", toldClaude)

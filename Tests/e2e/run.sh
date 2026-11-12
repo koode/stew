@@ -413,6 +413,44 @@ expect "decline returns dismissed" "$(cat "$WORK/out")$code" '"status":"dismisse
 sleep 0.2
 expect "decline is recorded as dismissed" "$(needs_count dismissed 'Buy more GPU credits')" "1"
 
+# needs with answers of Claude's own: a Done label, and other answers on ⌘1 to ⌘3
+needs_answer() { # title: the picked answer in history
+  python3 -c 'import json,sys;print([entry.get("answer") for entry in json.loads(sys.argv[1]) if entry["summary"]==sys.argv[2]])' "$(history_json)" "$1"
+}
+"$STEW" needs "Sign in to App Store Connect" --done "Signed in" --answer "Can't sign in" --answer "Use another account" --wait > "$WORK/out" & client=$!
+wait_items 1
+expect "answers get ⌘1 and ⌘2" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘↩ ⌘D ⌘O"
+expect "needs list --json shows the labels" "$("$STEW" needs list --json)" '"doneLabel" : "Signed in"'
+control press other > /dev/null
+control type "the 2FA code goes to the old phone" > /dev/null
+control choose 1 > /dev/null
+wait $client; code=$?
+expect "an other answer names its label, with the note" "$(cat "$WORK/out")$code" \
+  '{"answer":"Can'"'"'t sign in","id":"'
+expect "an other answer is answered and exits 0" "$(cat "$WORK/out")$code" '"note":"the 2FA code goes to the old phone","status":"answered"}0'
+sleep 0.2
+expect "an other answer is recorded as answered" "$(needs_count answered 'Sign in to App Store Connect')" "1"
+expect "history keeps the picked answer" "$(needs_answer 'Sign in to App Store Connect')" "[\"Can't sign in\"]"
+
+"$STEW" needs "Buy the credits" --done "Bought them" --answer "Too expensive" --wait > "$WORK/out" & client=$!
+wait_items 1
+control choose 2 > /dev/null
+expect "a key with no answer does nothing" "$(control state)" "items=1 kind=needs"
+control press approve > /dev/null
+wait $client; code=$?
+expect "Done names its own label" "$(cat "$WORK/out")$code" '{"answer":"Bought them","id":"'
+expect "Done with a label stays done" "$(cat "$WORK/out")$code" '"status":"done"}0'
+sleep 0.2
+expect "Done with a label is recorded as done" "$(needs_count done 'Buy the credits')" "1"
+expect "history names the Done label" "$(needs_answer 'Buy the credits')" "['Bought them']"
+
+"$STEW" needs "x" --answer "a" --answer "b" --answer "c" --answer "d" 2> "$WORK/err"; code=$?
+expect "more than 3 answers are refused" "$code$(cat "$WORK/err")" "64stew: at most 3 answers, got 4"
+"$STEW" needs "x" --done "Signed in" --answer "signed in" 2> "$WORK/err"; code=$?
+expect "an answer like Done is refused" "$code$(cat "$WORK/err")" "is already a button"
+"$STEW" needs "x" --done "$(printf 'x%.0s' $(seq 1 25))" 2> "$WORK/err"; code=$?
+expect "a long Done label is refused" "$code$(cat "$WORK/err")" "64stew: --done is longer than 24 characters"
+
 out=$("$STEW" needs "Sign the contract" --wait --timeout 1); code=$?
 expect "--wait --timeout stops waiting" "$out$code" '"status":"timeout"'
 expect "timeout tells Claude how to resolve" "$out" "stew needs resolve $(id_of "$out")"
