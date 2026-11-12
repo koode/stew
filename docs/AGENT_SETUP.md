@@ -15,7 +15,7 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 
 ## 2. Ask the user two questions
 
-1. **Auto mode hooks.** "Should stew ask you when Claude Code's auto mode blocks a call? This adds two hooks to `~/.claude/settings.json` (a backup is written first). A blocked call then waits up to 30 minutes for your answer in stew."
+1. **Hooks.** "Should stew ask you when Claude Code's auto mode blocks a call, and show Claude's questions in stew when you are not at the terminal (background and remote sessions)? This adds hooks to `~/.claude/settings.json` (a backup is written first)."
 2. **Keys and time.** "stew uses ⌘↩ to approve, ⌘D to deny, ⌘1 to ⌘4 for options and ⌘. to dismiss, while a panel is visible. You get 1 minute to answer before Claude is told you did not respond; ⌘E adds 2 minutes. Do you want different keys or times?"
 
 ## 3. Install

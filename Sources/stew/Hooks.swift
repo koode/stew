@@ -98,6 +98,46 @@ enum Hooks {
         exit(0)
     }
 
+    /// PreToolUse on AskUserQuestion: ask in stew instead of the terminal when the
+    /// session is unattended (or always, per config). Returns the answers as the tool's
+    /// input, or a denial with a reason Claude can act on. If the daemon cannot be
+    /// reached, it prints nothing and Claude Code asks in the terminal as usual.
+    static func question() -> Never {
+        do {
+            let call = try readHookInput()
+            let (config, _) = loadConfig()
+            let attended = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ATTENDED"]
+            guard call.toolName == "AskUserQuestion",
+                  QuestionRouting.shouldRoute(mode: config.routeQuestions, attended: attended) else { exit(0) }
+            let questionSet = try JSONDecoder().decode(QuestionSet.self, from: Data(call.key.utf8))
+            try questionSet.validate()
+            var session = SessionResolver.resolve(
+                explicitName: nil,
+                environment: ProcessInfo.processInfo.environment,
+                cwd: call.cwd,
+                home: Paths.home,
+                readFile: { FileManager.default.contents(atPath: $0) }
+            )
+            if let sessionID = call.sessionID { session.id = sessionID }
+            let response = Client.send(StewRequest(session: session, prompt: .question(questionSet), maxWait: Double(deniedTimeout - 20)))
+            switch response.status {
+            case .answered:
+                if let output = HookOutput.answeringQuestions(inputJSON: call.key, answers: response.answers ?? [:]) {
+                    print(output)
+                }
+            case .timeout:
+                print(HookOutput.deny(reason: response.note ?? "The user did not answer in time. Continue with a safe choice that does not need this answer."))
+            case .dismissed:
+                print(HookOutput.deny(reason: "The user closed the question without answering. Continue with a safe choice that does not need this answer, or ask again later."))
+            default:
+                Log.append("hook question: \(response.error ?? response.status.rawValue); falling back to the terminal")
+            }
+        } catch {
+            Log.append("hook question: \(error)")
+        }
+        exit(0)
+    }
+
     /// PermissionDenied: auto mode blocked a call. Ask the user; on approval, store a
     /// one-shot grant for the identical retry and tell Claude it may retry.
     static func denied() -> Never {
@@ -231,9 +271,13 @@ enum Hooks {
     }
 
     static func status() {
-        let installed = ClaudeSettings.hasHooks(executable: installedExecutable, in: FileManager.default.contents(atPath: claudeSettingsPath))
+        let state = ClaudeSettings.hookState(executable: installedExecutable, in: FileManager.default.contents(atPath: claudeSettingsPath))
         let standing = GrantFile.read().filter { $0.isStanding && $0.isLive(at: Date()) }
-        print("hooks: \(installed ? "installed" : "not installed") in \(claudeSettingsPath)")
+        switch state {
+        case .complete: print("hooks: installed in \(claudeSettingsPath)")
+        case .partial: print("hooks: partly installed in \(claudeSettingsPath); run `stew hooks install` to update")
+        case .none: print("hooks: not installed in \(claudeSettingsPath)")
+        }
         print("standing approvals: \(standing.count) (stew approvals to manage)")
     }
 }

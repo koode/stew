@@ -12,7 +12,7 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var config = StewConfig()
     @Published private(set) var keymap = try! Keymap(config: StewConfig())
     @Published private(set) var error: String?
-    @Published private(set) var hooksInstalled = false
+    @Published private(set) var hookState: ClaudeSettings.HookState = .none
     @Published var tab: SettingsTab = .general
     var onSaved: (() -> Void)?
 
@@ -21,7 +21,7 @@ final class SettingsModel: ObservableObject {
         config = loaded
         keymap = (try? Keymap(config: loaded)) ?? keymap
         error = loadError
-        hooksInstalled = ClaudeSettings.hasHooks(
+        hookState = ClaudeSettings.hookState(
             executable: Hooks.installedExecutable,
             in: FileManager.default.contents(atPath: Hooks.claudeSettingsPath)
         )
@@ -326,13 +326,32 @@ struct ClaudeSettingsTab: View {
 
     var body: some View {
         Form {
-            Section("Auto mode hooks") {
-                SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Changes ~/.claude/settings.json; a backup is written first.") {
+            Section("Hooks") {
+                SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
                     LabeledContent("Hooks") {
                         HStack {
-                            Text(model.hooksInstalled ? "Installed" : "Not installed").foregroundStyle(.secondary)
-                            Button(model.hooksInstalled ? "Uninstall" : "Install") { model.setHooks(installed: !model.hooksInstalled) }
+                            switch model.hookState {
+                            case .complete:
+                                Text("Installed").foregroundStyle(.secondary)
+                                Button("Uninstall") { model.setHooks(installed: false) }
+                            case .partial:
+                                Text("Needs an update").foregroundStyle(.orange)
+                                Button("Update") { model.setHooks(installed: true) }
+                            case .none:
+                                Text("Not installed").foregroundStyle(.secondary)
+                                Button("Install") { model.setHooks(installed: true) }
+                            }
                         }
+                    }
+                }
+                SettingRow(hint: "Where Claude Code's questions (AskUserQuestion) appear. Unattended means background and remote sessions; a session you are typing in keeps asking in the terminal.") {
+                    Picker("Questions", selection: Binding(
+                        get: { model.config.routeQuestions },
+                        set: { value in model.update { $0.routeQuestions = value } }
+                    )) {
+                        Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
+                        Text("Always in stew").tag(QuestionRouting.always)
+                        Text("Always in the terminal").tag(QuestionRouting.never)
                     }
                 }
             }

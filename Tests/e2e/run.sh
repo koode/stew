@@ -189,7 +189,7 @@ expect "unretryable denial is ignored" "[$(denied 'x' 'Classifier unavailable')]
 
 echo '{"model":"opus","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"other"}]}]}}' > "$STEW_CLAUDE_USER_SETTINGS"
 "$STEW" hooks install > /dev/null; "$STEW" hooks install > /dev/null
-expect "hooks install keeps other hooks" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["hooks"]["PreToolUse"]), len(d["hooks"]["PermissionDenied"]), d["model"])' "$STEW_CLAUDE_USER_SETTINGS")" "2 1 opus"
+expect "hooks install keeps other hooks" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["hooks"]["PreToolUse"]), len(d["hooks"]["PermissionDenied"]), d["model"])' "$STEW_CLAUDE_USER_SETTINGS")" "3 1 opus"
 expect "hooks status" "$("$STEW" hooks status)" "hooks: installed"
 "$STEW" hooks uninstall > /dev/null
 expect "hooks uninstall" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["hooks"]["PreToolUse"]), "PermissionDenied" in d["hooks"])' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
@@ -222,6 +222,43 @@ out=$(denied "git push --force origin main" "$SOFT")
 expect "unanswered hook returns retry" "$out" '"retry":true'
 expect "retry is denied with the time note" "$(pre 'git push --force origin main')" "didn't respond within 1 s"
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
+
+# AskUserQuestion routing: unattended sessions ask in stew, attended keep the terminal
+question_json() {
+  python3 -c 'import json,sys;print(json.dumps({"session_id":"s1","cwd":sys.argv[1],"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which color?","header":"Color","multiSelect":False,"options":[{"label":"Red","description":""},{"label":"Blue","description":""}]}]}}))' "$PROJ"
+}
+ask_hook() { question_json | CLAUDE_CODE_SESSION_ATTENDED="$1" "$STEW" hook question; }
+set_config() { echo "{\"classifier\":{\"enabled\":false},\"sound\":\"\"$1}" > "$STEW_CONFIG"; }
+
+set_config ""
+expect "attended session keeps the terminal" "[$(ask_hook 1)]" "[]"
+expect "nothing shown for an attended session" "$(control state)" "items=0"
+ask_hook 0 > "$WORK/out" & hook=$!
+wait_items 1
+expect "unattended question shows in stew" "$(control state)" "kind=question"
+control choose 2 > /dev/null
+wait $hook
+expect "answer goes back as updatedInput" "$(cat "$WORK/out")" '"answers":{"Which color?":"Blue"}'
+expect "answer allows the tool call" "$(cat "$WORK/out")" '"permissionDecision":"allow"'
+expect "original questions are echoed" "$(cat "$WORK/out")" '"questions":[{'
+ask_hook 0 > "$WORK/out" & hook=$!
+wait_items 1
+control press dismiss > /dev/null
+wait $hook
+expect "dismissed question is denied with a reason" "$(cat "$WORK/out")" "closed the question without answering"
+set_config ',"responseTimeout":1'
+expect "unanswered question tells Claude to move on" "$(ask_hook 0)" "didn't answer within 1 s"
+set_config ',"routeQuestions":"never"'
+expect "never keeps every question in the terminal" "[$(ask_hook 0)]" "[]"
+set_config ',"routeQuestions":"always"'
+ask_hook 1 > "$WORK/out" & hook=$!
+wait_items 1
+expect "always routes attended sessions too" "$(control state)" "kind=question"
+control choose 1 > /dev/null; wait $hook
+expect "always answer" "$(cat "$WORK/out")" '"Which color?":"Red"'
+set_config ""
+# A socket path that cannot exist: the daemon cannot start, so the terminal must ask.
+expect "no daemon falls back to the terminal" "[$(question_json | CLAUDE_CODE_SESSION_ATTENDED=0 STEW_SOCKET="/nonexistent/stew-e2e/stew.sock" "$STEW" hook question 2>/dev/null)]" "[]"
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then
   echo '{"classifier":{"enabled":true,"model":"haiku"},"sound":""}' > "$STEW_CONFIG"

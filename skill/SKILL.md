@@ -11,11 +11,12 @@ The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 op
 
 ## When to use it
 
-- A background job needs a decision to continue. Ask with `stew ask` or `stew permit` before you stop to wait for the user.
+- A decision blocks you: ask with the normal AskUserQuestion tool. With stew's hooks installed, it shows in stew whenever nobody is at the terminal (background and remote sessions), and the answer comes back as usual. Use `stew ask` only when AskUserQuestion is not available to you.
+- You need permission for something outside your tools' own prompts: `stew permit`.
 - Long work finished, failed or needs attention: `stew notify`.
 - The user asked to be notified, pinged or asked.
 
-In a foreground session where the user is clearly typing to you, the normal AskUserQuestion tool is fine.
+If AskUserQuestion comes back denied with a note that the user did not answer in time, or closed the question, they are probably away: continue with a safe choice that does not need the answer, and say which choice you made.
 
 `stew permit` adds a human check; it does not replace or bypass Claude Code's own permission system. Never use it to get around a denied tool call.
 

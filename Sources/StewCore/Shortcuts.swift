@@ -164,6 +164,9 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var responseTimeout: Double
     /// Seconds one "more time" press adds.
     public var extendBy: Double
+    /// Where Claude Code's AskUserQuestion goes: "unattended" (background and remote
+    /// sessions), "always" or "never". Needs the hooks.
+    public var routeQuestions: String
     public var sound: String?
     public var position: String
     public var classifier: ClassifierConfig
@@ -219,6 +222,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         armDelay = 0.5
         responseTimeout = 60
         extendBy = 120
+        routeQuestions = QuestionRouting.unattended
         sound = "Glass"
         position = "top-right"
         classifier = ClassifierConfig()
@@ -235,6 +239,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         armDelay = try container.decodeIfPresent(Double.self, forKey: .armDelay) ?? defaults.armDelay
         responseTimeout = try container.decodeIfPresent(Double.self, forKey: .responseTimeout) ?? defaults.responseTimeout
         extendBy = try container.decodeIfPresent(Double.self, forKey: .extendBy) ?? defaults.extendBy
+        routeQuestions = try container.decodeIfPresent(String.self, forKey: .routeQuestions) ?? defaults.routeQuestions
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier

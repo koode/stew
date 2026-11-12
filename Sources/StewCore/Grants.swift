@@ -275,8 +275,50 @@ public struct HookCall: Equatable, Sendable {
     }
 }
 
+/// Whether a Claude Code AskUserQuestion call should be answered in stew.
+public enum QuestionRouting {
+    public static let unattended = "unattended"
+    public static let always = "always"
+    public static let never = "never"
+
+    /// Claude Code sets CLAUDE_CODE_SESSION_ATTENDED to 1 when someone is at the terminal
+    /// and 0 for background and remote sessions. Without the variable, the terminal keeps
+    /// the question.
+    public static func shouldRoute(mode: String, attended: String?) -> Bool {
+        switch mode {
+        case always: return true
+        case unattended: return attended == "0"
+        default: return false
+        }
+    }
+}
+
 /// JSON a hook prints on stdout.
 public enum HookOutput {
+    /// Answers AskUserQuestion: the original input with an `answers` object added.
+    public static func answeringQuestions(inputJSON: String, answers: [String: String]) -> String? {
+        guard var input = try? JSONSerialization.jsonObject(with: Data(inputJSON.utf8)) as? [String: Any] else { return nil }
+        input["answers"] = answers
+        let output: [String: Any] = ["hookSpecificOutput": [
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": input,
+        ]]
+        guard let data = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Refuses a tool call with a reason Claude reads, such as "the user did not answer".
+    public static func deny(reason: String) -> String {
+        let output: [String: Any] = ["hookSpecificOutput": [
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        ]]
+        let data = (try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
     public static func retry() -> String {
         #"{"hookSpecificOutput":{"hookEventName":"PermissionDenied","retry":true}}"#
     }
@@ -351,14 +393,20 @@ public enum ClaudeSettings {
     public static func installingHooks(executable: String, deniedTimeout: Int, into data: Data?) throws -> Data {
         var object = try object(from: data)
         var hooks = object["hooks"] as? [String: Any] ?? [:]
-        let entries: [(String, String, Int)] = [
-            ("PermissionDenied", "denied", deniedTimeout),
-            ("PreToolUse", "pre", 10),
+        // The question hook waits for the user, so it needs the long timeout; the general
+        // PreToolUse hook only reads the grant file and must stay short.
+        let entries: [(String, String, String, Int)] = [
+            ("PermissionDenied", "*", "denied", deniedTimeout),
+            ("PreToolUse", "*", "pre", 10),
+            ("PreToolUse", "AskUserQuestion", "question", deniedTimeout),
         ]
-        for (event, subcommand, timeout) in entries {
-            var list = (hooks[event] as? [[String: Any]] ?? []).filter { !isStewHook($0, executable: executable) }
+        for event in Set(entries.map(\.0)) {
+            hooks[event] = (hooks[event] as? [[String: Any]] ?? []).filter { !isStewHook($0, executable: executable) }
+        }
+        for (event, matcher, subcommand, timeout) in entries {
+            var list = hooks[event] as? [[String: Any]] ?? []
             list.append([
-                "matcher": "*",
+                "matcher": matcher,
                 "hooks": [["type": "command", "command": "\(executable) hook \(subcommand)", "timeout": timeout]],
             ])
             hooks[event] = list
@@ -384,10 +432,27 @@ public enum ClaudeSettings {
         return try self.data(from: object)
     }
 
-    public static func hasHooks(executable: String, in data: Data?) -> Bool {
-        guard let object = try? object(from: data), let hooks = object["hooks"] as? [String: Any] else { return false }
-        return ["PermissionDenied", "PreToolUse"].allSatisfy { event in
-            (hooks[event] as? [[String: Any]] ?? []).contains { isStewHook($0, executable: executable) }
+    public enum HookState: Equatable, Sendable {
+        case none
+        /// Installed by an older stew: re-run install to add what is missing.
+        case partial
+        case complete
+    }
+
+    public static func hookState(executable: String, in data: Data?) -> HookState {
+        guard let object = try? object(from: data), let hooks = object["hooks"] as? [String: Any] else { return .none }
+        let commands = ["PermissionDenied", "PreToolUse"].flatMap { event in
+            (hooks[event] as? [[String: Any]] ?? []).flatMap { entry in
+                (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
+            }
         }
+        let wanted = ["denied", "pre", "question"].map { "\(executable) hook \($0)" }
+        let present = wanted.filter(commands.contains)
+        if present.isEmpty { return .none }
+        return present.count == wanted.count ? .complete : .partial
+    }
+
+    public static func hasHooks(executable: String, in data: Data?) -> Bool {
+        hookState(executable: executable, in: data) == .complete
     }
 }

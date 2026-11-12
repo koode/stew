@@ -45,7 +45,7 @@ Open Claude Code in this folder and paste:
 
 ### When auto mode blocks a call
 
-With `--with-hooks`, two Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first):
+With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, and one for questions (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
@@ -71,6 +71,12 @@ What hooks cannot change:
 - A **hard deny** rule (such as Data Exfiltration) is meant to block even when you ask. stew asks for ⇧⌘↩ to approve once and offers no standing approvals.
 - **Protected paths** (`.git`, `.claude`, shell profiles) stay blocked even with an allow rule.
 - Denials without a verdict ("Classifier unavailable") cannot be retried, so stew does not ask.
+
+### Questions in stew
+
+Claude Code's own question tool (AskUserQuestion) can show in stew too, through a third hook. By default this happens only in **unattended** sessions: background jobs and remote sessions, where nobody is at the terminal to answer. A session you are typing in keeps asking in the terminal. Change it in `stew settings` → Claude Code → Questions, or with `"routeQuestions"` in the config: `"unattended"`, `"always"` or `"never"`.
+
+The answer goes back to Claude as if you had answered in the terminal. If the time to answer runs out, or you close the question, Claude is told so and continues with a safe choice. If stew is not running, the terminal asks as usual.
 
 ### The skill
 
@@ -145,6 +151,7 @@ The window has four tabs:
   "armDelay": 0.5,
   "responseTimeout": 60,
   "extendBy": 120,
+  "routeQuestions": "unattended",
   "sound": "Glass",
   "position": "top-right",
   "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
@@ -154,6 +161,7 @@ The window has four tabs:
 - A bare key (`"d"`) joins `chord`. A full spec (`"ctrl+option+y"`) stands alone.
 - Keys without Control, Option or Command are refused.
 - Approve and submit may share a key, because they never show on the same panel. Other clashes are refused.
+- `routeQuestions` is `unattended`, `always` or `never`: where Claude Code's own questions appear.
 - `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
 - `position` is `top-right`, `top-center` or `top-left`.
 - `classifier` controls the risk check on direct `stew permit` calls.

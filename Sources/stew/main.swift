@@ -20,7 +20,7 @@ USAGE
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
-  stew hook denied|pre
+  stew hook denied|pre|question
       The hook commands Claude Code runs. Not for direct use.
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
@@ -197,7 +197,8 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         switch arguments.positional.first {
         case "denied": Hooks.denied()
         case "pre": Hooks.pre()
-        default: throw UsageError("hook needs denied or pre")
+        case "question": Hooks.question()
+        default: throw UsageError("hook needs denied, pre or question")
         }
 
     case "hooks":

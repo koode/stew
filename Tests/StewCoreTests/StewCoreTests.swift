@@ -426,7 +426,7 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         let once = try ClaudeSettings.installingHooks(executable: "/u/.local/bin/stew", deniedTimeout: 1800, into: existing)
         let twice = try ClaudeSettings.installingHooks(executable: "/u/.local/bin/stew", deniedTimeout: 1800, into: once)
         let hooks = (try JSONSerialization.jsonObject(with: twice) as! [String: Any])["hooks"] as! [String: Any]
-        #expect((hooks["PreToolUse"] as! [[String: Any]]).count == 2)
+        #expect((hooks["PreToolUse"] as! [[String: Any]]).count == 3)
         #expect((hooks["PermissionDenied"] as! [[String: Any]]).count == 1)
         #expect(ClaudeSettings.hasHooks(executable: "/u/.local/bin/stew", in: twice))
         let removed = try #require(try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: twice))
@@ -505,4 +505,41 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(StewConfig().responseTimeout == 60)
         #expect(StewConfig().extendBy == 120)
     }
+}
+
+@Suite struct QuestionRoutingTests {
+    @Test func unattendedRoutesOnlyBackgroundSessions() {
+        #expect(QuestionRouting.shouldRoute(mode: "unattended", attended: "0"))
+        #expect(!QuestionRouting.shouldRoute(mode: "unattended", attended: "1"))
+        #expect(!QuestionRouting.shouldRoute(mode: "unattended", attended: nil))
+        #expect(QuestionRouting.shouldRoute(mode: "always", attended: "1"))
+        #expect(!QuestionRouting.shouldRoute(mode: "never", attended: "0"))
+        #expect(StewDefaults.route == "unattended")
+    }
+
+    @Test func answerEchoesInputAndAddsAnswers() throws {
+        let input = #"{"questions":[{"header":"Color","multiSelect":false,"options":[{"description":"","label":"Red"},{"description":"","label":"Blue"}],"question":"Which color?"}]}"#
+        let output = try #require(HookOutput.answeringQuestions(inputJSON: input, answers: ["Which color?": "Blue"]))
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8)) as! [String: Any]
+        let specific = object["hookSpecificOutput"] as! [String: Any]
+        #expect(specific["permissionDecision"] as? String == "allow")
+        let updated = specific["updatedInput"] as! [String: Any]
+        #expect(updated["answers"] as? [String: String] == ["Which color?": "Blue"])
+        #expect((updated["questions"] as? [[String: Any]])?.count == 1)
+    }
+
+    @Test func installAddsQuestionHookWithLongTimeout() throws {
+        let installed = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: nil)
+        let hooks = (try JSONSerialization.jsonObject(with: installed) as! [String: Any])["hooks"] as! [String: Any]
+        let pre = hooks["PreToolUse"] as! [[String: Any]]
+        let question = try #require(pre.first { $0["matcher"] as? String == "AskUserQuestion" })
+        #expect(((question["hooks"] as! [[String: Any]])[0]["timeout"] as? Int) == 1800)
+        #expect(ClaudeSettings.hookState(executable: "/u/stew", in: installed) == .complete)
+        let old = Data(#"{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/u/stew hook pre"}]}]}}"#.utf8)
+        #expect(ClaudeSettings.hookState(executable: "/u/stew", in: old) == .partial)
+    }
+}
+
+private enum StewDefaults {
+    static let route = StewConfig().routeQuestions
 }
