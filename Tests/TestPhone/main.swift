@@ -10,8 +10,9 @@ stew-test-phone COMMAND [options]
 
   pair --code TEXT --state FILE [--name NAME]
       Register with the code's relay and send the hello. Prints the six digit code.
-  wait-push --state FILE [--kind request|update|resolved|unpair] [--timeout SECONDS]
+  wait-push --state FILE [--kind request|update|resolved|unpair] [--timeout SECONDS] [--raw yes]
       Wait for the next recorded push of that kind, decrypt it, print it as JSON.
+      --raw adds the decrypted request as requestJSON.
   answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
       ACTION is approve, deny, moreTime, option.N, other, done, answer.N, notNow,
       reply (with --text), enterSoon or enterLater. Prints the Mac's result.
@@ -175,9 +176,11 @@ func waitPush(_ values: [String: String]) throws {
                 output["actions"] = content.actions.map(\.identifier)
                 output["actionTitles"] = content.actions.map(\.title)
                 output["hasDeadline"] = request.deadline != nil
-                // Everything the phone learned about the request, so a test can show what
-                // it never receives, such as a secret.
-                output["requestJSON"] = String(decoding: try LinkJSON.encode(request.request), as: UTF8.self)
+                if values["raw"] == "yes" {
+                    // Everything the phone learned about the request, so a test can show
+                    // what it never receives, such as a secret.
+                    output["requestJSON"] = String(decoding: try LinkJSON.encode(request.request), as: UTF8.self)
+                }
                 output["queued"] = request.queued
                 if let deadline = request.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
             case .resolved:
