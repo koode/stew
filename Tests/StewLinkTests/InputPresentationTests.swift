@@ -46,6 +46,11 @@ private func linkRequest(_ input: InputRequest, sessionID: String? = "abc", dead
         #expect(LinkRefusal.beforeSending(.text("example.com"), for: request, now: deadline.addingTimeInterval(1))?.hasPrefix("Too late") == true)
     }
 
+    @Test func phoneNamesTheFormatInPlainWords() {
+        let code = InputRequest(question: "Code?", pattern: "^[0-9]{6}$", format: "6 digits")
+        #expect(LinkRefusal.beforeSending(.text("12345"), for: linkRequest(code), now: received) == "Not in the expected format. Expected: 6 digits")
+    }
+
     @Test func secretOffersNoTextFieldOnlyTheMacChoices() {
         let request = linkRequest(otp)
         let content = LinkPresentation.notification(for: request, pairingId: "pair", time: clock)

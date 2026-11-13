@@ -488,10 +488,21 @@ out=$(late_call UserPromptSubmit late-5 "" | "$STEW" hook prompt)
 expect "late: the input answer reaches the session" "$out" '\"Late domain?\"=\"late.example.com\"'
 expect "late: history keeps the late input answer" "$(history_json)" '"text":"late.example.com"'
 
-# A secret that timed out cannot be answered late: only "I'll enter it later" keeps it open.
-CLAUDE_CODE_SESSION_ID=late-6 "$STEW" input "Timed secret?" --secret > /dev/null
+# A secret that timed out can be entered late too; it waits in memory, never in a file.
+TIMED_SECRET="t1med-0ut-s3cret"
+out=$(CLAUDE_CODE_SESSION_ID=late-6 "$STEW" input "Timed secret?" --secret)
+expect "late: a secret's timeout note promises a late answer" "$out" "passes their answer on to you as a late answer"
 sleep 0.2
-expect "late: a secret that timed out is not waiting" "$(control late "$(late_entry "Timed secret?")")" "not waiting"
+expect "late: a secret that timed out can be answered now" "$(control late "$(late_entry "Timed secret?")")" "kind=input"
+control type "$TIMED_SECRET" > /dev/null
+control press submit > /dev/null
+wait_items 0; sleep 0.2
+leaks=$(grep -rl "$TIMED_SECRET" "$WORK" 2>/dev/null)
+[[ -z "$leaks" ]] && pass "late: the timed-out secret is in no file" || fail "late: the timed-out secret is in no file" "$leaks"
+expect "late: the timed-out secret reaches the session from memory" "$(late_call UserPromptSubmit late-6 "" | "$STEW" hook prompt)" "$TIMED_SECRET"
+out=$("$STEW" input "Code?" --format "6 digits" 2>&1); code=$?
+expect "input: --format needs --pattern" "$out$code" "--format needs --pattern"
+expect "input: --format without --pattern exits 64" "$code" "64"
 
 # I'll enter it later: Claude hears "later" at once, and the secret entered afterwards
 # reaches it once, from the daemon's memory, never from a file.
@@ -528,6 +539,11 @@ expect "later: delivered once" "[$(late_call PreToolUse late-7 "ls" | "$STEW" ho
 expect "later: the daemon no longer has it" "$(control "late secret $entry")" '"status":"error"'
 expect "later: history shows it entered late" "$(history_json | python3 -c 'import json,sys; print(next(entry["outcome"] + "/" + entry["late"]["outcome"] for entry in json.load(sys.stdin) if entry["id"]==sys.argv[1]))' "$entry")" "later/answered"
 [[ "$(history_json)" != *"$LATER_SECRET"* ]] && pass "later: never in the history" || fail "later: never in the history" "secret in history"
+CLAUDE_CODE_SESSION_ID=late-8 "$STEW" input "Still to enter?" --secret --timeout 30 > /dev/null & client=$!
+wait_items 1
+control press enterLater > /dev/null
+wait $client; sleep 0.2
+expect "later: missed only lists secrets to enter later" "$(history_json --missed)" '"summary":"Still to enter?"'
 
 # Without a session id there is no one to tell, so nothing waits.
 "$STEW" permit --action "Nobody to tell" --reason "r" > /dev/null

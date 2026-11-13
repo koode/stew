@@ -54,8 +54,9 @@ struct InputBody: View {
     @ViewBuilder
     private func hint(_ check: InputRequest.Check) -> some View {
         let keymap = coordinator.keymap
-        if check == .mismatch, let pattern = input.pattern {
-            (Text(InputRequest.mismatchMessage + " Expected: ") + Text(pattern).font(.system(size: 11, design: .monospaced)))
+        if check == .mismatch, let expected = input.expectedText {
+            (Text(InputRequest.mismatchMessage + " Expected: ")
+                + Text(expected).font(.system(size: 11, design: input.expectsRawPattern ? .monospaced : .default)))
                 .foregroundStyle(.orange)
         } else if coordinator.textMode {
             let returnText = input.multiline ? "Return adds a line. " : ""
@@ -101,7 +102,8 @@ struct InputPreview: View {
                     if text.isEmpty {
                         Text(input.placeholder ?? "Type your answer").foregroundStyle(.tertiary)
                     } else if input.secret {
-                        Text(String(repeating: "•", count: text.count))
+                        // A fixed count, so the dots never tell how long the secret is.
+                        Text(String(repeating: "•", count: 8))
                     } else {
                         Text(text)
                     }

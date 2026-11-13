@@ -394,7 +394,7 @@ public enum LinkRefusal {
         guard !input.secret else { return secretOnMac }
         switch input.check(text) {
         case .empty: return emptyAnswer
-        case .mismatch: return InputRequest.mismatchMessage + (input.pattern.map { " Expected: \($0)" } ?? "")
+        case .mismatch: return input.mismatchText
         case .valid: return nil
         }
     }

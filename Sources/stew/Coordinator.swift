@@ -629,7 +629,9 @@ final class Coordinator: ObservableObject {
     /// neither. Parked needs items come back into the panel, each one only once.
     func userReturned(awaySince: Date) {
         guard let history else { return }
-        let missed = History.missed(history.read(), since: awaySince)
+        let entries = history.read()
+        let missed = History.missed(entries, since: awaySince)
+        let later = History.enterLater(entries, since: awaySince)
         for record in needsStore.items where record.parked && !record.reminded {
             needsStore.update(record.id) { item in
                 item.parked = false
@@ -638,7 +640,7 @@ final class Coordinator: ObservableObject {
             queueNeeds(record)
             needsChanged()
         }
-        guard let notice = ReturnSummary.notice(missedCount: missed.count, needsCount: needsStore.items.count) else { return }
+        guard let notice = ReturnSummary.notice(missedCount: missed.count, laterCount: later.count, needsCount: needsStore.items.count) else { return }
         let item = Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(notice), wait: false), connection: nil)
         item.isInternal = true
         items.append(item)

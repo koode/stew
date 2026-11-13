@@ -10,6 +10,9 @@ public struct InputRequest: Codable, Equatable, Sendable {
     public var defaultText: String?
     /// A regular expression the whole answer must match.
     public var pattern: String?
+    /// The pattern in plain words, such as "6 digits", shown instead of the pattern
+    /// when an answer does not match. Only with a pattern.
+    public var format: String?
     /// A password or token: a masked field, never stored, never shown on a phone.
     public var secret: Bool
     /// Return adds a line instead of doing nothing.
@@ -20,19 +23,20 @@ public struct InputRequest: Codable, Equatable, Sendable {
 
     public init(
         question: String, why: String? = nil, placeholder: String? = nil, defaultText: String? = nil,
-        pattern: String? = nil, secret: Bool = false, multiline: Bool = false
+        pattern: String? = nil, format: String? = nil, secret: Bool = false, multiline: Bool = false
     ) {
         self.question = question
         self.why = why
         self.placeholder = placeholder
         self.defaultText = defaultText
         self.pattern = pattern
+        self.format = format
         self.secret = secret
         self.multiline = multiline
     }
 
     private enum CodingKeys: String, CodingKey {
-        case question, why, placeholder, pattern, secret, multiline
+        case question, why, placeholder, pattern, format, secret, multiline
         case defaultText = "default"
     }
 
@@ -43,6 +47,7 @@ public struct InputRequest: Codable, Equatable, Sendable {
         placeholder = try container.decodeIfPresent(String.self, forKey: .placeholder)
         defaultText = try container.decodeIfPresent(String.self, forKey: .defaultText)
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern)
+        format = try container.decodeIfPresent(String.self, forKey: .format)
         secret = try container.decodeIfPresent(Bool.self, forKey: .secret) ?? false
         multiline = try container.decodeIfPresent(Bool.self, forKey: .multiline) ?? false
     }
@@ -61,6 +66,9 @@ public struct InputRequest: Codable, Equatable, Sendable {
             } catch {
                 throw ValidationError(description: "--pattern is not a valid regular expression: \(pattern)")
             }
+        }
+        if format != nil, pattern == nil {
+            throw ValidationError(description: "--format needs --pattern: it says in plain words what the pattern expects")
         }
         if secret, defaultText != nil {
             throw ValidationError(description: "--default cannot be used with --secret: the default would be stored with the request")
@@ -107,6 +115,25 @@ public struct InputRequest: Codable, Equatable, Sendable {
 
     /// The line under the field while the text does not match.
     public static let mismatchMessage = "Not in the expected format."
+
+    /// What the answer should look like: the format in plain words when Claude gave one,
+    /// else the pattern itself. Nil without a pattern.
+    public var expectedText: String? {
+        guard let pattern else { return nil }
+        if let format = format?.trimmingCharacters(in: .whitespacesAndNewlines), !format.isEmpty { return format }
+        return pattern
+    }
+
+    /// True when `expectedText` is the raw pattern, which reads best in a monospaced font.
+    public var expectsRawPattern: Bool {
+        guard pattern != nil else { return false }
+        return (format?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+    }
+
+    /// The full sentence for an answer that does not match, on the Mac and the phone.
+    public var mismatchText: String {
+        InputRequest.mismatchMessage + (expectedText.map { " Expected: \($0)" } ?? "")
+    }
 
     /// What both the Mac and the phone say about a secret on a phone.
     public static let enterOnMacMessage = "Enter it on your Mac."

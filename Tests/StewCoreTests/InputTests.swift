@@ -30,6 +30,23 @@ private let otp = InputRequest(question: "What is the npm one-time password?", w
         }
     }
 
+    @Test func refusesAFormatWithoutAPattern() {
+        #expect(throws: InputRequest.ValidationError(description: "--format needs --pattern: it says in plain words what the pattern expects")) {
+            try InputRequest(question: "Code?", format: "6 digits").validate()
+        }
+    }
+
+    @Test func mismatchTextPrefersTheFormat() {
+        let code = InputRequest(question: "Code?", pattern: "^[0-9]{6}$", format: "6 digits")
+        #expect(code.mismatchText == "Not in the expected format. Expected: 6 digits")
+        #expect(!code.expectsRawPattern)
+        let raw = InputRequest(question: "Code?", pattern: "[0-9]{6}")
+        #expect(raw.mismatchText == "Not in the expected format. Expected: [0-9]{6}")
+        #expect(raw.expectsRawPattern)
+        let entry = HistoryEntry.record(inputRequest(code), received: start, response: nil, ended: start)
+        #expect(entry.detail == "Format: 6 digits (^[0-9]{6}$)")
+    }
+
     @Test func refusesADefaultOrSeveralLinesForASecret() {
         #expect(throws: InputRequest.ValidationError.self) { try InputRequest(question: "Token?", defaultText: "abc", secret: true).validate() }
         #expect(throws: InputRequest.ValidationError.self) { try InputRequest(question: "Token?", secret: true, multiline: true).validate() }
@@ -99,10 +116,11 @@ private let otp = InputRequest(question: "What is the npm one-time password?", w
         #expect(request.timeLimit(defaultTimeout: 60) == 60)
         let questionNote = StewRequest(session: session, prompt: .question(QuestionSet(questions: []))).timeoutNote(after: 60)
         #expect(request.timeoutNote(after: 60) == questionNote)
-        // A secret cannot be answered from the history after a timeout, so its note
-        // promises no late answer.
-        #expect(!inputRequest(otp).timeoutNote(after: 60).contains("late answer"))
+        // A secret that timed out can be entered later too, so its note says a late
+        // answer may follow, as for any input of a known session.
+        #expect(inputRequest(otp).timeoutNote(after: 60) == request.timeoutNote(after: 60))
         #expect(request.timeoutNote(after: 60).contains("late answer"))
+        #expect(!inputRequest(otp, session: SessionInfo(name: "shell")).timeoutNote(after: 60).contains("late answer"))
     }
 
     @Test func enterLaterNeedsASecretOfAKnownSession() {
@@ -139,6 +157,20 @@ private let otp = InputRequest(question: "What is the npm one-time password?", w
         #expect(entry.answerableLater)
         #expect(!entry.missed)
     }
+
+    @Test func missedOnlyAndTheReturnNoticeIncludeSecretsToEnterLater() {
+        let later = HistoryEntry.record(inputRequest(otp), received: start, response: StewResponse(status: .later), ended: start)
+        var entered = later
+        entered.recordLate(StewResponse(status: .answered), message: "late", at: start)
+        let timedOut = HistoryEntry.record(inputRequest(domain), received: start, response: StewResponse(status: .timeout), ended: start)
+        let answered = HistoryEntry.record(inputRequest(domain), received: start, response: StewResponse(status: .answered, text: "x.com"), ended: start)
+        #expect(History.filtered([later, timedOut, answered], missedOnly: true).count == 2)
+        #expect(History.enterLater([later, entered, timedOut], since: start).count == 1)
+        let both = ReturnSummary.notice(missedCount: 1, laterCount: 2, needsCount: 1)
+        #expect(both == NotifyRequest(title: "1 request timed out while you were away", body: "2 secrets to enter. 1 thing needs you.", level: .warning, action: .openHistory))
+        let laterOnly = ReturnSummary.notice(missedCount: 0, laterCount: 1, needsCount: 0)
+        #expect(laterOnly == NotifyRequest(title: "1 secret to enter", level: .warning, action: .openHistory))
+    }
 }
 
 @Suite struct InputLateAnswerTests {
@@ -154,12 +186,12 @@ private let otp = InputRequest(question: "What is the npm one-time password?", w
         #expect(late.secretQuestion == nil)
     }
 
-    @Test func aSecretThatTimedOutCannotButOneForLaterCan() {
+    @Test func aSecretOfAKnownSessionCanBeAnsweredLate() {
         let request = inputRequest(otp)
-        #expect(!LateMailbox.canAnswerLate(request))
+        #expect(LateMailbox.canAnswerLate(request))
         var mailbox = LateMailbox()
         mailbox.addWaiting(request, entryID: UUID(), now: start)
-        #expect(mailbox.waiting.count == 1, "a secret the user will enter later waits in the mailbox")
+        #expect(mailbox.waiting.count == 1, "the request waits; its secret, once entered, stays in memory")
         var shell = LateMailbox()
         shell.addWaiting(inputRequest(otp, session: SessionInfo(name: "shell")), entryID: UUID(), now: start)
         #expect(shell.waiting.isEmpty, "without a session nothing can receive it")

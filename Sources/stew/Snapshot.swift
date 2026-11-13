@@ -436,7 +436,8 @@ enum Snapshot {
             let item = inputItem(InputRequest(
                 question: "What is the six digit code from the email?",
                 placeholder: "123456",
-                pattern: "[0-9]{6}"
+                pattern: "^[0-9]{6}$",
+                format: "6 digits"
             ), timeout: 300)
             coordinator.show(item)
             coordinator.setTextMode(true)

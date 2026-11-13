@@ -57,18 +57,18 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 # One typed answer. Exit 0 answered, 2 dismissed, 3 timeout, 5 later (secrets only).
 stew input "Which domain should the staging site use?" \
   --why "The DNS record and the TLS certificate both need it." \
-  --placeholder "staging.example.com" --pattern '[a-z0-9.-]+\.[a-z]{2,}'
+  --placeholder "staging.example.com" --pattern '[a-z0-9.-]+\.[a-z]{2,}' --format "a domain name"
 # {"id":"…","status":"answered","text":"staging.example.com"}
 
 # A password, token or one-time code: masked, never stored, typed on the Mac only.
-stew input "What is the npm one-time password?" --secret --pattern '[0-9]{6}' \
+stew input "What is the npm one-time password?" --secret --pattern '[0-9]{6}' --format "6 digits" \
   --why "npm publish asks for it."
 ```
 
-- `--pattern` is a regular expression the whole answer must match; the panel and the phone refuse anything else, so you can rely on the form. `--default` prefills the field (not with `--secret`). `--multiline` is for text with several lines.
+- `--pattern` is a regular expression the whole answer must match; the panel and the phone refuse anything else, so you can rely on the form. Always pass `--format` with it: the form in plain words ("6 digits", "a domain name"), which the user sees when an answer does not match, instead of the regular expression. `--default` prefills the field (not with `--secret`). `--multiline` is for text with several lines.
 - The answer has spaces and line breaks around it removed, except for a secret, which comes exactly as typed.
 - Use `--secret` for anything you would not want in a log: stew keeps it out of its history and files, and the iPhone never sees it. Do not repeat a secret in your messages, files or commits, and do not put it on a command line others can read; pass it on stdin or through an environment variable.
-- A secret can come back as `"status":"later"`: the user will type it on their Mac later. Do not ask for it again. Continue with work that does not need it; the secret then reaches you as a late answer (see below).
+- A secret can come back as `"status":"later"`: the user will type it on their Mac later. Do not ask for it again. Continue with work that does not need it; the secret then reaches you as a late answer (see below). A secret that timed out can also still arrive as a late answer, as the timeout note says.
 
 Common flags: `--session NAME` overrides the label. `--timeout SECONDS` sets the time to answer (default from the user's settings, 1 minute; `0` means no limit). The user can add time.
 
@@ -127,7 +127,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 
 ### Late answers
 
-The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
+The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` or after a timeout arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
 - `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command.
 
 ## Writing a good request

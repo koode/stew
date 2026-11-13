@@ -127,10 +127,10 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 
 - The field shows what it holds but does not take the keyboard. Click it or press ⌘O to type; Esc leaves it. The clock pauses while you type, as for a note.
 - ⌘↩ sends, also from inside the field. Plain Return never sends: in a one-line field it does nothing, and with `--multiline` it adds a line.
-- With `--pattern`, ⌘↩ and Send stay off until the whole answer matches, and a line under the field says what form it needs.
+- With `--pattern`, ⌘↩ and Send stay off until the whole answer matches, and a line under the field says what form it needs: the `--format` text ("Expected: 6 digits") when Claude gave one, else the pattern itself. `--format` without `--pattern` is refused.
 - ⌘. dismisses it without an answer. A plain input that timed out can be answered later from the History, like a question.
 
-**Secrets.** With `--secret` the field shows dots, and stew never writes the answer anywhere: not to the history (the row says a secret was entered), not to its logs or files. Two more choices show, also on your iPhone: **Give me 5 min** (⌘5) adds 5 minutes, and **I'll enter it later** (⌘L) lets Claude go on now with `"status":"later"`. You then enter it from the History tab (Answer now), and it reaches the session as a late answer. Until then the daemon keeps the secret in memory only; if stew stops or restarts before the session picks it up, the secret is gone and Claude is told to ask again. A secret that simply timed out cannot be answered later.
+**Secrets.** With `--secret` the field shows dots (always 8 until you focus it, so they never tell the length), and stew never writes the answer anywhere: not to the history (the row says a secret was entered), not to its logs or files. Two more choices show, also on your iPhone: **Give me 5 min** (⌘5) adds 5 minutes, and **I'll enter it later** (⌘L) lets Claude go on now with `"status":"later"`. You then enter it from the History tab (Answer now; Missed only lists it, and the notice when you come back counts it), and it reaches the session as a late answer. A secret that timed out can be entered late the same way. Once entered, the daemon keeps the secret in memory only; if stew stops or restarts before the session picks it up, the secret is gone and Claude is told to ask again.
 
 ![A secret input with Give me 5 min and I'll enter it later](docs/images/input-secret-light.png)
 
@@ -153,7 +153,7 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 
 # One typed answer. Exit 0 answered, 2 dismissed, 3 timeout, 5 later (secrets only).
 stew input "Which domain should the staging site use?" --why "The DNS record needs it." \
-  --placeholder staging.example.com --pattern '[a-z0-9.-]+\.[a-z]{2,}'
+  --placeholder staging.example.com --pattern '[a-z0-9.-]+\.[a-z]{2,}' --format "a domain name"
 #   {"id":"…","status":"answered","text":"staging.example.com"}
 #   --default TEXT prefills the field, --multiline lets Return add a line,
 #   --secret masks it and keeps the answer out of every file.
@@ -184,9 +184,9 @@ For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
 
-When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts open needs items ("2 things need you"), and shows on its own when only those are open.
+When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts secrets you chose to enter later ("1 secret to enter") and open needs items ("2 things need you"), and shows on its own when only those are open.
 
 ```bash
 stew history                    # open the History tab

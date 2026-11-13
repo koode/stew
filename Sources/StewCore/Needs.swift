@@ -276,20 +276,28 @@ public enum PanelQueue {
 /// The notice shown when the user comes back to the Mac: requests that timed out while
 /// they were away, and things that still need them. Nil when there is neither.
 public enum ReturnSummary {
-    public static func notice(missedCount: Int, needsCount: Int) -> NotifyRequest? {
-        switch (missedCount > 0, needsCount > 0) {
-        case (false, false):
-            return nil
-        case (true, let hasNeeds):
-            return NotifyRequest(
-                title: History.returnSummary(missedCount: missedCount),
-                body: hasNeeds ? NeedsBook.countText(needsCount) + "." : nil,
-                level: .warning,
-                action: .openHistory
-            )
-        case (false, true):
+    /// `laterCount` counts secrets the user chose to enter later: like missed requests,
+    /// they wait in the history, so the notice opens it.
+    public static func notice(missedCount: Int, laterCount: Int = 0, needsCount: Int) -> NotifyRequest? {
+        var lines: [String] = []
+        let title: String
+        if missedCount > 0 {
+            title = History.returnSummary(missedCount: missedCount)
+            if laterCount > 0 { lines.append(History.enterLaterSummary(laterCount) + ".") }
+        } else if laterCount > 0 {
+            title = History.enterLaterSummary(laterCount)
+        } else if needsCount > 0 {
             return NotifyRequest(title: NeedsBook.countText(needsCount), level: .info)
+        } else {
+            return nil
         }
+        if needsCount > 0 { lines.append(NeedsBook.countText(needsCount) + ".") }
+        return NotifyRequest(
+            title: title,
+            body: lines.isEmpty ? nil : lines.joined(separator: " "),
+            level: .warning,
+            action: .openHistory
+        )
     }
 }
 

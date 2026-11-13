@@ -14,13 +14,15 @@ USAGE
       Input has the AskUserQuestion shape: {"questions":[{"question","header",
       "options":[{"label","description","preview"?}],"multiSelect"}]}
   stew input QUESTION [--why TEXT] [--placeholder TEXT] [--default TEXT] [common]
-             [--pattern REGEX] [--secret] [--multiline]
+             [--pattern REGEX [--format TEXT]] [--secret] [--multiline]
       Ask for one typed answer: a domain, a name, a code, a password. The
       answer is "answered" with the typed "text". --pattern is a regular
-      expression the whole answer must match. --secret masks the field, keeps
-      the answer out of the history, and lets the user pick "I'll enter it
-      later": the status is then "later", and the secret arrives as a late
-      answer once they enter it on the Mac. --multiline lets Return add a line.
+      expression the whole answer must match; --format says in plain words
+      what it expects ("6 digits"), shown when an answer does not match
+      instead of the pattern. --secret masks the field, keeps the answer out
+      of every file, and lets the user pick "I'll enter it later": the status
+      is then "later" (exit 5), and the secret arrives as a late answer once
+      they enter it on the Mac. --multiline lets Return add a line.
   stew needs TITLE [--why TEXT] [--step TEXT]... [--command CMD|-]... [--link URL]...
              [--done LABEL] [--answer LABEL]... [--wait [--timeout SECONDS]] [--session NAME]
       Tell the user you need them to do something only they can do (log in, buy,
@@ -42,7 +44,8 @@ USAGE
   stew approvals     Open the settings window on the list of standing approvals.
   stew history [--missed] [--json]
       Open the settings window on the history of finished requests. --missed
-      shows only those that timed out. --json prints them as a JSON array instead.
+      shows only those that timed out, and secrets the user chose to enter later.
+      --json prints them as a JSON array instead.
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
@@ -329,6 +332,7 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
             placeholder: arguments.options["placeholder"],
             defaultText: arguments.options["default"],
             pattern: arguments.options["pattern"],
+            format: arguments.options["format"],
             secret: arguments.flags.contains("secret"),
             multiline: arguments.flags.contains("multiline")
         )

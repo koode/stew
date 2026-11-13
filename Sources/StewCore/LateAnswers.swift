@@ -103,13 +103,12 @@ public struct LateMailbox: Codable, Equatable, Sendable {
     }
 
     /// Only requests of a known session can be answered late after a timeout: the
-    /// answer needs a session to go to. Permission requests, questions and inputs that
-    /// are not secret.
+    /// answer needs a session to go to. Permission requests, questions and inputs; a
+    /// secret's late answer is held in the daemon's memory, never in this file.
     public static func canAnswerLate(_ request: StewRequest) -> Bool {
         guard let id = request.session.id, !id.isEmpty else { return false }
         switch request.prompt {
-        case .permission, .question: return true
-        case .input(let input): return !input.secret
+        case .permission, .question, .input: return true
         case .notify, .needs: return false
         }
     }

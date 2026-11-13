@@ -211,7 +211,9 @@ extension InputRequest {
     var historyDetail: String? {
         var parts: [String] = []
         if let why, !why.isEmpty { parts.append(CommandText.masked(why)) }
-        if let pattern { parts.append("Format: \(pattern)") }
+        if let pattern, let expected = expectedText {
+            parts.append(expectsRawPattern ? "Format: \(pattern)" : "Format: \(expected) (\(pattern))")
+        }
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 }
@@ -273,9 +275,10 @@ public enum History {
         return entries.filter { $0.ended >= cutoff }
     }
 
-    /// Newest first, optionally only the missed ones.
+    /// Newest first, optionally only the missed ones and the secrets the user chose to
+    /// enter later, so both are easy to find.
     public static func filtered(_ entries: [HistoryEntry], missedOnly: Bool) -> [HistoryEntry] {
-        entries.filter { !missedOnly || $0.missed }.sorted { $0.ended > $1.ended }
+        entries.filter { !missedOnly || $0.answerableLater }.sorted { $0.ended > $1.ended }
     }
 
     /// Requests that timed out at or after `since`.
@@ -283,9 +286,19 @@ public enum History {
         entries.filter { $0.missed && $0.ended >= since }
     }
 
+    /// Secrets the user chose to enter later at or after `since`, not entered yet.
+    public static func enterLater(_ entries: [HistoryEntry], since: Date) -> [HistoryEntry] {
+        entries.filter { $0.outcome == .later && $0.late == nil && $0.ended >= since }
+    }
+
     /// The return summary's title.
     public static func returnSummary(missedCount: Int) -> String {
         missedCount == 1 ? "1 request timed out while you were away" : "\(missedCount) requests timed out while you were away"
+    }
+
+    /// The return summary's line for secrets the user chose to enter later.
+    public static func enterLaterSummary(_ count: Int) -> String {
+        count == 1 ? "1 secret to enter" : "\(count) secrets to enter"
     }
 }
 

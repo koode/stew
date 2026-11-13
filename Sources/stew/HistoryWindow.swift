@@ -82,7 +82,7 @@ struct HistoryView: View {
     var body: some View {
         SettingsPane(
             tab: .history,
-            subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered."
+            subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered, or are secrets you chose to enter later."
         ) {
             Toggle("Missed only", isOn: $model.missedOnly)
                 .toggleStyle(.switch)
@@ -95,7 +95,7 @@ struct HistoryView: View {
                             symbol: model.missedOnly ? "clock.badge.exclamationmark" : "clock",
                             title: model.missedOnly ? "No missed requests" : "No requests yet",
                             message: model.missedOnly
-                                ? "Requests that run out of time while nobody answers show here."
+                                ? "Requests that run out of time while nobody answers, and secrets you chose to enter later, show here."
                                 : "Permission requests, questions and notifications show here once they finish."
                         )
                         .frame(maxHeight: .infinity)

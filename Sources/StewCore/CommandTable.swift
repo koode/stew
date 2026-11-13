@@ -65,6 +65,7 @@ public enum CommandTable {
             option("placeholder", "Grey text in the empty field"),
             option("default", "Text the field starts with"),
             option("pattern", "A regular expression the whole answer must match"),
+            option("format", "What the pattern expects, in plain words"),
             flag("secret", "A password or token: masked, never stored"),
             flag("multiline", "Return adds a line"),
             session, timeout,
@@ -88,7 +89,7 @@ public enum CommandTable {
         command("settings", "Open the settings window"),
         command("approvals", "Open the list of standing approvals"),
         command("history", "Open the history of finished requests", options: [
-            flag("missed", "Only the requests that timed out"),
+            flag("missed", "Only timeouts and secrets to enter later"),
             flag("json", "Print them as a JSON array"),
         ]),
         command("hooks", "Ask in stew when auto mode blocks a call", subcommands: [

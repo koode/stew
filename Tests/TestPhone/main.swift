@@ -305,7 +305,8 @@ func samplePush(_ values: [String: String]) throws {
             question: "Which domain should the relay answer on?",
             why: "The worker needs a route before the deploy.",
             placeholder: "relay.example.com",
-            pattern: "[a-z0-9.-]+\\.[a-z]{2,}"
+            pattern: "[a-z0-9.-]+\\.[a-z]{2,}",
+            format: "a domain such as relay.example.com"
         )), false),
         ("secret", .input(InputRequest(
             question: "What is the npm one-time password?",
