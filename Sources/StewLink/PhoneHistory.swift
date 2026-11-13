@@ -19,6 +19,9 @@ public struct PhoneHistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var resolvedAt: Date?
     /// Nil while the request is still open.
     public var outcome: LinkOutcome?
+    /// How the user answered after the request timed out, such as approved. The Mac's
+    /// History shows it as its own outcome: "Approved late".
+    public var lateOutcome: LinkOutcome?
 
     public init(pairingId: String, request: LinkRequest) {
         self.pairingId = pairingId
@@ -73,6 +76,12 @@ public struct PhoneHistory: Codable, Equatable, Sendable {
               entries[index].outcome == nil else { return }
         entries[index].outcome = outcome
         entries[index].resolvedAt = date
+    }
+
+    /// The answer the phone gave after the request timed out, as a late answer.
+    public mutating func recordLate(requestId: String, pairingId: String, outcome: LinkOutcome) {
+        guard let index = entries.firstIndex(where: { $0.pairingId == pairingId && $0.requestId == requestId }) else { return }
+        entries[index].lateOutcome = outcome
     }
 
     /// A request whose deadline passed with no outcome is missed, even when the Mac's
