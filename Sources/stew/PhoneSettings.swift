@@ -22,7 +22,7 @@ struct PhoneSettingsTab: View {
     @State private var justPaired: String?
 
     private static let modes: [(String, PhonePushMode)] = [("When I'm away", .away), ("Always", .always), ("Never", .never)]
-    private static let waits: [(String, Double)] = [("10 seconds", 10), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
+    private static let waits: [(String, Double)] = [("Instantly", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
     private static let pairHint = "Requests that stay open while you are away arrive as notifications you can answer. Everything is end-to-end encrypted; the relay cannot read requests or answers."
 
     private let sample: PhonePaneSample

@@ -38,7 +38,7 @@ The `phone` object in `~/.config/stew/config.json`. Every field is optional.
 ```
 
 - `push`: `away`, `always` or `never`. An unknown value counts as `away`.
-- `after`: seconds a request must be open before it is sent.
+- `after`: seconds a request must be open before it is sent. `0` sends it at once (stew checks every second). Settings offers Instantly, 3, 5, 10 and 30 seconds, 1 and 2 minutes.
 - `idleAfter`: seconds without keyboard or mouse input before the Mac counts as away.
 - `relay`: the relay for new pairings. Each pairing keeps the relay it was made with, so change this before pairing. [relay/README.md](../relay/README.md) explains self-hosting.
 

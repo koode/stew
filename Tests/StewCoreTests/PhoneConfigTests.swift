@@ -46,4 +46,11 @@ import Testing
         #expect(PushPolicy.shouldPushNeeds(config: PhoneConfig(push: "always"), openFor: 10))
         #expect(!PushPolicy.shouldPushNeeds(config: PhoneConfig(push: "never"), openFor: 600))
     }
+
+    @Test func noWaitSendsAtOnce() {
+        let instant = PhoneConfig(after: 0)
+        #expect(PushPolicy.shouldPush(config: instant, openFor: 0, presence: away))
+        #expect(!PushPolicy.shouldPush(config: instant, openFor: 0, presence: present))
+        #expect(PushPolicy.shouldPushNeeds(config: instant, openFor: 0))
+    }
 }
