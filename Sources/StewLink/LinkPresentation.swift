@@ -14,6 +14,8 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case reply
         /// A secret input: "Give me 5 min" and "I'll enter it later".
         case enterSoon, enterLater
+        /// Opens the request in the app, for a permission that needs the extra confirmation.
+        case review
     }
 
     public var identifier: String
@@ -58,6 +60,9 @@ public enum LinkPresentation {
     public static let denyAction = "deny"
     public static let moreTimeAction = "moreTime"
     public static let otherAction = "other"
+    /// Opens the request in the app, where Approve asks for the extra confirmation.
+    public static let reviewAction = "review"
+    public static let reviewCategory = "stew.permission.review"
     public static let doneAction = "done"
     /// Handled on the phone alone: the notification goes, the item stays open on the Mac.
     public static let notNowAction = "notNow"
@@ -139,7 +144,7 @@ public enum LinkPresentation {
         case .needs(let needs):
             return needs.hasCustomAnswers ? needsCategoryPrefix + request.requestId : needsCategory
         case .permission:
-            let base = request.hardDeny ? "stew.permission.macOnly" : "stew.permission"
+            let base = request.hardDeny ? "stew.permission.macOnly" : request.confirmation != nil ? reviewCategory : "stew.permission"
             return canExtend(request) ? base : base + ".noTime"
         case .question:
             return notificationQuestion(request) == nil ? "stew.question.inApp" : "stew.question.\(request.requestId)"
@@ -183,7 +188,10 @@ public enum LinkPresentation {
                 + [LinkNotificationAction(identifier: notNowAction, title: "Not now", role: .notNow)]
         case .permission:
             var actions: [LinkNotificationAction] = []
-            if !request.hardDeny {
+            if request.confirmation != nil, !request.hardDeny {
+                // No inline Approve: the extra confirmation needs the app.
+                actions.append(LinkNotificationAction(identifier: reviewAction, title: "Review", role: .review))
+            } else if !request.hardDeny {
                 actions.append(LinkNotificationAction(identifier: approveAction, title: "Approve", role: .approve, requiresAuthentication: true))
             }
             actions.append(LinkNotificationAction(identifier: denyAction, title: "Deny", role: .deny, isDestructive: true))
@@ -215,6 +223,13 @@ public enum LinkPresentation {
         }
     }
 
+    /// The severity chip and the reversibility line as one line of text, such as
+    /// "High risk · Deletes files permanently; no undo." Nil without a severity.
+    public static func severityLine(_ risk: RiskAssessment?) -> String? {
+        guard let severity = risk?.severity else { return nil }
+        return ([severity.label, risk?.reversibilityLine].compactMap { $0 }).joined(separator: " · ")
+    }
+
     public static func moreTimeTitle(_ seconds: Double) -> String {
         seconds >= 60 && seconds.truncatingRemainder(dividingBy: 60) == 0 ? "More time (+\(Int(seconds / 60)) min)" : "More time (+\(Int(seconds)) s)"
     }
@@ -238,6 +253,7 @@ public enum LinkPresentation {
             } else if let risk = request.risk, risk.verdict == .softDeny {
                 lines.append((["Auto mode would block this", risk.ruleName].compactMap { $0 }).joined(separator: " · "))
             }
+            if let line = severityLine(request.risk) { lines.append(line) }
             lines.append(permission.action)
             if let command = permission.command, !command.isEmpty {
                 lines.append("$ " + CommandText.masked(command))
@@ -315,7 +331,7 @@ public enum LinkPresentation {
     /// "Other…" with nothing typed.
     public static func choice(forAction identifier: String, typedText: String?, request: LinkRequest) -> LinkChoice? {
         switch identifier {
-        case approveAction: return request.hardDeny ? nil : .approve
+        case approveAction: return request.hardDeny || request.confirmation != nil ? nil : .approve
         case denyAction: return .deny
         case moreTimeAction: return .moreTime
         case doneAction:
@@ -373,6 +389,10 @@ public enum LinkRefusal {
         case nil: "This request is no longer open on \(macName)."
         }
     }
+
+    /// The Mac's refusal of an approval that skipped the extra confirmation, such as one
+    /// from a phone app that does not know severity yet.
+    public static let needsConfirmation = "This request needs an extra confirmation. Open it in the stew app to approve it, or update the app if Approve does not ask you to confirm."
 
     public static let alreadyAnswered = "You already answered this request."
     public static let riskChecking = "Your Mac is still checking this command against your auto mode rules. Try again in a few seconds."

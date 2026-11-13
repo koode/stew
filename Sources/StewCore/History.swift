@@ -59,6 +59,10 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     /// An input whose answer is a secret: the history shows that one was entered, never
     /// what it was.
     public var secret: Bool?
+    /// The risk check's severity for a permission request, when it ran.
+    public var severity: Severity?
+    /// The risk check's line on whether the action can be undone.
+    public var reversibility: String?
 
     /// Missed means the time ran out. Closing a request yourself is an answer, not a miss.
     public var missed: Bool { outcome == .timedOut }
@@ -91,7 +95,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         id: UUID = UUID(), received: Date, ended: Date, session: String, cwd: String?, kind: String, summary: String,
         command: String?, detail: String?, outcome: Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil,
         note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil, late: LateOutcome? = nil,
-        text: String? = nil, secret: Bool? = nil
+        text: String? = nil, secret: Bool? = nil, severity: Severity? = nil, reversibility: String? = nil
     ) {
         self.id = id
         self.received = received
@@ -111,6 +115,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.late = late
         self.text = text
         self.secret = secret
+        self.severity = severity
+        self.reversibility = reversibility
     }
 
     /// The entry for a request that ended with `response`, or with no response when
@@ -151,7 +157,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             id: id, received: received, ended: ended, session: request.session.name, cwd: request.session.cwd,
             kind: request.prompt.kind, summary: summary, command: command, detail: detail,
             outcome: outcome(of: response), answers: response?.answers, grant: response?.grant,
-            note: response?.note, blocked: blocked, text: text, secret: secret
+            note: response?.note, blocked: blocked, text: text, secret: secret,
+            severity: response?.risk?.severity, reversibility: response?.risk?.reversibilityLine
         )
     }
 

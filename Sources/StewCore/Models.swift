@@ -364,12 +364,24 @@ public struct RiskAssessment: Codable, Equatable, Sendable {
     /// Name of the auto mode rule that decided it, when one did.
     public var rule: String?
     public var summary: String
+    /// How bad it is if the action runs. Nil in results from before severity existed.
+    public var severity: Severity?
+    /// One line on whether and how the action can be undone.
+    public var reversibility: String?
 
-    public init(verdict: Verdict, risk: Level, rule: String?, summary: String) {
+    public init(verdict: Verdict, risk: Level, rule: String?, summary: String, severity: Severity? = nil, reversibility: String? = nil) {
         self.verdict = verdict
         self.risk = risk
         self.rule = rule
         self.summary = summary
+        self.severity = severity
+        self.reversibility = reversibility
+    }
+
+    /// The reversibility line as the panel and the phone show it, or nil when empty.
+    public var reversibilityLine: String? {
+        guard let text = reversibility?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
     }
 
     /// Auto mode rule names carry a bracketed hint after the name ("Git Destructive [named+specifics ...]").
@@ -379,6 +391,42 @@ public struct RiskAssessment: Codable, Equatable, Sendable {
         let trimmed = name.split(separator: ":").first.map(String.init) ?? name
         return trimmed.trimmingCharacters(in: .whitespaces)
     }
+}
+
+/// What the action does if it runs: how hard it is to undo, and whether it reaches
+/// other people or the outside world. It does not measure how sensitive the data it
+/// touches is: the approval itself is the check on intent.
+public enum Severity: String, Codable, Sendable, CaseIterable, Comparable {
+    /// Local and easily undone, such as editing files in the repo or a git commit.
+    case low
+    /// Undoable with effort, such as git push, git reset --hard (reflog) or installing a package.
+    case medium
+    /// Hard or impossible to undo, or it affects others, such as rm -rf outside the project.
+    case high
+    /// Irreversible and external, such as sending money or deleting production data.
+    case critical
+
+    public static func < (lhs: Severity, rhs: Severity) -> Bool {
+        allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
+    }
+
+    /// The chip text, the same on the Mac panel, in the history and on the phone.
+    public var label: String {
+        switch self {
+        case .low: "Low risk"
+        case .medium: "Medium risk"
+        case .high: "High risk"
+        case .critical: "Critical risk"
+        }
+    }
+}
+
+/// The extra step the iPhone asks for before it approves a request.
+public enum PhoneConfirmation: String, Codable, Sendable {
+    /// A sheet that restates the action, the command and the reversibility line.
+    case confirm
+    /// The same sheet, with an Approve button the user holds down.
+    case hold
 }
 
 /// One JSON object per line on the socket.

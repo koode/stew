@@ -29,6 +29,10 @@ public struct LinkRequest: Codable, Equatable, Sendable {
     /// Auto mode never allows this call: it can be approved on the Mac only.
     public var hardDeny: Bool
     public var risk: RiskAssessment?
+    /// The extra step the phone asks for before it approves, from the risk check's
+    /// severity and the Mac's setting. Nil: none. An older phone ignores it, and the Mac
+    /// then refuses its approval.
+    public var confirmation: PhoneConfirmation?
 
     public init(
         requestId: String,
@@ -39,7 +43,8 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         queued: Bool,
         extendBy: Double?,
         hardDeny: Bool,
-        risk: RiskAssessment?
+        risk: RiskAssessment?,
+        confirmation: PhoneConfirmation? = nil
     ) {
         self.requestId = requestId
         self.macName = macName
@@ -50,6 +55,7 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         self.extendBy = extendBy
         self.hardDeny = hardDeny
         self.risk = risk
+        self.confirmation = confirmation
     }
 }
 
@@ -94,13 +100,17 @@ public struct LinkAnswer: Codable, Equatable, Sendable {
     public var note: String?
     public var phoneName: String
     public var answeredAt: Date
+    /// True when the user went through the extra confirmation the request asked for.
+    /// The Mac refuses an approval of such a request without it.
+    public var confirmed: Bool?
 
-    public init(requestId: String, choice: LinkChoice, note: String? = nil, phoneName: String, answeredAt: Date = Date()) {
+    public init(requestId: String, choice: LinkChoice, note: String? = nil, phoneName: String, answeredAt: Date = Date(), confirmed: Bool? = nil) {
         self.requestId = requestId
         self.choice = choice
         self.note = note
         self.phoneName = phoneName
         self.answeredAt = answeredAt
+        self.confirmed = confirmed
     }
 }
 

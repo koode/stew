@@ -228,13 +228,26 @@ public struct StewConfig: Codable, Equatable, Sendable {
         public var timeoutSeconds: Double
         /// How many of the user's recent messages to show the check, for intent.
         public var recentUserMessages: Int
+        /// A critical action needs the stronger approve shortcut, as a hard deny does.
+        public var criticalNeedsStrongApprove: Bool
+        /// Seconds added to the time to answer for a high or critical action. 0 adds none.
+        public var highExtraTime: Double
+        /// Which levels need an extra confirmation before the iPhone approves them:
+        /// a `SeverityRules.PhoneScope` value.
+        public var phoneConfirmation: String
 
-        public init(enabled: Bool = true, model: String = "haiku", claudePath: String? = nil, timeoutSeconds: Double = 60, recentUserMessages: Int = 6) {
+        public init(
+            enabled: Bool = true, model: String = "haiku", claudePath: String? = nil, timeoutSeconds: Double = 60, recentUserMessages: Int = 6,
+            criticalNeedsStrongApprove: Bool = true, highExtraTime: Double = 60, phoneConfirmation: String = SeverityRules.PhoneScope.highAndCritical
+        ) {
             self.enabled = enabled
             self.model = model
             self.claudePath = claudePath
             self.timeoutSeconds = timeoutSeconds
             self.recentUserMessages = recentUserMessages
+            self.criticalNeedsStrongApprove = criticalNeedsStrongApprove
+            self.highExtraTime = highExtraTime
+            self.phoneConfirmation = phoneConfirmation
         }
 
         public init(from decoder: Decoder) throws {
@@ -245,6 +258,9 @@ public struct StewConfig: Codable, Equatable, Sendable {
             claudePath = try container.decodeIfPresent(String.self, forKey: .claudePath)
             timeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? defaults.timeoutSeconds
             recentUserMessages = try container.decodeIfPresent(Int.self, forKey: .recentUserMessages) ?? defaults.recentUserMessages
+            criticalNeedsStrongApprove = try container.decodeIfPresent(Bool.self, forKey: .criticalNeedsStrongApprove) ?? defaults.criticalNeedsStrongApprove
+            highExtraTime = try container.decodeIfPresent(Double.self, forKey: .highExtraTime) ?? defaults.highExtraTime
+            phoneConfirmation = try container.decodeIfPresent(String.self, forKey: .phoneConfirmation) ?? defaults.phoneConfirmation
         }
     }
 
