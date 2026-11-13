@@ -81,19 +81,22 @@ enum Hooks {
         try HookCall.parse(FileHandle.standardInput.readDataToEndOfFile())
     }
 
-    /// PreToolUse: runs before every tool call, so it returns at once when there is nothing stored.
+    /// PreToolUse: runs before every tool call, so it returns at once when there is nothing
+    /// stored. Besides the grants, it hands Claude the late answers waiting for its session.
     static func pre() -> Never {
-        guard GrantFile.exists else {
+        let hasGrants = GrantFile.exists
+        guard hasGrants || LateAnswerFile.exists else {
             // Drain the input so Claude Code never sees a closed pipe.
             _ = FileHandle.standardInput.readDataToEndOfFile()
             exit(0)
         }
         guard let call = try? readHookInput() else { exit(0) }
-        let decision = GrantFile.update { grants in
+        let decision = hasGrants ? GrantFile.update { grants in
             GrantBook.preToolUse(grants: &grants, call: call, projectRoot: { projectRoot(for: call.cwd) })
-        }
-        if let decision {
-            print(HookOutput.preToolUse(decision))
+        } : nil
+        let late = LateAnswerFile.deliver(sessionID: call.sessionID, agentID: call.agentID, event: "PreToolUse")
+        if let output = HookOutput.preToolUse(decision, additionalContext: LateWording.combined(late)) {
+            print(output)
         }
         exit(0)
     }
@@ -119,7 +122,11 @@ enum Hooks {
                 readFile: { FileManager.default.contents(atPath: $0) }
             )
             if let sessionID = call.sessionID { session.id = sessionID }
-            let response = Client.send(StewRequest(session: session, prompt: .question(questionSet), maxWait: Double(deniedTimeout - 20)))
+            let request = StewRequest(
+                session: session, prompt: .question(questionSet), maxWait: Double(deniedTimeout - 20),
+                origin: RequestOrigin(agentID: call.agentID)
+            )
+            let response = Client.send(request)
             switch response.status {
             case .answered:
                 if let output = HookOutput.answeringQuestions(inputJSON: call.key, answers: response.answers ?? [:]) {
@@ -182,7 +189,11 @@ enum Hooks {
             )
             // The user's time limit comes from the config; maxWait keeps any extension
             // inside Claude Code's hook timeout.
-            let request = StewRequest(session: session, prompt: .permission(permission), maxWait: Double(deniedTimeout - 20))
+            // The origin lets a late approval store the one-shot grant for this exact call.
+            let request = StewRequest(
+                session: session, prompt: .permission(permission), maxWait: Double(deniedTimeout - 20),
+                origin: RequestOrigin(agentID: call.agentID, toolName: call.toolName, callKey: call.key)
+            )
             let response = Client.send(request)
             let note = response.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -240,12 +251,32 @@ enum Hooks {
         exit(0)
     }
 
+    /// Stop, in the foreground: when the user answered a timed-out request of this
+    /// session later, Claude must not stop before it has read the answer, so the stop is
+    /// blocked with the answer as the reason. With nothing waiting it prints nothing, so
+    /// Claude stops as usual. Reads only late-answers.json, so it never holds up a turn.
+    static func stopLate() -> Never {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard LateAnswerFile.exists, let input = TurnHookInput.parse(data) else { exit(0) }
+        let late = LateAnswerFile.deliver(sessionID: input.sessionID, agentID: input.agentID, event: "Stop")
+        if let reason = LateWording.combined(late) {
+            print(HookOutput.blockStop(reason: reason))
+        }
+        exit(0)
+    }
+
     /// UserPromptSubmit: a new message to the session answers what it was waiting on, so
-    /// its automatic needs items go. Runs before every prompt, so it only reads
-    /// needs.json and talks to the daemon only when that session has an open item.
+    /// its automatic needs items go, and late answers go into the message's context. Runs
+    /// before every prompt, so it only reads needs.json and late-answers.json, and talks
+    /// to the daemon only when that session has an open item.
     static func prompt() -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        resolveAutomatic(sessionID: TurnHookInput.parse(data)?.sessionID, control: "answered")
+        let input = TurnHookInput.parse(data)
+        resolveAutomatic(sessionID: input?.sessionID, control: "answered")
+        let late = LateAnswerFile.deliver(sessionID: input?.sessionID, agentID: input?.agentID, event: "UserPromptSubmit")
+        if let context = LateWording.combined(late) {
+            print(HookOutput.promptContext(context))
+        }
         exit(0)
     }
 

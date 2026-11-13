@@ -345,8 +345,9 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         case "pre": Hooks.pre()
         case "question": Hooks.question()
         case "stop": Hooks.stop()
+        case "stop-late": Hooks.stopLate()
         case "prompt": Hooks.prompt()
-        default: throw UsageError("hook needs denied, pre, question, stop or prompt")
+        default: throw UsageError("hook needs denied, pre, question, stop, stop-late or prompt")
         }
 
     case "hooks":

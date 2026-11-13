@@ -144,7 +144,7 @@ struct Header: View {
                 // The kind stays whole; only the path shrinks, from the middle, so its
                 // last folders stay visible. The session id is in the tooltip.
                 HStack(spacing: 0) {
-                    Text(style.title).fixedSize()
+                    Text(item.lateEntryID == nil ? style.title : "\(style.title), timed out").fixedSize()
                     if let cwd = session.cwd {
                         Text(" · ").fixedSize()
                         Text(cwd).lineLimit(1).truncationMode(.middle)

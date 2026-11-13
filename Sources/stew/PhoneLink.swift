@@ -369,7 +369,7 @@ final class PhoneLink: ObservableObject {
         return LinkRequest(
             requestId: item.id.uuidString,
             macName: macName,
-            request: item.request,
+            request: Self.withoutOrigin(item.request),
             receivedAt: item.received,
             deadline: deadline,
             queued: queued,
@@ -377,6 +377,13 @@ final class PhoneLink: ObservableObject {
             hardDeny: item.isHardDeny,
             risk: item.risk.assessment
         )
+    }
+
+    /// The origin holds the raw tool input of a blocked call, which only the Mac needs.
+    private static func withoutOrigin(_ request: StewRequest) -> StewRequest {
+        var stripped = request
+        stripped.origin = nil
+        return stripped
     }
 
     private static func needsUpdate(_ old: LinkRequest, _ new: LinkRequest) -> Bool {

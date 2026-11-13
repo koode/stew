@@ -9,6 +9,10 @@ final class HistoryModel: ObservableObject {
     @Published var selection: HistoryEntry.ID?
     @Published private(set) var message: String?
     @Published private(set) var keepDays = History.defaultKeepDays
+    /// Timed-out requests that can still be answered, and the late answers given.
+    @Published private(set) var mailbox = LateMailbox()
+    /// "Answer now": shows the request in the panel again. False when it is too late.
+    var onAnswerNow: ((UUID) -> Bool)?
 
     var visible: [HistoryEntry] { History.filtered(entries, missedOnly: missedOnly) }
     var selected: HistoryEntry? { entries.first { $0.id == selection } }
@@ -16,9 +20,35 @@ final class HistoryModel: ObservableObject {
     func reload() {
         keepDays = loadConfig().0.historyDays
         entries = HistoryStore.readFile()
+        mailbox = LateAnswerFile.read()
         if selection == nil || !visible.contains(where: { $0.id == selection }) {
             selection = visible.first?.id
         }
+    }
+
+    func canAnswerNow(_ entry: HistoryEntry) -> Bool {
+        entry.missed && entry.late == nil && mailbox.waiting(entry.id, now: Date()) != nil
+    }
+
+    func answerNow(_ entry: HistoryEntry) {
+        if onAnswerNow?(entry.id) == true {
+            message = "Shown in the panel. Claude gets your answer at its next step."
+        } else {
+            message = "This request can no longer be answered: it timed out more than a day ago."
+            reload()
+        }
+    }
+
+    /// Where a late answer is: waiting for the session's next step, or delivered.
+    func deliveryText(_ entry: HistoryEntry) -> String? {
+        guard entry.late != nil else { return nil }
+        guard let answer = mailbox.answer(entry.id) else {
+            return "No longer tracked: answers are kept for a day."
+        }
+        if let delivered = answer.delivered {
+            return "Delivered \(HistoryEntry.timeText(delivered))\(answer.deliveredBy.map { ", at \($0)" } ?? "")."
+        }
+        return "Waiting for the session's next step."
     }
 
     /// "Allow next time…" on a missed auto mode block: the same grants as the panel's
@@ -71,7 +101,7 @@ struct HistoryView: View {
                     }
                     .width(min: 160)
                     TableColumn("Outcome") { entry in
-                        OutcomePill(outcome: entry.outcome)
+                        OutcomePill(entry: entry)
                     }
                     .width(140)
                 }
@@ -100,12 +130,15 @@ extension HistoryEntry {
     }
 }
 
-/// One form for every outcome: a tinted capsule, the same size in every row.
+/// One form for every outcome: a tinted capsule, the same size in every row. A late
+/// answer shows as its own outcome, such as "Approved late", in that outcome's tone.
 struct OutcomePill: View {
-    let outcome: HistoryEntry.Outcome
+    let entry: HistoryEntry
+
+    private var outcome: HistoryEntry.Outcome { entry.late?.outcome ?? entry.outcome }
 
     var body: some View {
-        Text(outcome.label)
+        Text(entry.outcomeLabel)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(tone)
             .padding(.horizontal, 7)
@@ -135,7 +168,7 @@ struct HistoryDetail: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(entry.summary).font(.system(size: 14, weight: .semibold)).textSelection(.enabled)
                 Spacer()
-                OutcomePill(outcome: entry.outcome)
+                OutcomePill(entry: entry)
             }
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
                 row("Session", entry.cwd.map { "\(entry.session) · \($0)" } ?? entry.session)
@@ -160,6 +193,28 @@ struct HistoryDetail: View {
                     if let note = entry.note, !note.isEmpty { row("Note", note) }
                 } else {
                     row("Claude was told", toldClaude)
+                }
+                if let late = entry.late {
+                    row("Answered late", HistoryEntry.timeText(late.answered))
+                    if let answers = late.answers, !answers.isEmpty {
+                        row("Answers", answers.sorted { $0.key < $1.key }.map { "\($0.key) → \($0.value)" }.joined(separator: "\n"))
+                    }
+                    if let grant = late.grant {
+                        row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
+                    }
+                    row("Claude is told", late.message)
+                    if let delivery = model.deliveryText(entry) {
+                        row("Delivery", delivery)
+                    }
+                }
+            }
+            if model.canAnswerNow(entry) {
+                HStack {
+                    Button("Answer now") { model.answerNow(entry) }
+                        .fixedSize()
+                    Text("Shows it in the panel again. Claude gets your answer at its next step.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
             }
             if entry.missed, let blocked = entry.blocked, !blocked.grantScopes.isEmpty {

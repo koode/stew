@@ -6,6 +6,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STEW="${STEW:-$ROOT/.build/debug/stew}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e"
+# Run from inside Claude Code, requests would carry that session's id; tests set their own.
+unset CLAUDE_CODE_SESSION_ID
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 
 failures=0
@@ -345,6 +347,81 @@ wait_items 0; sleep 0.2
 expect "a caller that left is recorded" "$(history_json)" '"outcome":"callerGone"'
 [[ "$(history_json --missed)" != *'"summary":"Gone"'* ]] && pass "caller gone is not missed" || fail "caller gone is not missed" "$(history_json --missed)"
 
+# late answers: a request that timed out, answered from the history, reaches the next
+# PreToolUse, Stop or UserPromptSubmit hook call of its own session exactly once
+late_call() { # event, session, command
+  python3 -c 'import json,sys;print(json.dumps({"session_id":sys.argv[2],"cwd":sys.argv[4],"hook_event_name":sys.argv[1],"tool_name":"Bash","tool_input":{"command":sys.argv[3],"description":"Push"},"reason":"[Destructive or Unwanted Actions]","last_assistant_message":"All done.","prompt":"next"}))' "$1" "$2" "$3" "$PROJ"
+}
+late_entry() { # summary: the id of its newest missed entry
+  history_json --missed | python3 -c 'import json,sys; print(next(entry["id"] for entry in json.load(sys.stdin) if entry["summary"]==sys.argv[1]))' "$1"
+}
+LATE_FILE="$WORK/late-answers.json"
+set_config ',"responseTimeout":1'
+
+# A call auto mode blocked: the retry after the timeout is denied, then approved late.
+out=$(late_call PermissionDenied late-1 "git push --force origin late" | "$STEW" hook denied)
+expect "late: blocked call times out" "$out" '"retry":true'
+expect "late: the timeout note says a late answer may follow" "$(late_call PreToolUse late-1 "git push --force origin late" | "$STEW" hook pre)" "passes their answer on to you as a late answer"
+sleep 0.2
+expect "late: waiting requests are kept privately" "$(stat -f %Lp "$LATE_FILE")" "600"
+entry=$(late_entry "Push")
+expect "late: an unknown entry is not waiting" "$(control late 00000000-0000-0000-0000-000000000000)" "not waiting"
+control late "$entry" > /dev/null
+expect "late: answer now shows it again without a clock" "$(control state)" "items=1 kind=permission"
+expect "late: no clock on a late answer" "$(control state)" "clock=none"
+control press dismiss > /dev/null
+wait_items 0
+expect "late: closing it leaves it waiting" "$(cat "$LATE_FILE")" "\"entryID\" : \"$entry\""
+control late "$entry" > /dev/null
+control press approve > /dev/null
+wait_items 0; sleep 0.2
+expect "late: another session gets nothing" "[$(late_call PreToolUse late-2 "ls" | "$STEW" hook pre)]" "[]"
+out=$(late_call PreToolUse late-1 "ls" | "$STEW" hook pre)
+expect "late: the next PreToolUse gets it as context" "$out" '{"hookSpecificOutput":{"additionalContext":"Late answer from the user, through stew.'
+expect "late: approved blocked call says retry" "$out" "retry it if it is still needed"
+expect "late: PreToolUse delivers once" "[$(late_call PreToolUse late-1 "ls" | "$STEW" hook pre)]" "[]"
+expect "late: nothing left for Stop" "[$(late_call Stop late-1 "" | "$STEW" hook stop-late)]" "[]"
+expect "late: the retry goes through" "$(late_call PreToolUse late-1 "git push --force origin late" | "$STEW" hook pre)" '"permissionDecision":"allow"'
+expect "late: answer now is gone once answered" "$(control late "$entry")" "not waiting"
+expect "late: history shows the late outcome" "$(history_json | python3 -c 'import json,sys; print(next(entry["outcome"] + "/" + entry["late"]["outcome"] for entry in json.load(sys.stdin) if entry["id"]==sys.argv[1]))' "$entry")" "timedOut/approved"
+expect "late: history keeps what Claude reads" "$(history_json)" "retry it if it is still needed"
+
+# A stew permit from a Claude session, declined late with a note: Stop keeps Claude going.
+CLAUDE_CODE_SESSION_ID=late-3 "$STEW" permit --action "Ship late" --command "deploy --token ghp_abcdefghijklmnopqrstuvwxyz0123456789" --reason "r" > /dev/null # gitleaks:allow (test fixture)
+sleep 0.2
+control late "$(late_entry "Ship late")" > /dev/null
+control press other > /dev/null
+control type "not on a Friday" > /dev/null
+control press deny > /dev/null
+wait_items 0; sleep 0.2
+[[ "$(cat "$LATE_FILE")" != *"ghp_"* ]] && pass "late: the stored answer has no secret" || fail "late: the stored answer has no secret" "raw token in late-answers.json"
+expect "late: Stop of another session is not blocked" "[$(late_call Stop late-2 "" | "$STEW" hook stop-late)]" "[]"
+out=$(late_call Stop late-3 "" | "$STEW" hook stop-late)
+expect "late: Stop blocks with the answer as the reason" "$out" '{"decision":"block","reason":"Late answer from the user, through stew.'
+expect "late: declined with the note, secret masked" "$out" 'declined it: Ship late (`deploy --token ••••`). Do not run it. Their note: not on a Friday'
+expect "late: Stop delivers once" "[$(late_call Stop late-3 "" | "$STEW" hook stop-late)]" "[]"
+expect "late: nothing left for UserPromptSubmit" "[$(late_call UserPromptSubmit late-3 "" | "$STEW" hook prompt)]" "[]"
+
+# A question answered late reaches the next message of an idle session.
+CLAUDE_CODE_SESSION_ID=late-4 "$STEW" ask --json '{"questions":[{"question":"Late color?","header":"Color","options":[{"label":"Red","description":""},{"label":"Blue","description":""}]}]}' > /dev/null
+sleep 0.2
+control late "$(late_entry "Late color?")" > /dev/null
+expect "late: the question flow shows again" "$(control state)" "kind=question question=0"
+control choose 2 > /dev/null
+wait_items 0; sleep 0.2
+expect "late: a prompt of another session gets nothing" "[$(late_call UserPromptSubmit late-2 "" | "$STEW" hook prompt)]" "[]"
+out=$(late_call UserPromptSubmit late-4 "" | "$STEW" hook prompt)
+expect "late: UserPromptSubmit adds it to the context" "$out" '{"hookSpecificOutput":{"additionalContext":"Late answer from the user, through stew.'
+expect "late: the answer in the question's shape" "$out" '\"Late color?\"=\"Blue\"'
+expect "late: UserPromptSubmit delivers once" "[$(late_call UserPromptSubmit late-4 "" | "$STEW" hook prompt)]" "[]"
+expect "late: history shows answered late" "$(history_json)" '"answers":{"Late color?":"Blue"}'
+
+# Without a session id there is no one to tell, so nothing waits.
+"$STEW" permit --action "Nobody to tell" --reason "r" > /dev/null
+sleep 0.2
+expect "late: a request without a session cannot be answered late" "$(control late "$(late_entry "Nobody to tell")")" "not waiting"
+set_config ""
+
 # Coming back after timeouts shows one summary; with none, nothing shows.
 control returned 600 > /dev/null
 state=$(control state)
@@ -576,7 +653,13 @@ expect "prompt hook ignores input without a session" "[$(echo '{}' | "$STEW" hoo
 # hooks install adds Stop and UserPromptSubmit, once, and keeps other hooks
 echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}' > "$STEW_CLAUDE_USER_SETTINGS"
 "$STEW" hooks install > /dev/null; "$STEW" hooks install > /dev/null
-expect "hooks install adds Stop and UserPromptSubmit once" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), len(d["UserPromptSubmit"]), [h["hooks"][0].get("async") for h in d["Stop"]], d["UserPromptSubmit"][0]["hooks"][0]["command"].endswith(" hook prompt"))' "$STEW_CLAUDE_USER_SETTINGS")" "2 1 [None, True] True"
+expect "hooks install adds Stop and UserPromptSubmit once" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), len(d["UserPromptSubmit"]), [h["hooks"][0].get("async") for h in d["Stop"]], d["UserPromptSubmit"][0]["hooks"][0]["command"].endswith(" hook prompt"))' "$STEW_CLAUDE_USER_SETTINGS")" "3 1 [None, True, None] True"
+expect "the late answer Stop hook runs in the foreground" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print([h["hooks"][0].get("async", False) for h in d["Stop"] if h["hooks"][0]["command"].endswith(" hook stop-late")])' "$STEW_CLAUDE_USER_SETTINGS")" "[False]"
+# An install from before late answers: status asks for an update, install migrates it.
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["hooks"]["Stop"]=[h for h in d["hooks"]["Stop"] if not h["hooks"][0]["command"].endswith(" hook stop-late")];json.dump(d,open(sys.argv[1],"w"))' "$STEW_CLAUDE_USER_SETTINGS"
+expect "an install without the late answer hook needs updating" "$("$STEW" hooks status)" "partly installed"
+"$STEW" hooks install > /dev/null
+expect "install migrates it" "$("$STEW" hooks status)" "hooks: installed in"
 expect "hooks status after install" "$("$STEW" hooks status)" "hooks: installed"
 # An install from before needs items: only the first three hooks.
 python3 -c 'import json,sys

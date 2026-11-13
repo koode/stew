@@ -145,6 +145,8 @@ enum Daemon {
             let settings = SettingsWindowController(updater: updater) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
             coordinator.onOpenHistory = { missedOnly in settings.showHistory(missedOnly: missedOnly) }
+            settings.onAnswerNow = { entryID in coordinator.answerLate(entryID: entryID) }
+            coordinator.onLateAnswer = { settings.reloadHistory() }
             let needsMenu = NeedsStatusItem(
                 onOpen: { id in coordinator.openNeeds(id: id) },
                 onOpenHistory: { settings.showHistory(missedOnly: false) }
@@ -185,10 +187,13 @@ enum Daemon {
         RiskChecker.mainLoopRunning = true
         Log.write("stew daemon \(AppVersion.running) listening on \(Paths.socket)")
         history.prune(keepDays: coordinator.config.historyDays)
+        LateAnswerFile.update { _ in }
         coordinator.restoreNeeds()
         historyPruner = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { _ in
             coordinator.reloadConfigIfChanged()
             history.prune(keepDays: coordinator.config.historyDays)
+            // Drops late answers and timed-out requests older than a day.
+            LateAnswerFile.update { _ in }
         }
         updater.cleanUpAfterUpdate()
         updater.startSchedule {

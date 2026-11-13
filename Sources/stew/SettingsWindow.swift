@@ -95,6 +95,16 @@ final class SettingsWindowController {
         model.onSaved = onSaved
     }
 
+    /// "Answer now" on a missed request: shows it in the panel again.
+    var onAnswerNow: ((UUID) -> Bool)? {
+        get { history.onAnswerNow }
+        set { history.onAnswerNow = newValue }
+    }
+
+    func reloadHistory() {
+        history.reload()
+    }
+
     /// The History tab, optionally showing only the requests that timed out.
     func showHistory(missedOnly: Bool) {
         history.missedOnly = missedOnly
@@ -183,7 +193,7 @@ struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. Applies to permission requests and questions.") {
+            SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
                 Picker("Time to answer", selection: binding(\.responseTimeout)) {
                     ForEach(Self.limits, id: \.1) { Text($0.0).tag($0.1) }
                 }

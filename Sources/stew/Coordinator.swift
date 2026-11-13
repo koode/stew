@@ -46,6 +46,9 @@ final class Item: ObservableObject, Identifiable {
     @Published var hoveredOption: Int?
     /// For a needs item: its id in needs.json.
     var needsID: String?
+    /// A request that timed out, shown again from the history: the answer goes to the
+    /// session as a late answer instead of to a waiting caller.
+    var lateEntryID: UUID?
 
     var isNeeds: Bool {
         if case .needs = request.prompt { return true }
@@ -110,6 +113,8 @@ final class Coordinator: ObservableObject {
     var history: HistoryStore?
     /// Opens the settings window on History; true shows only missed requests.
     var onOpenHistory: ((Bool) -> Void)?
+    /// Called after a late answer is stored, so the History tab shows it.
+    var onLateAnswer: (() -> Void)?
     /// `stew update`: check and install now, then reply with the outcome.
     var onUpdate: ((@escaping (UpdateOutcome) -> Void) -> Void)?
     /// Open needs items. In memory only until the daemon gives it needs.json.
@@ -199,13 +204,14 @@ final class Coordinator: ObservableObject {
         }
     }
 
-    func enqueue(_ request: StewRequest, connection: Connection?) {
+    func enqueue(_ request: StewRequest, connection: Connection?, lateEntryID: UUID? = nil) {
         reloadConfigIfChanged()
         if case .needs(let needs) = request.prompt {
             addNeeds(needs, request: request, connection: connection)
             return
         }
         let item = Item(request: request, connection: connection)
+        item.lateEntryID = lateEntryID
         if case .notify = request.prompt, !request.wait {
             // The caller only wants it shown; the panel keeps it until dismissed.
             connection?.send((try? Wire.encode(StewResponse(status: .shown))) ?? Data())
@@ -414,6 +420,9 @@ final class Coordinator: ObservableObject {
         case "open":
             // A click on a needs item in the menu bar.
             openNeeds(id: argument)
+        case "late":
+            // "Answer now" on a missed request in the History tab.
+            guard let entryID = UUID(uuidString: argument), answerLate(entryID: entryID) else { return "not waiting" }
         case "state":
             break
         default:
@@ -462,7 +471,11 @@ final class Coordinator: ObservableObject {
             celebrations += 1
             onCelebrate?()
         }
-        record(item, response)
+        if let entryID = item.lateEntryID {
+            storeLateAnswer(item, response, entryID: entryID)
+        } else {
+            record(item, response)
+        }
         item.connection?.send((try? Wire.encode(response)) ?? Data())
         item.connection = nil
         onRespond?(item, response)
@@ -490,7 +503,8 @@ final class Coordinator: ObservableObject {
             waiter.connection.send((try? Wire.encode(response)) ?? Data())
         }
         needsWaiters = [:]
-        for item in items where !item.isNeeds {
+        // A late answer in progress has no caller; its request stays answerable.
+        for item in items where !item.isNeeds && item.lateEntryID == nil {
             let response = StewResponse(status: .dismissed, note: "stew daemon stopped")
             record(item, response)
             item.connection?.send((try? Wire.encode(response)) ?? Data())
@@ -499,11 +513,58 @@ final class Coordinator: ObservableObject {
         history?.flush()
     }
 
-    /// No response means the caller went away before an answer.
+    /// No response means the caller went away before an answer. A request of a known
+    /// session that timed out stays answerable from the history for a day.
     private func record(_ item: Item, _ response: StewResponse?) {
         // Needs items record their own ending in finishNeeds.
         guard let history, !item.isInternal, !item.isNeeds else { return }
-        history.append(HistoryEntry.record(item.request, received: item.received, response: response, ended: Date()))
+        let entry = HistoryEntry.record(item.request, received: item.received, response: response, ended: Date())
+        history.append(entry)
+        if response?.status == .timeout, LateMailbox.canAnswerLate(item.request) {
+            LateAnswerFile.update { $0.addWaiting(item.request, entryID: entry.id, now: entry.ended) }
+        }
+    }
+
+    /// "Answer now" in the History tab: shows a timed-out request in the panel again,
+    /// without a time limit. False when it can no longer be answered (answered already,
+    /// or more than a day old). Shown once: a second click brings the same item forward.
+    @discardableResult
+    func answerLate(entryID: UUID) -> Bool {
+        if items.contains(where: { $0.lateEntryID == entryID }) { return true }
+        guard let waiting = LateAnswerFile.read().waiting(entryID, now: Date()) else { return false }
+        var request = waiting.request
+        request.timeout = 0
+        request.maxWait = nil
+        enqueue(request, connection: nil, lateEntryID: entryID)
+        return true
+    }
+
+    /// The user answered a timed-out request: store the answer for the session's next
+    /// hook call, the one-shot retry grant for an approved blocked call, and the late
+    /// outcome on the history entry. Closing the panel is no answer: the request stays
+    /// answerable.
+    private func storeLateAnswer(_ item: Item, _ response: StewResponse, entryID: UUID) {
+        guard [.approved, .denied, .answered].contains(response.status) else { return }
+        let now = Date()
+        guard let late = LateAnswerFile.update(now: now, { $0.answer(entryID, with: response, now: now) }) else {
+            Log.write("late answer: \(entryID) is no longer waiting")
+            return
+        }
+        if response.status == .approved, let blocked = item.blocked, let origin = item.request.origin,
+           let toolName = origin.toolName, let callKey = origin.callKey {
+            do {
+                try GrantFile.update { grants in
+                    GrantBook.approveLate(grants: &grants, toolName: toolName, callKey: callKey, sessionID: late.sessionID, now: now)
+                    if let choice = response.grant {
+                        try Hooks.apply(choice, toolName: toolName, projectRoot: blocked.projectRoot, grants: &grants)
+                    }
+                }
+            } catch {
+                Log.write("late answer: could not store the grant: \(error)")
+            }
+        }
+        history?.update(entryID) { $0.recordLate(response, message: late.message, at: now) }
+        onLateAnswer?()
     }
 
     /// The user is back after being away since `awaySince`. One notice for every

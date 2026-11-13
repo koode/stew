@@ -37,6 +37,18 @@ final class HistoryStore {
         }
     }
 
+    /// Changes one entry in place, such as a late answer to a timed-out request. Waits
+    /// for the write, so the History tab reads the change right after.
+    func update(_ id: UUID, _ change: (inout HistoryEntry) -> Void) {
+        queue.sync {
+            var entries = Self.readFile()
+            guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+            change(&entries[index])
+            guard let data = try? History.lines(entries) else { return }
+            Self.writeFile(data)
+        }
+    }
+
     /// Everything written so far, including writes still queued.
     func read() -> [HistoryEntry] {
         queue.sync { Self.readFile() }
