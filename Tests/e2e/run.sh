@@ -123,6 +123,66 @@ control press submit > /dev/null
 wait $client
 expect "other text answer" "$(cat "$WORK/out")" '"answers":{"Name?":"Stew"}'
 
+# input: one typed answer. The field waits unfocused until ⌘O; ⌘↩ sends only what fits.
+out=$("$STEW" input "Domain?" --pattern '[a-z]+(' 2>&1); code=$?
+expect "input: a bad pattern is refused at the CLI" "$out" "--pattern is not a valid regular expression: [a-z]+("
+expect "input: a bad pattern exits 64" "$code" "64"
+out=$("$STEW" input "Token?" --secret --default abc 2>&1); code=$?
+expect "input: a secret cannot have a default" "$out" "--default cannot be used with --secret"
+expect "input: a secret with a default exits 64" "$code" "64"
+expect "input --help shows only input" "$("$STEW" input --help)" "stew input QUESTION [--why TEXT]"
+"$STEW" input "Which domain?" --pattern '[a-z0-9.-]+\.[a-z]{2,}' --placeholder example.com --why "DNS" > "$WORK/out" & client=$!
+wait_items 1
+state=$(control state)
+expect "input keys" "$state" "keys=⌘. ⌘O ⌘↩ ⌘E"
+expect "input starts unfocused and empty" "$state" "text=false input=empty"
+control press submit > /dev/null
+expect "input: ⌘↩ with nothing typed sends nothing" "$(control state)" "items=1 kind=input"
+control press other > /dev/null
+expect "input: ⌘O focuses the field and pauses the clock" "$(control state)" "text=true input=empty"
+expect "input: the clock waits while typing" "$(control state)" "clock=paused"
+control type "not a domain" > /dev/null
+expect "input: a mismatch is flagged" "$(control state)" "input=mismatch"
+control press submit > /dev/null
+expect "input: ⌘↩ sends nothing that does not match" "$(control state)" "items=1 kind=input"
+control type " example.com " > /dev/null
+control press submit > /dev/null
+wait $client; code=$?
+expect "input: answered with the trimmed text" "$(cat "$WORK/out")" '","status":"answered","text":"example.com"}'
+expect "input: the answer names its id" "$(cat "$WORK/out")" '{"id":"'
+expect "input: answered exits 0" "$code" "0"
+"$STEW" input "Name?" --default "stew" > "$WORK/out" & client=$!
+wait_items 1
+expect "input: the default counts as typed" "$(control state)" "input=valid"
+control press submit > /dev/null
+wait $client
+expect "input: the default goes as it is" "$(cat "$WORK/out")" '"text":"stew"'
+"$STEW" input "Anything?" > "$WORK/out" & client=$!
+wait_items 1
+control press dismiss > /dev/null
+wait $client; code=$?
+expect "input: dismissed" "$(cat "$WORK/out")" '"status":"dismissed"'
+expect "input: dismissed exits 2" "$code" "2"
+out=$("$STEW" input "Quick?" --timeout 1); code=$?
+expect "input: timeout" "$out" '"status":"timeout"'
+expect "input: timeout note as for ask" "$out" "They may be away: continue with a safe choice that does not need this answer"
+expect "input: timeout exits 3" "$code" "3"
+# A secret without a Claude session: no "I'll enter it later", since nothing could receive it.
+"$STEW" input "Password?" --secret > "$WORK/out" & client=$!
+wait_items 1
+expect "secret keys without a session" "$(control state)" "keys=⌘. ⌘O ⌘↩ ⌘E ⌘5"
+control press enterSoon > /dev/null
+[[ "$(control state)" =~ clock=running:3(59|60) ]] && pass "secret: give me 5 min adds 5 minutes" || fail "secret: give me 5 min adds 5 minutes" "$(control state)"
+control press enterLater > /dev/null
+expect "secret: enter later does nothing without a session" "$(control state)" "items=1 kind=input"
+control type " hunter2 secret " > /dev/null
+control press submit > /dev/null
+wait $client
+expect "secret: sent as typed" "$(cat "$WORK/out")" '"text":" hunter2 secret "'
+sleep 0.2
+[[ "$("$STEW" history --json)" != *"hunter2"* ]] && pass "secret: never in the history" || fail "secret: never in the history" "$("$STEW" history --json)"
+expect "secret: the history says a secret was entered" "$("$STEW" history --json)" '"secret":true'
+
 # timeout
 out=$("$STEW" permit --action "x" --reason "y" --timeout 1); code=$?
 expect "timeout status" "$out" '"status":"timeout"'
@@ -415,6 +475,59 @@ expect "late: UserPromptSubmit adds it to the context" "$out" '{"hookSpecificOut
 expect "late: the answer in the question's shape" "$out" '\"Late color?\"=\"Blue\"'
 expect "late: UserPromptSubmit delivers once" "[$(late_call UserPromptSubmit late-4 "" | "$STEW" hook prompt)]" "[]"
 expect "late: history shows answered late" "$(history_json)" '"answers":{"Late color?":"Blue"}'
+
+# An input that timed out, answered late from the history.
+CLAUDE_CODE_SESSION_ID=late-5 "$STEW" input "Late domain?" > /dev/null
+sleep 0.2
+control late "$(late_entry "Late domain?")" > /dev/null
+expect "late: the input shows again" "$(control state)" "kind=input"
+control type "late.example.com" > /dev/null
+control press submit > /dev/null
+wait_items 0; sleep 0.2
+out=$(late_call UserPromptSubmit late-5 "" | "$STEW" hook prompt)
+expect "late: the input answer reaches the session" "$out" '\"Late domain?\"=\"late.example.com\"'
+expect "late: history keeps the late input answer" "$(history_json)" '"text":"late.example.com"'
+
+# A secret that timed out cannot be answered late: only "I'll enter it later" keeps it open.
+CLAUDE_CODE_SESSION_ID=late-6 "$STEW" input "Timed secret?" --secret > /dev/null
+sleep 0.2
+expect "late: a secret that timed out is not waiting" "$(control late "$(late_entry "Timed secret?")")" "not waiting"
+
+# I'll enter it later: Claude hears "later" at once, and the secret entered afterwards
+# reaches it once, from the daemon's memory, never from a file.
+any_entry() { # summary: the id of its newest entry
+  history_json | python3 -c 'import json,sys; print(next(entry["id"] for entry in json.load(sys.stdin) if entry["summary"]==sys.argv[1]))' "$1"
+}
+LATER_SECRET="s3cr3t-value-123"
+CLAUDE_CODE_SESSION_ID=late-7 "$STEW" input "Later secret?" --secret --timeout 30 > "$WORK/out" & client=$!
+wait_items 1
+expect "secret keys with a session" "$(control state)" "keys=⌘. ⌘O ⌘↩ ⌘E ⌘5 ⌘L"
+control press enterLater > /dev/null
+wait $client; code=$?
+expect "later: status" "$(cat "$WORK/out")" '"status":"later"'
+expect "later: the note says it arrives as a late answer" "$(cat "$WORK/out")" "stew passes it to you as a late answer when they do"
+expect "later: exits 5" "$code" "5"
+sleep 0.2
+entry=$(any_entry "Later secret?")
+expect "later: the history says so" "$(history_json | python3 -c 'import json,sys; print(next(entry["outcome"] for entry in json.load(sys.stdin) if entry["id"]==sys.argv[1]))' "$entry")" "later"
+expect "later: the id matches the history entry" "$(cat "$WORK/out")" "\"id\":\"$(echo "$entry" | tr 'A-Z' 'a-z')\""
+control late "$entry" > /dev/null
+state=$(control state)
+expect "later: answer now shows it without a clock" "$state" "kind=input"
+[[ "$state" != *"⌘L"* && "$state" != *"⌘5"* ]] && pass "later: no clock choices once it is late" || fail "later: no clock choices once it is late" "$state"
+control type "$LATER_SECRET" > /dev/null
+control press submit > /dev/null
+wait_items 0; sleep 0.2
+leaks=$(grep -rl "$LATER_SECRET" "$WORK" 2>/dev/null)
+[[ -z "$leaks" ]] && pass "later: the secret is in no file" || fail "later: the secret is in no file" "$leaks"
+expect "later: the stored answer holds a placeholder" "$(cat "$LATE_FILE")" "secret kept in stew"
+expect "later: another session gets nothing" "[$(late_call Stop late-2 "" | "$STEW" hook stop-late)]" "[]"
+out=$(late_call Stop late-7 "" | "$STEW" hook stop-late)
+expect "later: Stop delivers the secret from memory" "$out" "Later secret?\\\"): $LATER_SECRET Use it only"
+expect "later: delivered once" "[$(late_call PreToolUse late-7 "ls" | "$STEW" hook pre)]" "[]"
+expect "later: the daemon no longer has it" "$(control "late secret $entry")" '"status":"error"'
+expect "later: history shows it entered late" "$(history_json | python3 -c 'import json,sys; print(next(entry["outcome"] + "/" + entry["late"]["outcome"] for entry in json.load(sys.stdin) if entry["id"]==sys.argv[1]))' "$entry")" "later/answered"
+[[ "$(history_json)" != *"$LATER_SECRET"* ]] && pass "later: never in the history" || fail "later: never in the history" "secret in history"
 
 # Without a session id there is no one to tell, so nothing waits.
 "$STEW" permit --action "Nobody to tell" --reason "r" > /dev/null
