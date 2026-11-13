@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs Stew for the current user. No admin rights needed.
+# Installs stew for the current user. No admin rights needed.
 #
 #   curl -fsSL https://releases.stewcli.com/install.sh | bash
 #   curl -fsSL https://releases.stewcli.com/install.sh | bash -s -- --with-hooks
@@ -25,7 +25,7 @@
 # then the code signature, which must be Koode's Developer ID (team PXD36584ME) and
 # notarized. Run it again to update. An older install with a plain binary at
 # ~/.local/bin/stew is replaced in place. Claude Code hooks call ~/.local/bin/stew,
-# so they keep working. To remove Stew: stew uninstall
+# so they keep working. To remove stew: stew uninstall
 #
 # For tests only: STEW_UPDATE_URL points at another latest.json,
 # STEW_UPDATE_SKIP_TEAM_CHECK=1 accepts ad hoc signed builds,
@@ -70,9 +70,9 @@ launchctl_run() {
   launchctl "$@"
 }
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "Stew runs on macOS only."
+[[ "$(uname -s)" == "Darwin" ]] || fail "stew runs on macOS only."
 macos_version="$(sw_vers -productVersion)"
-[[ "${macos_version%%.*}" -ge 14 ]] || fail "Stew needs macOS 14 or later. This Mac has $macos_version."
+[[ "${macos_version%%.*}" -ge 14 ]] || fail "stew needs macOS 14 or later. This Mac has $macos_version."
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/stew-install.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -108,9 +108,9 @@ else
   archive_size="$(manifest_field archive.size)"
   minimum_macos="$(manifest_field minimumMacOS)"
   macos_at_least "$macos_version" "$minimum_macos" \
-    || fail "Stew $release_version needs macOS $minimum_macos or later. This Mac has $macos_version."
+    || fail "stew $release_version needs macOS $minimum_macos or later. This Mac has $macos_version."
 
-  step "Downloading Stew $release_version"
+  step "Downloading stew $release_version"
   curl -fSL --progress-bar "$archive_url" -o "$work/Stew.zip" || fail "could not download $archive_url"
   actual_size="$(stat -f%z "$work/Stew.zip")"
   [[ "$actual_size" == "$archive_size" ]] || fail "the download is $actual_size bytes, expected $archive_size. Try again."
@@ -148,7 +148,7 @@ mkdir -p "$app_dir"
 step "Stopping the running daemon"
 launchctl_run bootout "$domain/$label" 2> /dev/null || true
 
-step "Installing Stew $version in $app_dir"
+step "Installing stew $version in $app_dir"
 staging="$app_dir/.Stew.app.installing"
 previous="$app_dir/.Stew.app.previous"
 rm -rf "$staging" "$previous"

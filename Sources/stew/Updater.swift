@@ -245,7 +245,7 @@ final class Updater: ObservableObject {
     private func describe(_ decision: UpdateDecision, manifest: UpdateManifest) -> UpdateOutcome {
         switch decision {
         case .upToDate:
-            return UpdateOutcome(status: .upToDate, message: "Stew is up to date: \(Self.installedVersion).", version: manifest.version)
+            return UpdateOutcome(status: .upToDate, message: "stew is up to date: \(Self.installedVersion).", version: manifest.version)
         case .available:
             return UpdateOutcome(status: .available, message: "Version \(manifest.version) (build \(manifest.build)) is available.", version: manifest.version)
         case .needsNewerMacOS(let minimum):
@@ -330,7 +330,7 @@ final class Updater: ObservableObject {
         }
         log("update: installed \(manifest.version) (build \(manifest.build)) at \(Paths.installedApp); previous version kept in \(backupFolder)")
         onInstalled?(manifest)
-        let restartNote = Self.canRestart ? " Stew restarts now." : ""
+        let restartNote = Self.canRestart ? " stew restarts now." : ""
         return UpdateOutcome(status: .installed, message: "Installed version \(manifest.version) (build \(manifest.build)).\(restartNote)", version: manifest.version)
     }
 

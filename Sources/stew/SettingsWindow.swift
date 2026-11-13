@@ -265,7 +265,7 @@ struct GeneralSettings: View {
                     }
                 }
                 Section("Updates") {
-                    SettingRow(hint: updater.isReleaseBuild ? updater.installNote ?? (model.config.autoUpdate ? "Stew checks once a day and installs a new version when no request is open." : "Stew checks once a day and tells you when a new version is available.") : Updater.sourceBuildNote) {
+                    SettingRow(hint: updater.isReleaseBuild ? updater.installNote ?? (model.config.autoUpdate ? "stew checks once a day and installs a new version when no request is open." : "stew checks once a day and tells you when a new version is available.") : Updater.sourceBuildNote) {
                         Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
                             .disabled(!updater.isReleaseBuild)
                     }

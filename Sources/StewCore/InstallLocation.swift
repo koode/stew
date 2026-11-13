@@ -79,9 +79,9 @@ public enum UpdateRoute: Equatable, Sendable {
         case .inPlace:
             nil
         case .homebrew:
-            "Stew cannot replace the app in this folder, so update it with Homebrew: brew upgrade --cask \(InstallLocation.caskToken)"
+            "stew cannot replace the app in this folder, so update it with Homebrew: brew upgrade --cask \(InstallLocation.caskToken)"
         case .notWritable(let folder):
-            "Stew cannot replace the app in \(folder), because this user cannot write there. Install the new version there yourself, or move Stew.app to ~/Applications."
+            "stew cannot replace the app in \(folder), because this user cannot write there. Install the new version there yourself, or move Stew.app to ~/Applications."
         }
     }
 }

@@ -48,10 +48,10 @@ cask "stew" do
       ]
 
   caveats <<~EOS
-    To ask in Stew when Claude Code's auto mode blocks a call, run:
+    To ask in stew when Claude Code's auto mode blocks a call, run:
       stew hooks install
 
-    `brew uninstall --cask stew` keeps the hooks, the skill and Stew's data.
+    `brew uninstall --cask stew` keeps the hooks, the skill and stew's data.
     Run `stew hooks uninstall` first, or uninstall with --zap to remove them too.
   EOS
 end

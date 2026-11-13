@@ -925,7 +925,7 @@ installed_version() { /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionStr
 release 0.1.0 5
 ditto "$UPD/build-0.1.0-5/Stew.app" "$STEW_APP_PATH"
 out=$("$STEW" update --check); code=$?
-expect "same version is up to date" "$out$code" "Stew is up to date: 0.1.0 (build 5).0"
+expect "same version is up to date" "$out$code" "stew is up to date: 0.1.0 (build 5).0"
 
 release 0.2.0 9
 out=$("$STEW" update --check); code=$?
@@ -981,7 +981,7 @@ expect "previous app kept as backup" "$(/usr/libexec/PlistBuddy -c 'Print :CFBun
 expect "update steps are logged" "$(cat "$WORK/daemon.log")" "update: code signature valid; team check skipped"
 expect "last check is recorded" "$(cat "$WORK/update-state.json")" "Installed version 0.3.0"
 out=$("$STEW" update); code=$?
-expect "installed version is now current" "$out$code" "Stew is up to date: 0.3.0 (build 11).0"
+expect "installed version is now current" "$out$code" "stew is up to date: 0.3.0 (build 11).0"
 
 # The daemon's own schedule installs without being asked.
 release 0.4.0 12
@@ -1006,10 +1006,10 @@ update_in_place() { env -u STEW_APP_PATH HOME="$UPD/cask-home" STEW_SOCKET="$WOR
 
 chmod 555 "$CASK_APPS"
 out=$(update_in_place HOMEBREW_PREFIX="$UPD/brew"); code=$?
-expect "a read-only cask install points at brew upgrade" "$out" "Version 0.4.0 (build 12) is available. Stew cannot replace the app in this folder, so update it with Homebrew: brew upgrade --cask stew"
+expect "a read-only cask install points at brew upgrade" "$out" "Version 0.4.0 (build 12) is available. stew cannot replace the app in this folder, so update it with Homebrew: brew upgrade --cask stew"
 expect "a read-only cask install reports available" "$code" "10"
 out=$(update_in_place); code=$?
-expect "a read-only folder without Homebrew is named" "$out$code" "Stew cannot replace the app in $CASK_APPS, because this user cannot write there."
+expect "a read-only folder without Homebrew is named" "$out$code" "stew cannot replace the app in $CASK_APPS, because this user cannot write there."
 expect "a read-only folder keeps the app" "$(cask_version)" "0.3.0"
 chmod 755 "$CASK_APPS"
 

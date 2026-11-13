@@ -21,7 +21,7 @@ enum Uninstaller {
                resolve: Setup.resolvedPath
            ) {
             // Going ahead would leave Homebrew's app, link and records behind.
-            print("Stew was installed with Homebrew. Remove it with: brew uninstall --cask --zap \(InstallLocation.caskToken)")
+            print("stew was installed with Homebrew. Remove it with: brew uninstall --cask --zap \(InstallLocation.caskToken)")
             return 1
         }
         var failures = 0

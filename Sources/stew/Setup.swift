@@ -32,7 +32,7 @@ enum Setup {
             resolve: resolvedPath
         )
         let version = AppVersion.installed(at: app) ?? AppVersion.running
-        step("Setting up Stew \(version.version) in \((app as NSString).deletingLastPathComponent)\(homebrew ? " (installed by Homebrew)" : "")")
+        step("Setting up stew \(version.version) in \((app as NSString).deletingLastPathComponent)\(homebrew ? " (installed by Homebrew)" : "")")
         var failures = 0
 
         let domain = "gui/\(getuid())"
@@ -68,9 +68,9 @@ enum Setup {
         }
 
         if failures == 0 {
-            print("Stew \(version) is set up.")
+            print("stew \(version) is set up.")
         } else {
-            print("Stew \(version) is set up, except for \(failures) item(s) listed above.")
+            print("stew \(version) is set up, except for \(failures) item(s) listed above.")
         }
         return failures == 0 ? 0 : 1
     }

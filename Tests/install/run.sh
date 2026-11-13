@@ -218,7 +218,7 @@ settings_before="$(cat "$WORK/claude-settings.json")"
 out=$(as_cask "$cask_tool" setup 2>&1); code=$?
 expect "cask setup exits 0" "$code" "0"
 expect "cask setup knows Homebrew installed the app" "$out" "(installed by Homebrew)"
-expect "cask setup reports the version" "$out" "Stew 0.2.0 (build 6) is set up."
+expect "cask setup reports the version" "$out" "stew 0.2.0 (build 6) is set up."
 expect "LaunchAgent runs the app where it is" "$(plist_program)" "$cask_tool"
 expect "LaunchAgent restarts the daemon" "$(tr '\n' ' ' < "$LAUNCHCTL_LOG")" "launchctl bootout gui/$(id -u)/nl.koode.stew launchctl bootstrap gui/$(id -u) $FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist"
 expect "LaunchAgent logs to the stew log" "$(/usr/libexec/PlistBuddy -c 'Print :StandardErrorPath' "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" 2>&1)" "$FAKE_HOME/Library/Logs/stew.log"
