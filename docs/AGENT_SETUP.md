@@ -1,6 +1,6 @@
 # Setting up stew: instructions for a coding agent
 
-You are setting up stew for the user on their Mac. stew is a floating panel that lets Claude Code sessions ask the user for permission, ask questions, send notifications and say when they need the user to do something only the user can do (log in, buy, approve in a web page), without taking keyboard focus. Follow these steps in order. Ask the user where a step says so; do not decide for them.
+You are setting up stew for the user on their Mac. stew is a floating panel that lets Claude Code sessions ask the user for permission, ask questions, ask for a typed answer (a domain, a code, a password), send notifications and say when they need the user to do something only the user can do (log in, buy, approve in a web page), without taking keyboard focus. Follow these steps in order. Ask the user where a step says so; do not decide for them.
 
 ## 1. Check the machine
 
@@ -59,6 +59,11 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
    stew needs "Copy the stew version" --step "Copy the command below with its copy button" --command "stew version" --done "Copied it" --wait --timeout 300
    ```
    The output must show `"answer":"Copied it"` and `"status":"done"` after they press ⌘↩. While it is open, a hand with the count shows in the menu bar.
+7. Ask the user to type one answer, to confirm the field works for them:
+   ```bash
+   stew input "Type stew to finish the setup" --pattern stew --timeout 120
+   ```
+   The field does not take the keyboard until they click it or press ⌘O. The output must show `"status":"answered"` and `"text":"stew"` after they type it and press ⌘↩.
 
 ## Troubleshooting
 

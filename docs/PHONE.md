@@ -11,6 +11,8 @@ When a request stays open while you are away from your Mac, stew sends it to you
 - **Approve needs an unlocked phone.** On a locked phone the Approve action asks for Face ID or the passcode first. On an unlocked phone, and on the Watch while it is unlocked on your wrist, iOS does not ask again. Approve in the app always asks. Deny and More time never ask.
 - **Risk check first.** A request waits while its risk check runs, so the phone sees the verdict and a hard deny never arrives with an Approve.
 - **Questions.** A single question offers its options (up to 4) and "Other…" with a text field. Several questions, or a multi-select question, open the app.
+- **Inputs** (`stew input`) go out under the same rules as questions. The notification shows the question and why, with a **Reply** text field (its placeholder is the input's `--placeholder`). The app shows the same field. With `--pattern`, the phone refuses a reply that does not match before sending it, and the Mac checks it again and refuses it too, so the request stays open for a reply that fits.
+- **Secret inputs** (`--secret`) go out too, but the phone never offers a field for them: a notification text field cannot hide what you type. The notification and the app show the question, why, and "Enter it on your Mac.", with two actions that need no Face ID. **Give me 5 min** adds 5 minutes to the clock on the Mac and on the phone. **I'll enter it later** ends Claude's wait at once with `"status":"later"`; you then enter the secret on the Mac from History ▸ Answer now, and it reaches the session as a late answer. The phone never receives the secret, and the Mac refuses a reply to a secret from a phone.
 - **Notifications** (`stew notify`) arrive without actions.
 - **Needs items** (`stew needs`) go out once they have been open 10 seconds, also while you are at the Mac, because they have no deadline and the task often takes you away from the desk. "Never" still sends none. The notification shows the title, why, the steps and the commands with secrets masked, with Done and Not now. When Claude named the Done button (`--done`) or offered other answers (`--answer`), the actions carry those labels: Done with its label, each other answer, then Not now, in a notification category made for that item. Done and the other answers need no Face ID; Done ends the item on the Mac as Done, another answer ends it as Answered, and Claude learns which label was picked. The Mac takes an answer only when the item offers that label, so an answer from a stale or forged notification is refused. Done keeps its old form on the wire, so an iPhone app from before the labels still ends such an item with Done. Not now only clears the notification; the item stays open on the Mac. An item you parked with Not now on the Mac is not sent. The phone's history uses the Mac's labels: Done, Dismissed, Resolved by Claude, Answered in session, Moved on.
 - **Apple Watch** shows the same actions, without a watch app.
@@ -61,6 +63,12 @@ Needs items show the same parts as the Mac panel: the title, Why, the steps, the
 
 ![A needs item on the iPhone, with Done and Not now](images/iphone-notification-expanded-needs-light.png)
 
+Inputs show the question, Why and an Answer field; Send stays off until the answer fits the pattern. A secret shows "Enter it on your Mac" with Give me 5 min and I'll enter it later instead of a field.
+
+![A secret input on the iPhone, with Give me 5 min and I'll enter it later](images/iphone-app-secret-light.png)
+
+An iPhone app from before inputs cannot read an input request: its notification keeps the relay's generic text ("A request is waiting on your Mac."), and its Requests list skips it. Answer it on the Mac, or update the app.
+
 ### Building
 
 The Xcode project is generated from `ios/App/project.yml` and is not committed.
@@ -86,7 +94,7 @@ On the simulator, debug builds take three launch arguments. None of them exist i
 
 - `-StewSeed <base64>` installs the phone state that `stew-test-phone sample-push --out DIR` writes to `DIR/seed.txt`, without a relay.
 - `-StewDeliver <base64>` runs a push payload (`base64 -i DIR/push-permission.json`) through the notification extension's code in the app and shows the result 15 seconds later. `xcrun simctl push` delivers payloads, but the simulator does not start notification service extensions for them, so this is how to see a decrypted notification there.
-- `-StewDemo [requests|request|question|needs|history|macs]` shows sample requests and history on that screen, for screenshots.
+- `-StewDemo [requests|request|question|needs|input|secret|history|macs]` shows sample requests and history on that screen, for screenshots.
 
 ### Screenshots
 

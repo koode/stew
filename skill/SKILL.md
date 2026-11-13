@@ -1,6 +1,6 @@
 ---
 name: stew
-description: Reach the user on their desktop through a floating panel (the `stew` CLI) to ask permission for an action, ask a question in AskUserQuestion format, tell them something, or tell them you need them to do something only they can do (log in, buy, approve in a web page, a physical action). Use in background jobs and long-running work when the user is likely not watching the terminal, when blocked on a decision or on the user, when a long task finishes or fails, and whenever the user asks to be pinged, notified or asked.
+description: Reach the user on their desktop through a floating panel (the `stew` CLI) to ask permission for an action, ask a question in AskUserQuestion format, ask for one typed value (a domain, a name, a verification code, a password), tell them something, or tell them you need them to do something only they can do (log in, buy, approve in a web page, a physical action). Use in background jobs and long-running work when the user is likely not watching the terminal, when blocked on a decision or on the user, when a long task finishes or fails, and whenever the user asks to be pinged, notified or asked.
 ---
 
 # stew
@@ -13,8 +13,9 @@ The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 op
 
 - A decision blocks you: ask with the normal AskUserQuestion tool. With stew's hooks installed, it shows in stew whenever nobody is at the terminal (background and remote sessions), and the answer comes back as usual. Use `stew ask` only when AskUserQuestion is not available to you.
 - You need permission for something outside your tools' own prompts: `stew permit`.
+- You need one free-text value from the user that you cannot choose from a list: a domain, a name, a verification code, a password or token: `stew input`. See below. Use `ask` when the answer is one of a few choices, and `needs` when the user must do something (log in, buy, approve) rather than tell you something.
 - Long work finished, failed or needs attention: `stew notify`.
-- You are blocked on something only the user can do (log in, enter a password or a 2FA code, buy or top up credits, approve something in a web page, plug in a device): `stew needs`. See below.
+- You are blocked on something only the user can do (log in, buy or top up credits, approve something in a web page, plug in a device): `stew needs`. See below.
 - The user asked to be notified, pinged or asked.
 
 If AskUserQuestion comes back denied with a note that the user did not answer in time, or closed the question, they are probably away: continue with a safe choice that does not need the answer, and say which choice you made.
@@ -52,6 +53,23 @@ stew ask --json '{"questions":[{"question":"Which database?","header":"DB","mult
 # or: stew ask --file q.json, or JSON on stdin
 ```
 
+```bash
+# One typed answer. Exit 0 answered, 2 dismissed, 3 timeout, 5 later (secrets only).
+stew input "Which domain should the staging site use?" \
+  --why "The DNS record and the TLS certificate both need it." \
+  --placeholder "staging.example.com" --pattern '[a-z0-9.-]+\.[a-z]{2,}'
+# {"id":"…","status":"answered","text":"staging.example.com"}
+
+# A password, token or one-time code: masked, never stored, typed on the Mac only.
+stew input "What is the npm one-time password?" --secret --pattern '[0-9]{6}' \
+  --why "npm publish asks for it."
+```
+
+- `--pattern` is a regular expression the whole answer must match; the panel and the phone refuse anything else, so you can rely on the form. `--default` prefills the field (not with `--secret`). `--multiline` is for text with several lines.
+- The answer has spaces and line breaks around it removed, except for a secret, which comes exactly as typed.
+- Use `--secret` for anything you would not want in a log: stew keeps it out of its history and files, and the iPhone never sees it. Do not repeat a secret in your messages, files or commits, and do not put it on a command line others can read; pass it on stdin or through an environment variable.
+- A secret can come back as `"status":"later"`: the user will type it on their Mac later. Do not ask for it again. Continue with work that does not need it; the secret then reaches you as a late answer (see below).
+
 Common flags: `--session NAME` overrides the label. `--timeout SECONDS` sets the time to answer (default from the user's settings, 1 minute; `0` means no limit). The user can add time.
 
 ## When you need the user to do something
@@ -86,7 +104,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 
 ## Waiting
 
-`permit` and `ask` block until the user answers or the time to answer runs out (1 minute by default, but the user can extend it). Run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. If the Bash call is killed, the request disappears from the panel.
+`permit`, `ask` and `input` block until the user answers or the time to answer runs out (1 minute by default, but the user can extend it). Run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. If the Bash call is killed, the request disappears from the panel.
 
 ## Reading the answer
 
@@ -94,8 +112,13 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 {"status":"approved","note":"only the cache, not the logs","risk":{"verdict":"soft_deny","risk":"medium","rule":"...","summary":"..."}}
 {"status":"denied","note":"use a migration instead"}
 {"status":"answered","answers":{"Which database?":"SQLite"},"annotations":{...}}
+{"id":"…","status":"answered","text":"staging.example.com"}
+{"id":"…","note":"The user will enter this secret on their Mac later. …","status":"later"}
 {"status":"dismissed"}
 ```
+
+- `text` is what the user typed into a `stew input`.
+- `later` (secrets only) means the user will enter it on the Mac later; it reaches you as a late answer. Do not ask again meanwhile.
 
 - `note` is free text the user typed with their answer. Follow it; it can change what "approved" means.
 - `answers` maps question text to the chosen label. Multi-select labels are joined with ", ". An "Other" answer is the user's own text.
@@ -104,7 +127,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 
 ### Late answers
 
-The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"`. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
+The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
 - `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command.
 
 ## Writing a good request

@@ -119,6 +119,21 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 
 Claude can make one with `stew needs` (the skill tells it when). With the hooks, Claude Code also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, code blocks in the message into commands, and up to 4 web addresses outside the code blocks into links. A session has at most one of these at a time, and none while it has an open item from `stew needs`. The `UserPromptSubmit` hook clears it as soon as you send that session a message, and a later turn that ends without a `needs input:` line clears it too (Moved on in the history). Claude Code also runs `UserPromptSubmit` for scheduled tasks, background agents reporting back and messages from other sessions, so those clear the item as well. By default this happens only in unattended sessions (background and remote). Change it in `stew settings` → Claude Code → "Needs you from Claude Code", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
 
+### Typed answers
+
+When Claude needs one value it cannot pick from a list, such as a domain, a name, a verification code or a password, it asks with `stew input`. The panel shows the question, why, and one field.
+
+![Claude asks which domain to use](docs/images/input-light.png)
+
+- The field shows what it holds but does not take the keyboard. Click it or press ⌘O to type; Esc leaves it. The clock pauses while you type, as for a note.
+- ⌘↩ sends, also from inside the field. Plain Return never sends: in a one-line field it does nothing, and with `--multiline` it adds a line.
+- With `--pattern`, ⌘↩ and Send stay off until the whole answer matches, and a line under the field says what form it needs.
+- ⌘. dismisses it without an answer. A plain input that timed out can be answered later from the History, like a question.
+
+**Secrets.** With `--secret` the field shows dots, and stew never writes the answer anywhere: not to the history (the row says a secret was entered), not to its logs or files. Two more choices show, also on your iPhone: **Give me 5 min** (⌘5) adds 5 minutes, and **I'll enter it later** (⌘L) lets Claude go on now with `"status":"later"`. You then enter it from the History tab (Answer now), and it reaches the session as a late answer. Until then the daemon keeps the secret in memory only; if stew stops or restarts before the session picks it up, the secret is gone and Claude is told to ask again. A secret that simply timed out cannot be answered later.
+
+![A secret input with Give me 5 min and I'll enter it later](docs/images/input-secret-light.png)
+
 ### The skill
 
 The skill in `~/.claude/skills/stew` tells Claude Code sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Edit `~/.claude/skills/stew/SKILL.md` to change when sessions use it.
@@ -135,6 +150,13 @@ stew notify "Tests passed" --body "212 of 212" --level success
 # Question, in AskUserQuestion format.
 stew ask --json '{"questions":[{"question":"Which database?","header":"DB","multiSelect":false,
   "options":[{"label":"Postgres","description":"Relational"},{"label":"SQLite","description":"Embedded"}]}]}'
+
+# One typed answer. Exit 0 answered, 2 dismissed, 3 timeout, 5 later (secrets only).
+stew input "Which domain should the staging site use?" --why "The DNS record needs it." \
+  --placeholder staging.example.com --pattern '[a-z0-9.-]+\.[a-z]{2,}'
+#   {"id":"…","status":"answered","text":"staging.example.com"}
+#   --default TEXT prefills the field, --multiline lets Return add a line,
+#   --secret masks it and keeps the answer out of every file.
 
 # Something only the user can do. Returns at once with {"status":"shown","id":"…"}.
 stew needs "Log in to npm so I can publish 2.4.0" --why "The publish failed with E401." \
@@ -154,7 +176,7 @@ Answers print as one JSON line. `stew --help` lists every command and flag.
 
 ### Time to answer
 
-Permission requests and questions get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
@@ -178,7 +200,7 @@ The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600)
 
 ### Late answers
 
-A permission request or question that ran out of time can still be answered for 24 hours. Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, or pick the options of the question). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it.
+A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, pick the options of the question, or type the answer). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it.
 
 The answer goes to the Claude Code session that asked, through the hooks, at its next step:
 
@@ -194,11 +216,11 @@ The answer goes to the Claude Code session that asked, through the hooks, at its
 - An answer that no hook picks up within 24 hours is dropped. Requests without a Claude Code session (a `stew permit` from your own shell) cannot be answered late.
 - Delivery needs the hooks from this version: `stew hooks status` says "partly installed" for an older install, and `stew hooks install` updates it. The `Stop` delivery is a hook that runs in the foreground (only those can keep Claude going); it only reads `late-answers.json`, so it does not slow down the end of a turn.
 
-Waiting requests and late answers are in `~/Library/Application Support/stew/late-answers.json` (mode 0600).
+Waiting requests and late answers are in `~/Library/Application Support/stew/late-answers.json` (mode 0600). A late secret is not: the file holds a placeholder, and the hook fetches the secret from the daemon's memory once, when it delivers the answer.
 
 ## On your iPhone
 
-When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, or Done and the other answers on a needs item. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input shows on the phone without a field: you enter it on the Mac, and the phone offers Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
 
 ## Keys
 
@@ -208,11 +230,13 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 |---|---|
 | ⌘↩ | Approve, OK on a notification, or Done on a needs item |
 | ⌘D | Deny, or Decline a needs item |
-| ⌘O | Open the note or "Other" field (the only thing that takes keyboard focus) |
+| ⌘O | Open the note, "Other" or input field (the only thing that takes keyboard focus) |
 | ⌘G | Allow more… on a call auto mode blocked |
 | ⌘E | More time (+2 minutes) |
 | ⌘1 to ⌘4 | Pick an option, or one of a needs item's other answers |
 | ⌘↩ | Confirm a multi-select question, or send typed text |
+| ⌘5 | Give me 5 min, on a secret input |
+| ⌘L | I'll enter it later, on a secret input |
 | ⌘[ / ⌘] | Previous or next question |
 | ⌘. | Dismiss without answering, or Not now on a needs item |
 | ⇧⌘. | Dismiss everything waiting (needs items get Not now) |
@@ -265,7 +289,8 @@ The window has six panes, picked from its toolbar:
 {
   "chord": "cmd",
   "keys": { "approve": "return", "deny": "d", "dismiss": ".", "dismissAll": "cmd+shift+.",
-            "other": "o", "submit": "return", "next": "]", "previous": "[", "grant": "g", "extend": "e" },
+            "other": "o", "submit": "return", "next": "]", "previous": "[", "grant": "g", "extend": "e",
+            "enterSoon": "5", "enterLater": "l" },
   "optionKeys": ["1", "2", "3", "4"],
   "hardDenyExtra": "shift",
   "armDelay": 0.5,
