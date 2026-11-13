@@ -50,9 +50,17 @@ final class Item: ObservableObject, Identifiable {
     /// session as a late answer instead of to a waiting caller.
     var lateEntryID: UUID?
 
+    /// What the user typed into an input, starting with its default.
+    @Published var inputText = ""
+
     var isNeeds: Bool {
         if case .needs = request.prompt { return true }
         return false
+    }
+
+    var input: InputRequest? {
+        if case .input(let input) = request.prompt { return input }
+        return nil
     }
 
     init(request: StewRequest, connection: Connection?) {
@@ -60,6 +68,9 @@ final class Item: ObservableObject, Identifiable {
         self.connection = connection
         if case .question(let set) = request.prompt {
             flow = QuestionFlow(questions: set.questions)
+        }
+        if case .input(let input) = request.prompt {
+            inputText = input.defaultText ?? ""
         }
     }
 
@@ -163,6 +174,7 @@ final class Coordinator: ObservableObject {
             let request = try Wire.decode(StewRequest.self, line: line)
             if case .question(let set) = request.prompt { try set.validate() }
             if case .needs(let needs) = request.prompt { try needs.validate() }
+            if case .input(let input) = request.prompt { try input.validate() }
             enqueue(request, connection: connection)
         } catch {
             connection.send((try? Wire.encode(StewResponse(status: .error, error: "bad request: \(error)"))) ?? Data())
@@ -191,6 +203,8 @@ final class Coordinator: ObservableObject {
             onUpdate { outcome in connection.send((try? Wire.encode(outcome)) ?? Data()) }
         case _ where control.hasPrefix("needs "):
             connection.send(handleNeeds(control: String(control.dropFirst("needs ".count))))
+        case _ where control.hasPrefix("late secret "):
+            connection.send(handOverSecret(entryID: String(control.dropFirst("late secret ".count))))
         default:
             if let reply = onControl?(control) {
                 connection.send(Data((reply + "\n").utf8))
@@ -413,7 +427,12 @@ final class Coordinator: ObservableObject {
             guard let number = Int(argument) else { return "bad option" }
             choose(option: number - 1)
         case "type":
-            draft = argument
+            if let item = current, item.input != nil {
+                item.inputText = argument
+                changed()
+            } else {
+                draft = argument
+            }
         case "returned":
             // Simulates the user coming back after `argument` seconds away.
             userReturned(awaySince: Date().addingTimeInterval(-(Double(argument) ?? 0)))
@@ -441,7 +460,15 @@ final class Coordinator: ObservableObject {
         if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
         if let remaining = current?.pausedRemaining { clockState = "paused:\(Int(remaining.rounded()))" }
         let needsState = "needs=\(needsStore.items.count) parked=\(needsStore.items.filter(\.parked).count) front=\(current?.needsID ?? "-")"
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) \(needsState) keys=\(bindings)"
+        var inputState = "-"
+        if let item = current, let input = item.input {
+            switch input.check(item.inputText) {
+            case .empty: inputState = "empty"
+            case .mismatch: inputState = "mismatch"
+            case .valid: inputState = "valid"
+            }
+        }
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) \(needsState) keys=\(bindings)"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -464,8 +491,12 @@ final class Coordinator: ObservableObject {
         remove(item)
     }
 
-    func respond(_ item: Item, _ response: StewResponse) {
+    func respond(_ item: Item, _ answer: StewResponse) {
         guard items.contains(where: { $0.id == item.id }) else { return }
+        var response = answer
+        // An input's answer names it by the id of its history entry, so a "later" status
+        // and the late answer that follows belong together.
+        if item.input != nil { response.id = item.id.uuidString.lowercased() }
         if config.celebrates(response, to: item.request.prompt) {
             // Before the item goes, so the panel is still where the user looked.
             celebrations += 1
@@ -518,11 +549,31 @@ final class Coordinator: ObservableObject {
     private func record(_ item: Item, _ response: StewResponse?) {
         // Needs items record their own ending in finishNeeds.
         guard let history, !item.isInternal, !item.isNeeds else { return }
-        let entry = HistoryEntry.record(item.request, received: item.received, response: response, ended: Date())
+        let entry = HistoryEntry.record(item.request, received: item.received, response: response, ended: Date(), id: item.id)
         history.append(entry)
-        if response?.status == .timeout, LateMailbox.canAnswerLate(item.request) {
+        let answerableLater = (response?.status == .timeout && LateMailbox.canAnswerLate(item.request))
+            || (response?.status == .later && item.request.offersEnterLater)
+        if answerableLater {
             LateAnswerFile.update { $0.addWaiting(item.request, entryID: entry.id, now: entry.ended) }
         }
+    }
+
+    /// Secrets entered late, by history entry, until a hook fetches them. Memory only:
+    /// a secret is never written to a file, so a restart before delivery loses it.
+    private var heldSecrets: [UUID: String] = [:]
+
+    /// "late secret ID" from a hook: the secret of a late answer the hook has just
+    /// marked delivered, once. Afterwards the daemon no longer has it.
+    private func handOverSecret(entryID text: String) -> Data {
+        let response: StewResponse
+        if let entryID = UUID(uuidString: text.trimmingCharacters(in: .whitespaces)),
+           LateAnswerFile.read().answer(entryID)?.delivered != nil,
+           let secret = heldSecrets.removeValue(forKey: entryID) {
+            response = StewResponse(status: .answered, text: secret)
+        } else {
+            response = StewResponse(status: .error, error: "no secret held for \(text)")
+        }
+        return (try? Wire.encode(response)) ?? Data()
     }
 
     /// "Answer now" in the History tab: shows a timed-out request in the panel again,
@@ -546,10 +597,16 @@ final class Coordinator: ObservableObject {
     private func storeLateAnswer(_ item: Item, _ response: StewResponse, entryID: UUID) {
         guard [.approved, .denied, .answered].contains(response.status) else { return }
         let now = Date()
-        guard let late = LateAnswerFile.update(now: now, { $0.answer(entryID, with: response, now: now) }) else {
+        // A secret stays out of late-answers.json and the history: the file gets a
+        // placeholder, and the daemon keeps the secret until a hook fetches it.
+        let secret = item.input?.secret == true ? response.text : nil
+        var stored = response
+        if secret != nil { stored.text = nil }
+        guard let late = LateAnswerFile.update(now: now, { $0.answer(entryID, with: stored, now: now) }) else {
             Log.write("late answer: \(entryID) is no longer waiting")
             return
         }
+        if let secret { heldSecrets[entryID] = secret }
         if response.status == .approved, let blocked = item.blocked, let origin = item.request.origin,
            let toolName = origin.toolName, let callKey = origin.callKey {
             do {
@@ -563,7 +620,7 @@ final class Coordinator: ObservableObject {
                 Log.write("late answer: could not store the grant: \(error)")
             }
         }
-        history?.update(entryID) { $0.recordLate(response, message: late.message, at: now) }
+        history?.update(entryID) { $0.recordLate(stored, message: late.message, at: now) }
         onLateAnswer?()
     }
 
@@ -626,16 +683,32 @@ final class Coordinator: ObservableObject {
         respond(item, StewResponse(status: .timeout, note: item.request.timeoutNote(after: item.grantedSeconds), risk: item.risk.assessment))
     }
 
-    /// "More time": adds `extendBy` to the clock, running or paused.
-    func extendTime() {
+    /// "More time": adds `extendBy`, or `seconds` when given, to the clock, running or paused.
+    func extendTime(by seconds: Double? = nil) {
         guard let item = current, item.timeLimit != nil else { return }
-        item.grantedSeconds += config.extendBy
+        let added = seconds ?? config.extendBy
+        item.grantedSeconds += added
         if let remaining = item.pausedRemaining {
-            item.pausedRemaining = remaining + config.extendBy
+            item.pausedRemaining = remaining + added
         } else if let deadline = item.deadline {
-            item.deadline = item.capped(deadline.addingTimeInterval(config.extendBy))
+            item.deadline = item.capped(deadline.addingTimeInterval(added))
         }
         changed()
+    }
+
+    /// Ends the wait of a secret input: the user enters it later, from the history, and
+    /// it reaches Claude as a late answer. False when the request does not offer it.
+    @discardableResult
+    func enterLater(_ item: Item) -> Bool {
+        guard item.request.offersEnterLater, item.lateEntryID == nil else { return false }
+        respond(item, StewResponse(status: .later, note: StewResponse.laterNote))
+        return true
+    }
+
+    /// ⌘↩ on an input: sends what is typed when it fits the pattern, else nothing.
+    private func submitInput(_ item: Item, _ input: InputRequest) {
+        guard case .valid(let text) = input.check(item.inputText) else { return }
+        respond(item, StewResponse(status: .answered, text: text))
     }
 
     func setHotkeyFailures(_ failures: [Shortcut]) {
@@ -677,8 +750,15 @@ final class Coordinator: ObservableObject {
             changed()
         case (.permission, .deny):
             respond(item, StewResponse(status: .denied, note: note.isEmpty ? nil : note, risk: item.risk.assessment))
-        case (.permission, .other), (.question, .other):
+        case (.permission, .other), (.question, .other), (.input, .other):
             setTextMode(!textMode)
+        case (.input(let input), .submit):
+            submitInput(item, input)
+        case (.input(let input), .enterSoon):
+            guard input.secret else { return }
+            extendTime(by: InputRequest.enterSoonSeconds)
+        case (.input, .enterLater):
+            enterLater(item)
         case (.notify(let notify), .approve):
             respond(item, StewResponse(status: .acknowledged))
             if notify.action == .openHistory { onOpenHistory?(true) }
@@ -813,6 +893,15 @@ final class Coordinator: ObservableObject {
             if item.timeLimit != nil { bindings.append((keymap[.extend], .action(.extend))) }
             if flow.questions.count > 1 {
                 bindings += [(keymap[.next], .action(.next)), (keymap[.previous], .action(.previous))]
+            }
+        case .input(let input):
+            bindings += [(keymap[.other], .action(.other)), (keymap[.submit], .action(.submit))]
+            if item.timeLimit != nil {
+                bindings.append((keymap[.extend], .action(.extend)))
+                if input.secret { bindings.append((keymap[.enterSoon], .action(.enterSoon))) }
+            }
+            if item.request.offersEnterLater, item.lateEntryID == nil {
+                bindings.append((keymap[.enterLater], .action(.enterLater)))
             }
         }
         return bindings

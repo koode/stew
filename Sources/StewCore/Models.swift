@@ -136,6 +136,7 @@ public enum Prompt: Equatable, Sendable {
     case notify(NotifyRequest)
     case question(QuestionSet)
     case needs(NeedsRequest)
+    case input(InputRequest)
 
     public var kind: String {
         switch self {
@@ -143,6 +144,7 @@ public enum Prompt: Equatable, Sendable {
         case .notify: "notify"
         case .question: "question"
         case .needs: "needs"
+        case .input: "input"
         }
     }
 }
@@ -172,14 +174,14 @@ public struct StewRequest: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, session, timeout, maxWait, wait, origin, permission, notify, question, needs
+        case kind, session, timeout, maxWait, wait, origin, permission, notify, question, needs, input
     }
 
     /// The effective time limit, given the configured default. Nil means none.
     public func timeLimit(defaultTimeout: Double) -> Double? {
         let fallback: Double?
         switch prompt {
-        case .permission, .question: fallback = defaultTimeout
+        case .permission, .question, .input: fallback = defaultTimeout
         case .notify: fallback = nil
         case .needs:
             // A needs item has no time to answer: it stays open until it is done.
@@ -199,7 +201,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
             ? " If they answer later, stew passes their answer on to you as a late answer, which replaces this timeout."
             : ""
         switch prompt {
-        case .question:
+        case .question, .input:
             return "The user didn't answer within \(span). They may be away: continue with a safe choice that does not need this answer, or ask again later.\(late)"
         case .permission, .notify:
             return "The user didn't respond within \(span). They may be away: treat this as denied and continue another way, or ask again later.\(late)"
@@ -225,6 +227,8 @@ public struct StewRequest: Codable, Equatable, Sendable {
             prompt = .question(try container.decode(QuestionSet.self, forKey: .question))
         case "needs":
             prompt = .needs(try container.decode(NeedsRequest.self, forKey: .needs))
+        case "input":
+            prompt = .input(try container.decode(InputRequest.self, forKey: .input))
         default:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown kind \(kind)")
         }
@@ -243,6 +247,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
         case .notify(let notify): try container.encode(notify, forKey: .notify)
         case .question(let questionSet): try container.encode(questionSet, forKey: .question)
         case .needs(let needs): try container.encode(needs, forKey: .needs)
+        case .input(let input): try container.encode(input, forKey: .input)
         }
     }
 }
@@ -252,6 +257,9 @@ public enum StewStatus: String, Codable, Sendable {
     /// A needs item: the user marked it done, or Claude or a new message cleared it.
     /// One of its other answers is `answered`.
     case done, resolved
+    /// A secret input: the user will enter it on the Mac later, and it reaches Claude as
+    /// a late answer.
+    case later
 }
 
 public struct QuestionAnnotation: Codable, Equatable, Sendable {
@@ -280,6 +288,8 @@ public struct StewResponse: Codable, Equatable, Sendable {
     /// For a needs item with its own answers: the label of the one the user picked,
     /// the Done label with "done" or one of the other answers with "answered".
     public var answer: String?
+    /// What the user typed into an input.
+    public var text: String?
     public var error: String?
 
     public init(
@@ -291,6 +301,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         grant: GrantChoice? = nil,
         id: String? = nil,
         answer: String? = nil,
+        text: String? = nil,
         error: String? = nil
     ) {
         self.status = status
@@ -301,6 +312,7 @@ public struct StewResponse: Codable, Equatable, Sendable {
         self.grant = grant
         self.id = id
         self.answer = answer
+        self.text = text
         self.error = error
     }
 
@@ -312,8 +324,12 @@ public struct StewResponse: Codable, Equatable, Sendable {
         case .dismissed: 2
         case .timeout: 3
         case .error: 4
+        case .later: 5
         }
     }
+
+    /// What Claude reads when the user will enter a secret later.
+    public static let laterNote = "The user will enter this secret on their Mac later. stew passes it to you as a late answer when they do, which replaces this status. Do not ask for it again meanwhile: continue with work that does not need it."
 }
 
 /// Verdict of the auto mode style check, shown above a command.

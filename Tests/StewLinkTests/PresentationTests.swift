@@ -198,7 +198,7 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
     @Test func outcomeLabelsMatchTheMac() {
         #expect(LinkOutcome.allCases.map(\.label) == [
             "Approved", "Denied", "Answered", "Timed out", "Dismissed", "Answered on Mac",
-            "Done", "Resolved by Claude", "Answered in session", "Moved on",
+            "Done", "Resolved by Claude", "Answered in session", "Moved on", "Enter later",
         ])
         #expect(LinkOutcome.allCases.filter(\.isMissed) == [.timedOut])
     }

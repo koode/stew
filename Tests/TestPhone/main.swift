@@ -13,10 +13,11 @@ stew-test-phone COMMAND [options]
   wait-push --state FILE [--kind request|update|resolved|unpair] [--timeout SECONDS]
       Wait for the next recorded push of that kind, decrypt it, print it as JSON.
   answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
-      ACTION is approve, deny, moreTime, option.N, other, done, answer.N or notNow.
-      Prints the Mac's result.
+      ACTION is approve, deny, moreTime, option.N, other, done, answer.N, notNow,
+      reply (with --text), enterSoon or enterLater. Prints the Mac's result.
       --force skips the phone's own checks, to prove the Mac refuses too. With it,
-      ACTION label:TEXT sends a needs answer with any label.
+      ACTION label:TEXT sends a needs answer with any label, and reply sends --text
+      to any input, also a secret one.
       --twice posts the same envelope again and adds the relay's status for it.
       --age SECONDS dates the answer that far back, to prove the Mac refuses stale answers.
   unpair --state FILE
@@ -174,6 +175,9 @@ func waitPush(_ values: [String: String]) throws {
                 output["actions"] = content.actions.map(\.identifier)
                 output["actionTitles"] = content.actions.map(\.title)
                 output["hasDeadline"] = request.deadline != nil
+                // Everything the phone learned about the request, so a test can show what
+                // it never receives, such as a secret.
+                output["requestJSON"] = String(decoding: try LinkJSON.encode(request.request), as: UTF8.self)
                 output["queued"] = request.queued
                 if let deadline = request.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
             case .resolved:
@@ -213,6 +217,8 @@ func answer(_ values: [String: String]) throws {
         choice = offered
     } else if forced, action == LinkPresentation.approveAction {
         choice = .approve
+    } else if forced, action == LinkPresentation.replyAction {
+        choice = .text(values["text"] ?? "")
     } else if forced, action.hasPrefix(answerLabelAction) {
         choice = .needsAnswer(String(action.dropFirst(answerLabelAction.count)))
     } else {
@@ -292,6 +298,17 @@ func samplePush(_ values: [String: String]) throws {
             steps: ["Run the command below", "Approve the login in the browser"],
             commands: [NeedsCommand(command: "pnpm exec wrangler login")]
         )), false),
+        ("input", .input(InputRequest(
+            question: "Which domain should the relay answer on?",
+            why: "The worker needs a route before the deploy.",
+            placeholder: "relay.example.com",
+            pattern: "[a-z0-9.-]+\\.[a-z]{2,}"
+        )), false),
+        ("secret", .input(InputRequest(
+            question: "What is the npm one-time password?",
+            why: "npm publish asks for it, and it changes every 30 seconds.",
+            secret: true
+        )), false),
     ]
     for (index, sample) in samples.enumerated() {
         let hasNoTimeLimit: Bool
@@ -303,7 +320,7 @@ func samplePush(_ values: [String: String]) throws {
         case .needs:
             hasNoTimeLimit = true
             requestId = LinkPresentation.needsRequestId("sample\(index)")
-        case .permission, .question:
+        case .permission, .question, .input:
             hasNoTimeLimit = false
             requestId = "sample\(index)"
         }

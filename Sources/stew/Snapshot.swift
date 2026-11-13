@@ -94,6 +94,16 @@ enum Snapshot {
                 note: "The user did not respond in time.", blocked: blocked
             ),
             HistoryEntry(
+                received: ago(30), ended: ago(29), session: "release", cwd: "~/code/web-app", kind: "input",
+                summary: "What is the npm one-time password?", command: nil, detail: "npm publish asks for it.", outcome: .later,
+                note: StewResponse.laterNote, secret: true
+            ),
+            HistoryEntry(
+                received: ago(35), ended: ago(34), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "input",
+                summary: "Which domain should the staging site use?", command: nil, detail: nil, outcome: .answered,
+                text: "staging.example.com"
+            ),
+            HistoryEntry(
                 received: ago(41), ended: ago(40), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "permission",
                 summary: "Run the database migrations", command: "pnpm db:migrate", detail: "The new session table needs them.", outcome: .approved
             ),
@@ -405,7 +415,59 @@ enum Snapshot {
             coordinator.setTextMode(true)
             coordinator.draft = "The 2FA code goes to the old phone."
         }),
+        ("input", { coordinator in
+            coordinator.show(inputItem(InputRequest(
+                question: "Which domain should the staging site use?",
+                why: "The DNS record and the TLS certificate both need it before the deploy.",
+                placeholder: "staging.example.com"
+            ), timeout: 300))
+        }),
+        ("input-focused", { coordinator in
+            let item = inputItem(InputRequest(
+                question: "Which domain should the staging site use?",
+                placeholder: "staging.example.com",
+                defaultText: "staging.example"
+            ), timeout: 300)
+            coordinator.show(item)
+            coordinator.setTextMode(true)
+            item.inputText = "staging.example.com"
+        }),
+        ("input-pattern-error", { coordinator in
+            let item = inputItem(InputRequest(
+                question: "What is the six digit code from the email?",
+                placeholder: "123456",
+                pattern: "[0-9]{6}"
+            ), timeout: 300)
+            coordinator.show(item)
+            coordinator.setTextMode(true)
+            item.inputText = "12345a"
+        }),
+        ("input-secret", { coordinator in
+            let item = inputItem(InputRequest(
+                question: "What is the npm one-time password?",
+                why: "npm publish asks for it, and it changes every 30 seconds.",
+                placeholder: "6 digits",
+                secret: true
+            ), timeout: 300)
+            coordinator.show(item)
+            item.inputText = "sample"
+        }),
+        ("input-multiline", { coordinator in
+            let item = inputItem(InputRequest(
+                question: "What should the release notes for 2.4.0 say?",
+                why: "They go to the App Store and the changelog.",
+                placeholder: "One change per line",
+                multiline: true
+            ), timeout: 300)
+            coordinator.show(item)
+            coordinator.setTextMode(true)
+            item.inputText = "Faster sync on large libraries\nFixes a crash when the network drops\nNew export to CSV"
+        }),
     ]
+
+    private static func inputItem(_ input: InputRequest, timeout: Double? = nil) -> Item {
+        Item(request: StewRequest(session: session, prompt: .input(input), timeout: timeout), connection: nil)
+    }
 
     private static func needsItem(_ needs: NeedsRequest, session itemSession: SessionInfo = session) -> Item {
         let item = Item(request: StewRequest(session: itemSession, prompt: .needs(needs), wait: false), connection: nil)

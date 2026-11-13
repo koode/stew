@@ -77,6 +77,13 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     /// item does not offer. Done stays `done`, also with a label of its own, so a phone
     /// that does not know the labels can still answer it.
     case needsAnswer(String)
+    /// The typed answer to an input that is not secret. The Mac checks it against the
+    /// pattern again and refuses one that does not match.
+    case text(String)
+    /// A secret input: "Give me 5 min" adds `InputRequest.enterSoonSeconds` to its clock.
+    case enterSoon
+    /// A secret input: "I'll enter it later" ends Claude's wait with "later".
+    case enterLater
 }
 
 /// Phone to Mac.
@@ -119,6 +126,8 @@ public enum LinkOutcome: String, Codable, Sendable, CaseIterable {
     case approved, denied, answered, timedOut, dismissed, answeredOnMac
     /// How a needs item ended, with the labels of the Mac's History tab.
     case done, resolvedByClaude, answeredInSession, movedOn
+    /// A secret input the user will enter on the Mac later.
+    case later
 
     public var label: String {
         switch self {
@@ -132,6 +141,7 @@ public enum LinkOutcome: String, Codable, Sendable, CaseIterable {
         case .resolvedByClaude: "Resolved by Claude"
         case .answeredInSession: "Answered in session"
         case .movedOn: "Moved on"
+        case .later: "Enter later"
         }
     }
 
@@ -149,6 +159,7 @@ public enum LinkOutcome: String, Codable, Sendable, CaseIterable {
         case .dismissed, .shown, .error: self = .dismissed
         case .done: self = .done
         case .resolved: self = .resolvedByClaude
+        case .later: self = .later
         }
     }
 }

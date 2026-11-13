@@ -37,7 +37,7 @@ final class HistoryModel: ObservableObject {
     }
 
     func canAnswerNow(_ entry: HistoryEntry) -> Bool {
-        entry.missed && entry.late == nil && mailbox.waiting(entry.id, now: Date()) != nil
+        entry.answerableLater && entry.late == nil && mailbox.waiting(entry.id, now: Date()) != nil
     }
 
     func answerNow(_ entry: HistoryEntry) {
@@ -169,7 +169,7 @@ struct OutcomePill: View {
         case .denied: .red
         case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: .blue
         case .movedOn: .secondary
-        case .timedOut: .orange
+        case .timedOut, .later: .orange
         case .dismissed, .callerGone: .secondary
         }
     }
@@ -199,6 +199,11 @@ struct HistoryDetail: View {
                 if let answers = entry.answers, !answers.isEmpty {
                     row("Answers", answers.sorted { $0.key < $1.key }.map { "\($0.key) → \($0.value)" }.joined(separator: "\n"))
                 }
+                if let text = entry.text {
+                    row("Answer", text)
+                } else if entry.secret == true, entry.outcome == .answered {
+                    row("Answer", Self.secretEntered)
+                }
                 if let grant = entry.grant {
                     row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
                 }
@@ -215,6 +220,11 @@ struct HistoryDetail: View {
                     if let answers = late.answers, !answers.isEmpty {
                         row("Answers", answers.sorted { $0.key < $1.key }.map { "\($0.key) → \($0.value)" }.joined(separator: "\n"))
                     }
+                    if let text = late.text {
+                        row("Answer", text)
+                    } else if entry.secret == true, late.outcome == .answered {
+                        row("Answer", Self.secretEntered)
+                    }
                     if let grant = late.grant {
                         row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
                     }
@@ -225,7 +235,9 @@ struct HistoryDetail: View {
                 }
             }
             if model.canAnswerNow(entry) {
-                SettingRow(hint: "Shows it in the panel again. Claude gets your answer at its next step.") {
+                SettingRow(hint: entry.secret == true
+                    ? "Shows it in the panel again. stew keeps the secret in memory only until Claude's next step picks it up."
+                    : "Shows it in the panel again. Claude gets your answer at its next step.") {
                     Button("Answer now") { model.answerNow(entry) }
                         .buttonStyle(.borderedProminent)
                         .fixedSize()
@@ -260,6 +272,9 @@ struct HistoryDetail: View {
         }
     }
 
+    /// Shown for a secret instead of its value, which stew never stores.
+    static let secretEntered = "A secret was entered. stew does not keep it."
+
     /// The status Claude got, with the note that came with it.
     private var toldClaude: String {
         if let note = entry.note, !note.isEmpty {
@@ -267,6 +282,7 @@ struct HistoryDetail: View {
         }
         switch entry.outcome {
         case .callerGone: return "Nothing: the caller had stopped waiting."
+        case .answered where entry.kind == "input": return entry.secret == true ? "The secret." : "The answer above."
         case .answered: return "The answers above."
         default: return "\(entry.outcome.label)."
         }

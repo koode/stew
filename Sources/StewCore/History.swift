@@ -9,6 +9,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         /// session, or a later turn of the session ended without needing it any more.
         /// One of a needs item's other answers counts as `answered`.
         case done, resolvedByClaude, answeredInSession, movedOn
+        /// A secret input the user chose to enter later: answerable from the history.
+        case later
 
         public var label: String {
             switch self {
@@ -23,6 +25,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             case .resolvedByClaude: "Resolved by Claude"
             case .answeredInSession: "Answered in session"
             case .movedOn: "Moved on"
+            case .later: "Enter later"
             }
         }
     }
@@ -51,9 +54,23 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var answer: String?
     /// The answer the user gave from the history after the time ran out.
     public var late: LateOutcome?
+    /// What the user typed into an input. Never set for a secret.
+    public var text: String?
+    /// An input whose answer is a secret: the history shows that one was entered, never
+    /// what it was.
+    public var secret: Bool?
 
     /// Missed means the time ran out. Closing a request yourself is an answer, not a miss.
     public var missed: Bool { outcome == .timedOut }
+
+    /// "Answer now" fits a request that timed out, and a secret the user chose to enter
+    /// later.
+    public var answerableLater: Bool { outcome == .timedOut || outcome == .later }
+
+    /// A secret input that got its answer, now or late.
+    public var secretEntered: Bool {
+        secret == true && (outcome == .answered || late?.outcome == .answered)
+    }
 
     /// The outcome as the history shows it: a late answer wins over the timeout.
     public var outcomeLabel: String {
@@ -61,17 +78,20 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     }
 
     /// Records a late answer on the timed-out entry. `message` is what Claude will read.
+    /// The text of a secret input is left out.
     public mutating func recordLate(_ response: StewResponse, message: String, at answered: Date) {
         late = LateOutcome(
             answered: answered, outcome: Self.outcome(of: response), answers: response.answers,
-            grant: response.grant, note: response.note, message: message
+            grant: response.grant, note: response.note, message: message,
+            text: secret == true ? nil : response.text
         )
     }
 
     public init(
         id: UUID = UUID(), received: Date, ended: Date, session: String, cwd: String?, kind: String, summary: String,
         command: String?, detail: String?, outcome: Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil,
-        note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil, late: LateOutcome? = nil
+        note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil, late: LateOutcome? = nil,
+        text: String? = nil, secret: Bool? = nil
     ) {
         self.id = id
         self.received = received
@@ -89,6 +109,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.blocked = blocked
         self.answer = answer
         self.late = late
+        self.text = text
+        self.secret = secret
     }
 
     /// The entry for a request that ended with `response`, or with no response when
@@ -98,6 +120,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         var command: String?
         var detail: String?
         var blocked: BlockedCall?
+        var text: String?
+        var secret: Bool?
         switch request.prompt {
         case .permission(let permission):
             summary = permission.action
@@ -117,12 +141,17 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             summary = needs.title
             command = needs.maskedCommands
             detail = needs.historyDetail
+        case .input(let input):
+            summary = CommandText.masked(input.question)
+            detail = input.historyDetail
+            secret = input.secret ? true : nil
+            text = input.secret ? nil : response?.text
         }
         return HistoryEntry(
             id: id, received: received, ended: ended, session: request.session.name, cwd: request.session.cwd,
             kind: request.prompt.kind, summary: summary, command: command, detail: detail,
             outcome: outcome(of: response), answers: response?.answers, grant: response?.grant,
-            note: response?.note, blocked: blocked
+            note: response?.note, blocked: blocked, text: text, secret: secret
         )
     }
 
@@ -137,6 +166,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         case .dismissed, .error: return .dismissed
         case .done: return .done
         case .resolved: return .resolvedByClaude
+        case .later: return .later
         }
     }
 
@@ -161,14 +191,28 @@ public struct LateOutcome: Codable, Equatable, Sendable {
     public var note: String?
     /// What Claude reads at its next step, with secrets masked.
     public var message: String
+    /// What the user typed into an input. Never set for a secret.
+    public var text: String?
 
-    public init(answered: Date, outcome: HistoryEntry.Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil, note: String? = nil, message: String) {
+    public init(answered: Date, outcome: HistoryEntry.Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil, note: String? = nil, message: String, text: String? = nil) {
         self.answered = answered
         self.outcome = outcome
         self.answers = answers
         self.grant = grant
         self.note = note
         self.message = message
+        self.text = text
+    }
+}
+
+extension InputRequest {
+    /// Why, and the form the answer had to have, as one block of text, masked like a
+    /// command.
+    var historyDetail: String? {
+        var parts: [String] = []
+        if let why, !why.isEmpty { parts.append(CommandText.masked(why)) }
+        if let pattern { parts.append("Format: \(pattern)") }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 }
 

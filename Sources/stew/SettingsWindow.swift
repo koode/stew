@@ -282,6 +282,8 @@ struct KeySettings: View {
         (.grant, "Allow more…"),
         (.extend, "More time"),
         (.submit, "Confirm or send"),
+        (.enterSoon, "Give me 5 min"),
+        (.enterLater, "I'll enter it later"),
     ]
 
     private static let moving: [(HotkeyAction, String)] = [

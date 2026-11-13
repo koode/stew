@@ -47,8 +47,15 @@ public struct LateAnswer: Codable, Equatable, Sendable {
     public var delivered: Date?
     /// The hook event that delivered it, such as "Stop".
     public var deliveredBy: String?
+    /// Set for a secret input: the question it answers. The message then holds
+    /// `LateWording.secretToken` instead of the secret, which only the daemon keeps, in
+    /// memory, until a hook fetches it.
+    public var secretQuestion: String?
 
-    public init(entryID: UUID, sessionID: String, agentID: String?, message: String, answered: Date, delivered: Date? = nil, deliveredBy: String? = nil) {
+    public init(
+        entryID: UUID, sessionID: String, agentID: String?, message: String, answered: Date,
+        delivered: Date? = nil, deliveredBy: String? = nil, secretQuestion: String? = nil
+    ) {
         self.entryID = entryID
         self.sessionID = sessionID
         self.agentID = agentID
@@ -56,6 +63,20 @@ public struct LateAnswer: Codable, Equatable, Sendable {
         self.answered = answered
         self.delivered = delivered
         self.deliveredBy = deliveredBy
+        self.secretQuestion = secretQuestion
+    }
+
+    /// The message with the secret in it, or, when the daemon no longer has the secret
+    /// (it restarted), a message that says it is lost.
+    public func revealing(_ secret: String?) -> LateAnswer {
+        guard let secretQuestion else { return self }
+        var revealed = self
+        if let secret {
+            revealed.message = message.replacingOccurrences(of: LateWording.secretToken, with: secret)
+        } else {
+            revealed.message = LateWording.secretLost(question: secretQuestion)
+        }
+        return revealed
     }
 }
 
@@ -81,18 +102,21 @@ public struct LateMailbox: Codable, Equatable, Sendable {
         answers.removeAll { now.timeIntervalSince($0.answered) >= Self.lifetime }
     }
 
-    /// Only requests of a known session can be answered late: the answer needs a
-    /// session to go to. Permission requests and questions only.
+    /// Only requests of a known session can be answered late after a timeout: the
+    /// answer needs a session to go to. Permission requests, questions and inputs that
+    /// are not secret.
     public static func canAnswerLate(_ request: StewRequest) -> Bool {
         guard let id = request.session.id, !id.isEmpty else { return false }
         switch request.prompt {
         case .permission, .question: return true
+        case .input(let input): return !input.secret
         case .notify, .needs: return false
         }
     }
 
+    /// Adds a request that timed out, or a secret input the user will enter later.
     public mutating func addWaiting(_ request: StewRequest, entryID: UUID, now: Date) {
-        guard Self.canAnswerLate(request) else { return }
+        guard Self.canAnswerLate(request) || request.offersEnterLater else { return }
         waiting.removeAll { $0.entryID == entryID }
         waiting.append(LateRequest(entryID: entryID, request: request, missed: now))
     }
@@ -115,7 +139,12 @@ public struct LateMailbox: Codable, Equatable, Sendable {
               let sessionID = waiting[index].sessionID,
               let message = LateWording.message(for: waiting[index].request, response: response) else { return nil }
         let request = waiting.remove(at: index).request
-        let late = LateAnswer(entryID: entryID, sessionID: sessionID, agentID: request.origin?.agentID, message: message, answered: now)
+        var secretQuestion: String?
+        if case .input(let input) = request.prompt, input.secret { secretQuestion = CommandText.masked(input.question) }
+        let late = LateAnswer(
+            entryID: entryID, sessionID: sessionID, agentID: request.origin?.agentID, message: message, answered: now,
+            secretQuestion: secretQuestion
+        )
         answers.append(late)
         return late
     }
@@ -196,9 +225,25 @@ public enum LateWording {
             }
             guard !pairs.isEmpty else { return nil }
             return "\(prefix) Your earlier question timed out, and the user has now answered it: \(pairs.joined(separator: ", ")). These answers replace the timeout; continue with them in mind if they are still relevant.\(noteText)"
+        case (.input(let input), .answered) where input.secret:
+            // The secret itself never goes into the file: the daemon puts it in place of
+            // the token when a hook fetches the answer.
+            return "\(prefix) The user has now entered the secret you asked for (\"\(CommandText.masked(input.question))\"): \(secretToken) Use it only for what you asked it for, and do not write it to files, logs or messages."
+        case (.input(let input), .answered):
+            guard let text = response.text else { return nil }
+            return "\(prefix) Your earlier question timed out, and the user has now answered it: \"\(CommandText.masked(input.question))\"=\"\(text)\". This answer replaces the timeout; continue with it in mind if it is still relevant."
         default:
             return nil
         }
+    }
+
+    /// Stands for a secret in a stored message, until the daemon puts the secret in.
+    public static let secretToken = "[secret kept in stew's memory]"
+
+    /// Told when the daemon restarted between the user entering a secret and a hook
+    /// fetching it: it was never written down, so it is gone.
+    public static func secretLost(question: String) -> String {
+        "\(prefix) The user entered the secret you asked for (\"\(question)\"), but stew restarted before it reached you, and stew never stores secrets, so it is gone. If you still need it, ask again with stew input --secret."
     }
 
     /// Several answers for one hook call, in the order they were given.

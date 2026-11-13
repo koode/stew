@@ -182,6 +182,8 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
 
 public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
     case approve, deny, dismiss, dismissAll, other, submit, next, previous, grant, extend
+    /// A secret input: "Give me 5 min" and "I'll enter it later".
+    case enterSoon, enterLater
 }
 
 /// User config at ~/.config/stew/config.json. Every field is optional.
@@ -258,6 +260,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
         HotkeyAction.previous.rawValue: "[",
         HotkeyAction.grant.rawValue: "g",
         HotkeyAction.extend.rawValue: "e",
+        HotkeyAction.enterSoon.rawValue: "5",
+        HotkeyAction.enterLater.rawValue: "l",
     ]
 
     public init() {
@@ -336,6 +340,7 @@ public struct Keymap: Equatable, Sendable {
             named(common + [.approve, .grant, .extend]) + [approveExtra] + optionNames,
             named(common + [.approve]),
             named(common + [.other, .submit, .next, .previous, .extend]) + optionNames,
+            named(common + [.other, .submit, .extend, .enterSoon, .enterLater]),
         ]
         for group in groups {
             var seen: [Shortcut: String] = [:]

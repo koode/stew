@@ -10,6 +10,10 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case done, notNow
         /// One of a needs item's other answers, by index.
         case answer(Int)
+        /// The typed answer to an input.
+        case reply
+        /// A secret input: "Give me 5 min" and "I'll enter it later".
+        case enterSoon, enterLater
     }
 
     public var identifier: String
@@ -58,6 +62,17 @@ public enum LinkPresentation {
     /// action titles are the item's labels.
     public static let needsCategoryPrefix = "stew.needs."
     public static let needsAnswerActionPrefix = "answer."
+    /// The text field of an input that is not secret.
+    public static let replyAction = "reply"
+    public static let enterSoonAction = "enterSoon"
+    public static let enterLaterAction = "enterLater"
+    /// Inputs that are not secret get a category per request, because the reply field's
+    /// placeholder is the request's own.
+    public static let inputCategoryPrefix = "stew.input."
+    /// Secret inputs: no text field, only the two ways to say "on the Mac".
+    public static let secretCategory = "stew.secret"
+    public static let enterSoonTitle = "Give me 5 min"
+    public static let enterLaterTitle = "I'll enter it later"
 
     /// Request ids for needs items, which have short ids of their own on the Mac.
     public static func needsRequestId(_ needsID: String) -> String { "needs-" + needsID }
@@ -69,6 +84,7 @@ public enum LinkPresentation {
         case .permission: "Permission request"
         case .question: "Question"
         case .needs: "Needs you"
+        case .input(let input): input.secret ? "Secret" : "Input"
         case .notify(let notify):
             switch notify.level {
             case .info: "Notification"
@@ -85,6 +101,7 @@ public enum LinkPresentation {
         case .permission: "hand.raised.fill"
         case .question: "questionmark.bubble.fill"
         case .needs: "hand.point.up.left.fill"
+        case .input(let input): input.secret ? "key.fill" : "character.cursor.ibeam"
         case .notify(let notify):
             switch notify.level {
             case .info: "bell.fill"
@@ -122,6 +139,9 @@ public enum LinkPresentation {
             return canExtend(request) ? base : base + ".noTime"
         case .question:
             return notificationQuestion(request) == nil ? "stew.question.inApp" : "stew.question.\(request.requestId)"
+        case .input(let input):
+            guard input.secret else { return inputCategoryPrefix + request.requestId }
+            return secretCategory + (canExtend(request) ? "" : ".noTime") + (request.request.offersEnterLater ? "" : ".noLater")
         }
     }
 
@@ -157,6 +177,22 @@ public enum LinkPresentation {
                 LinkNotificationAction(identifier: optionActionPrefix + String(index), title: option.label, role: .option(index))
             }
             actions.append(LinkNotificationAction(identifier: otherAction, title: "Other…", role: .other, textPlaceholder: "Your answer"))
+            return actions
+        case .input(let input):
+            // A notification text field cannot hide what is typed, so a secret is
+            // entered on the Mac only. Neither choice for it needs Face ID: they only
+            // move the time, they answer nothing.
+            guard input.secret else {
+                let placeholder = input.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? "Your answer"
+                return [LinkNotificationAction(identifier: replyAction, title: "Reply", role: .reply, textPlaceholder: placeholder)]
+            }
+            var actions: [LinkNotificationAction] = []
+            if canExtend(request) {
+                actions.append(LinkNotificationAction(identifier: enterSoonAction, title: enterSoonTitle, role: .enterSoon))
+            }
+            if request.request.offersEnterLater {
+                actions.append(LinkNotificationAction(identifier: enterLaterAction, title: enterLaterTitle, role: .enterLater))
+            }
             return actions
         }
     }
@@ -204,6 +240,8 @@ public enum LinkPresentation {
             title = needs.title
             subtitleParts = [kindTitle(request.request.prompt), session.name]
             lines += needsLines(needs)
+        case .input(let input):
+            lines += inputLines(input)
         }
         lines.append(timeLine(request, time: time))
         return LinkNotificationContent(
@@ -227,12 +265,20 @@ public enum LinkPresentation {
         return lines
     }
 
+    /// The question, why (both masked like a command), and for a secret where to enter it.
+    public static func inputLines(_ input: InputRequest) -> [String] {
+        var lines = [CommandText.masked(input.question)]
+        if let why = input.why, !why.isEmpty { lines.append("Why: " + CommandText.masked(why)) }
+        if input.secret { lines.append(InputRequest.enterOnMacMessage) }
+        return lines
+    }
+
     /// The last line of a notification and the subtitle of a request row: the Mac, and
     /// when the time to answer runs out.
     public static func timeLine(_ request: LinkRequest, time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String {
         switch request.request.prompt {
         case .notify, .needs: return request.macName
-        case .permission, .question: break
+        case .permission, .question, .input: break
         }
         if request.queued { return "\(request.macName) · waits behind another request" }
         if let deadline = request.deadline { return "\(request.macName) · answer by \(time(deadline))" }
@@ -258,6 +304,17 @@ public enum LinkPresentation {
             let text = (typedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard notificationQuestion(request) != nil, !text.isEmpty else { return nil }
             return .answers([LinkQuestionAnswer(selected: [], other: text)])
+        case replyAction:
+            // Sent as typed: LinkRefusal.beforeSending says why a reply cannot go, such
+            // as one that does not match the pattern.
+            guard case .input(let input) = request.request.prompt, !input.secret else { return nil }
+            return .text(typedText ?? "")
+        case enterSoonAction:
+            guard case .input(let input) = request.request.prompt, input.secret else { return nil }
+            return .enterSoon
+        case enterLaterAction:
+            guard request.request.offersEnterLater else { return nil }
+            return .enterLater
         default:
             guard identifier.hasPrefix(optionActionPrefix), let index = Int(identifier.dropFirst(optionActionPrefix.count)),
                   let question = notificationQuestion(request), question.options.indices.contains(index) else { return nil }
@@ -286,6 +343,7 @@ public enum LinkRefusal {
         case .resolvedByClaude: "Claude saw that this is done."
         case .answeredInSession: "You already answered this in the Claude session."
         case .movedOn: "Claude moved on from this."
+        case .later: "You chose to enter this on \(macName) later, from its History."
         case nil: "This request is no longer open on \(macName)."
         }
     }
@@ -315,8 +373,29 @@ public enum LinkRefusal {
             return nil
         case (.needsAnswer(let label), .needs(let needs)):
             return needs.answers.contains(label) ? nil : unknownAnswer
+        case (.text(let text), .input(let input)):
+            return inputRefusal(text, for: input)
+        case (.enterSoon, .input(let input)) where input.secret:
+            if request.queued { return clockNotStarted }
+            return request.deadline == nil ? noTimeLimit : nil
+        case (.enterLater, .input):
+            return request.request.offersEnterLater ? nil : "This request cannot wait for later."
         default:
             return "This answer does not fit this request."
+        }
+    }
+
+    public static let emptyAnswer = "Type an answer first."
+    public static let secretOnMac = "This is a secret. " + InputRequest.enterOnMacMessage
+
+    /// Why a typed answer cannot be sent, or nil when it can. The phone checks first and
+    /// the Mac checks again with the same rules.
+    public static func inputRefusal(_ text: String, for input: InputRequest) -> String? {
+        guard !input.secret else { return secretOnMac }
+        switch input.check(text) {
+        case .empty: return emptyAnswer
+        case .mismatch: return InputRequest.mismatchMessage + (input.pattern.map { " Expected: \($0)" } ?? "")
+        case .valid: return nil
         }
     }
 }

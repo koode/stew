@@ -42,9 +42,20 @@ enum LateAnswerFile {
     /// with nothing waiting never writes.
     static func deliver(sessionID: String?, agentID: String?, event: String, now: Date = Date()) -> [LateAnswer] {
         guard exists, read().hasMail(sessionID: sessionID, agentID: agentID, now: now) else { return [] }
-        return update(now: now) { mailbox in
+        let delivered = update(now: now) { mailbox in
             mailbox.deliver(sessionID: sessionID, agentID: agentID, event: event, now: now)
         }
+        return delivered.map(revealSecret)
+    }
+
+    /// A late secret is not in the file: the daemon hands it over once, after the
+    /// answer is marked delivered. A daemon that restarted meanwhile no longer has it,
+    /// and the message then says so.
+    private static func revealSecret(_ answer: LateAnswer) -> LateAnswer {
+        guard answer.secretQuestion != nil else { return answer }
+        let reply = Client.sendControl("late secret \(answer.entryID.uuidString)")
+        let response = reply.flatMap { try? Wire.decode(StewResponse.self, line: Data($0.utf8)) }
+        return answer.revealing(response?.status == .answered ? response?.text : nil)
     }
 
     private static func write(_ mailbox: LateMailbox) {

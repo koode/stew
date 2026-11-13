@@ -38,6 +38,8 @@ public struct PhoneHistoryEntry: Codable, Equatable, Identifiable, Sendable {
         case .needs(let needs):
             summary = CommandText.masked(needs.title)
             command = needs.commands.isEmpty ? nil : needs.commands.map { CommandText.masked($0.command) }.joined(separator: "\n")
+        case .input(let input):
+            summary = CommandText.masked(input.question)
         }
         receivedAt = request.receivedAt
         deadline = request.deadline

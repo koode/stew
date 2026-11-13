@@ -81,6 +81,8 @@ struct ItemCard: View {
                 QuestionBody(item: item, coordinator: coordinator, interactive: interactive)
             case .needs(let needs):
                 NeedsBody(needs: needs, coordinator: coordinator, interactive: interactive)
+            case .input(let input):
+                InputBody(input: input, item: item, coordinator: coordinator, interactive: interactive)
             }
         }
     }
@@ -99,6 +101,8 @@ private struct KindStyle {
             self.init(title: "Question", symbol: "questionmark.bubble.fill", tint: .purple)
         case .needs:
             self.init(title: "Needs you", symbol: NeedsStyle.symbol, tint: NeedsStyle.tint)
+        case .input(let input):
+            self.init(title: input.secret ? "Secret" : "Input", symbol: input.secret ? "key.fill" : "character.cursor.ibeam", tint: .purple)
         case .notify(let notify):
             switch notify.level {
             case .info: self.init(title: "Notification", symbol: "bell.fill", tint: .blue)
@@ -930,6 +934,7 @@ struct WaitingList: View {
         case .notify(let notify): notify.title
         case .question(let set): set.questions.first?.question ?? ""
         case .needs(let needs): needs.title
+        case .input(let input): input.question
         }
     }
 }

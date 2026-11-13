@@ -60,7 +60,16 @@ public enum CommandTable {
             option("file", "Read the questions from a file", value: .file),
             session, timeout,
         ]),
-        command("needs", "Tell the user you need them to do something", options: [
+        command("input", "Ask for one typed answer", options: [
+            option("why", "Why you need it"),
+            option("placeholder", "Grey text in the empty field"),
+            option("default", "Text the field starts with"),
+            option("pattern", "A regular expression the whole answer must match"),
+            flag("secret", "A password or token: masked, never stored"),
+            flag("multiline", "Return adds a line"),
+            session, timeout,
+        ], argument: .text),
+        command("needs","Tell the user you need them to do something", options: [
             option("why", "Why you need it"),
             option("step", "One step for the user", repeats: true),
             option("command", "A command to copy, or - for stdin", repeats: true),

@@ -269,14 +269,31 @@ final class PhoneLink: ObservableObject {
             answeredBy[item.id] = pairingId
             coordinator.respond(item, StewResponse(status: .denied, note: note, risk: item.risk.assessment))
             return LinkResult(requestId: requestId, accepted: true, message: "Denied on \(macName).")
-        case (.moreTime, .permission), (.moreTime, .question):
+        case (.moreTime, .permission), (.moreTime, .question), (.moreTime, .input), (.enterSoon, .input):
+            if case .enterSoon = answer.choice, item.input?.secret != true { return refuse("This answer does not fit this request.") }
             guard item.timeLimit != nil else { return refuse(LinkRefusal.noTimeLimit) }
             guard coordinator.current?.id == item.id, item.deadline != nil || item.pausedRemaining != nil else {
                 return refuse(LinkRefusal.clockNotStarted)
             }
-            coordinator.extendTime()
+            let isEnterSoon = answer.choice == .enterSoon
+            coordinator.extendTime(by: isEnterSoon ? InputRequest.enterSoonSeconds : nil)
             let deadline = item.deadline ?? item.pausedRemaining.map { Date().addingTimeInterval($0) }
-            return LinkResult(requestId: requestId, accepted: true, message: "More time on \(macName).", deadline: deadline)
+            return LinkResult(requestId: requestId, accepted: true, message: isEnterSoon ? "5 more minutes on \(macName)." : "More time on \(macName).", deadline: deadline)
+        case (.text(let text), .input(let input)):
+            // The Mac's own check decides: a reply that does not fit the pattern, or any
+            // reply to a secret, is refused and the request stays open.
+            if let refusal = LinkRefusal.inputRefusal(text, for: input) { return refuse(refusal) }
+            guard case .valid(let answerText) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
+            answeredBy[item.id] = pairingId
+            coordinator.respond(item, StewResponse(status: .answered, text: answerText))
+            return LinkResult(requestId: requestId, accepted: true, message: "Answered on \(macName).")
+        case (.enterLater, .input):
+            answeredBy[item.id] = pairingId
+            guard coordinator.enterLater(item) else {
+                answeredBy[item.id] = nil
+                return refuse("This request cannot wait for later.")
+            }
+            return LinkResult(requestId: requestId, accepted: true, message: "Waiting for you to enter it on \(macName).")
         case (.answers(let answers), .question(let set)):
             guard let flow = QuestionFlow(set: set, linkAnswers: answers) else {
                 return refuse("Answer every question, with one choice where only one is allowed.")
@@ -350,6 +367,7 @@ final class PhoneLink: ObservableObject {
             switch response.status {
             case .timeout: outcome = .timedOut
             case .dismissed: outcome = .dismissed
+            case .later: outcome = .later
             default: outcome = .answeredOnMac
             }
         }

@@ -13,6 +13,14 @@ USAGE
   stew ask [--json JSON | --file PATH | stdin] [common]
       Input has the AskUserQuestion shape: {"questions":[{"question","header",
       "options":[{"label","description","preview"?}],"multiSelect"}]}
+  stew input QUESTION [--why TEXT] [--placeholder TEXT] [--default TEXT] [common]
+             [--pattern REGEX] [--secret] [--multiline]
+      Ask for one typed answer: a domain, a name, a code, a password. The
+      answer is "answered" with the typed "text". --pattern is a regular
+      expression the whole answer must match. --secret masks the field, keeps
+      the answer out of the history, and lets the user pick "I'll enter it
+      later": the status is then "later", and the secret arrives as a late
+      answer once they enter it on the Mac. --multiline lets Return add a line.
   stew needs TITLE [--why TEXT] [--step TEXT]... [--command CMD|-]... [--link URL]...
              [--done LABEL] [--answer LABEL]... [--wait [--timeout SECONDS]] [--session NAME]
       Tell the user you need them to do something only they can do (log in, buy,
@@ -58,13 +66,13 @@ USAGE
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
   --timeout SECONDS  Time to answer once on screen (default: responseTimeout in
-                     the config, 1 min, for permit and ask). 0 means no limit.
-                     When it runs out the answer is "timeout" with a note for
-                     Claude. The user can add time with ⌘E.
+                     the config, 1 min, for permit, ask and input). 0 means
+                     no limit. When it runs out the answer is "timeout" with a
+                     note for Claude. The user can add time with ⌘E.
 
 EXIT CODES
   0 approved / answered / acknowledged / shown / done / resolved, 1 denied, 2 dismissed,
-  3 timeout, 4 error
+  3 timeout, 4 error, 5 later (a secret the user will enter later)
   stew update: 0 up to date or installed, 10 update available (--check),
   11 newer version needs a newer macOS, 12 installs once no request is open,
   20 check failed, 21 download rejected by verification, 22 install failed
@@ -85,6 +93,7 @@ struct Arguments {
         switch command {
         case "history": booleanFlags.union(["missed", "json"])
         case "needs": booleanFlags.union(["json"])
+        case "input": booleanFlags.union(["secret", "multiline"])
         default: booleanFlags
         }
     }
@@ -306,6 +315,29 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         }
         try questionSet.validate()
         emit(Client.send(StewRequest(session: currentSession(arguments), prompt: .question(questionSet), timeout: try arguments.timeout)))
+
+    case "input":
+        guard let question = arguments.positional.first, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw UsageError("input needs a question")
+        }
+        guard arguments.positional.count == 1 else {
+            throw UsageError("input takes one question; quote it, and pass details with --why")
+        }
+        let input = InputRequest(
+            question: question.trimmingCharacters(in: .whitespacesAndNewlines),
+            why: arguments.options["why"],
+            placeholder: arguments.options["placeholder"],
+            defaultText: arguments.options["default"],
+            pattern: arguments.options["pattern"],
+            secret: arguments.flags.contains("secret"),
+            multiline: arguments.flags.contains("multiline")
+        )
+        do {
+            try input.validate()
+        } catch {
+            throw UsageError("\(error)")
+        }
+        emit(Client.send(StewRequest(session: currentSession(arguments), prompt: .input(input), timeout: try arguments.timeout)))
 
     case "needs":
         try runNeeds(arguments)
