@@ -50,6 +50,13 @@ final class PhoneLink: ObservableObject {
     var paired: [MacPairing] { pairings.filter { $0.state == .paired } }
     var confirming: MacPairing? { pairings.first { $0.state == .confirming } }
 
+    /// When the code on screen stops working, for the countdown next to it.
+    var pairingCodeExpires: Date? {
+        guard let code = pairingCode,
+              let waiting = pairings.first(where: { $0.pairingId == code.pairingId && $0.state == .waiting }) else { return nil }
+        return waiting.createdAt.addingTimeInterval(Self.codeLifetime)
+    }
+
     func start(coordinator: Coordinator) {
         self.coordinator = coordinator
         let store = PhoneStore()
@@ -68,11 +75,12 @@ final class PhoneLink: ObservableObject {
     }
 
     /// Sample state for `stew snapshot`, which never starts the link.
-    func showSample(pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, store: PhoneStore) {
+    func showSample(pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, error: String? = nil, store: PhoneStore) {
         self.store = store
         self.pairings = pairings
         self.statuses = statuses
         pairingCode = code
+        pairingError = error
     }
 
     func verificationCode(for pairing: MacPairing) -> String? {

@@ -3,35 +3,58 @@ import SwiftUI
 import StewCore
 import StewLink
 
-/// Renders Settings ▸ iPhone with sample pairings, for `stew snapshot`. It never touches
+/// Renders Settings ▸ iPhone in each pairing state, for `stew snapshot`. It never touches
 /// the keychain or the network.
 enum PhoneSnapshot {
+    private struct Scenario {
+        let name: String
+        var pairings: [MacPairing] = []
+        var statuses: [String: RelayConnection.Status] = [:]
+        var code: PairingCode?
+        var error: String?
+        var sample = PhonePaneSample()
+    }
+
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
         let identity = LinkIdentity()
         let store = PhoneStore(sampleIdentity: identity)
         let created = Date(timeIntervalSince1970: 1_794_000_000)
-        let paired = MacPairing(
-            pairingId: "samplepaired", relay: PhoneConfig.defaultRelay, macName: "Studio", secret: LinkRandom.bytes(32),
-            state: .paired, phoneName: "Jamie's iPhone", phoneKeys: LinkIdentity().publicKeys, createdAt: created, pairedAt: created
-        )
-        let confirming = MacPairing(
-            pairingId: "sampleconfirm", relay: PhoneConfig.defaultRelay, macName: "Studio", secret: LinkRandom.bytes(32),
-            state: .confirming, phoneName: "Work iPhone", phoneKeys: LinkIdentity().publicKeys, createdAt: created
-        )
+        func pairing(_ id: String, _ state: MacPairing.State, phone: String?, created: Date, paired: Date? = nil) -> MacPairing {
+            MacPairing(
+                pairingId: id, relay: PhoneConfig.defaultRelay, macName: "Studio", secret: LinkRandom.bytes(32),
+                state: state, phoneName: phone, phoneKeys: phone == nil ? nil : LinkIdentity().publicKeys, createdAt: created, pairedAt: paired
+            )
+        }
+        let paired = pairing("samplepaired", .paired, phone: "Jamie's iPhone", created: created, paired: created)
+        let second = pairing("samplesecond", .paired, phone: "Work iPhone", created: created.addingTimeInterval(86_400 * 9), paired: created.addingTimeInterval(86_400 * 9))
+        let confirming = pairing("sampleconfirm", .confirming, phone: "Work iPhone", created: created)
         let code = PairingCode.generate(relay: PhoneConfig.defaultRelay, macName: "Studio", macKeys: identity.publicKeys)
-        let scenarios: [(String, [MacPairing], PairingCode?)] = [
-            ("pairing", [], code),
-            ("confirm", [paired, confirming], nil),
+        // The Mac shows the code 2 minutes 19 seconds after it made it: 7:41 left.
+        let waiting = MacPairing(
+            pairingId: code.pairingId, relay: code.relay, macName: code.macName, secret: code.secret,
+            state: .waiting, createdAt: Date().addingTimeInterval(-139)
+        )
+        let connected: [String: RelayConnection.Status] = ["samplepaired": .connected, "samplesecond": .failed("offline")]
+        let scenarios = [
+            Scenario(name: "empty"),
+            Scenario(name: "pairing", pairings: [waiting], code: code),
+            Scenario(name: "confirm", pairings: [paired, confirming], statuses: connected),
+            Scenario(name: "mismatch", pairings: [confirming], sample: PhonePaneSample(digits: "418207", mismatch: true)),
+            Scenario(name: "error", error: "Cannot reach the relay at \(PhoneConfig.defaultRelay)."),
+            Scenario(name: "paired", pairings: [paired, second], statuses: connected, sample: PhonePaneSample(justPaired: "Work iPhone")),
         ]
         let link = PhoneLink.shared
-        for (name, pairings, shownCode) in scenarios {
-            link.showSample(pairings: pairings, statuses: ["samplepaired": .connected], code: shownCode, store: store)
+        for scenario in scenarios {
+            link.showSample(pairings: scenario.pairings, statuses: scenario.statuses, code: scenario.code, error: scenario.error, store: store)
             for dark in [false, true] {
                 let model = SettingsModel()
                 model.load()
                 model.tab = .phone
-                let path = "\(directory)/settings-phone-\(name)-\(dark ? "dark" : "light").png"
-                write(AnyView(SettingsView(model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: Updater(log: { _ in })).frame(width: 720, height: 640)), dark, path)
+                let path = "\(directory)/settings-phone-\(scenario.name)-\(dark ? "dark" : "light").png"
+                let view = SettingsView(
+                    model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: Updater(log: { _ in }), phoneSample: scenario.sample
+                )
+                write(AnyView(view.frame(width: Snapshot.settingsSize.width, height: Snapshot.settingsSize.height)), dark, path)
                 print(path)
             }
         }

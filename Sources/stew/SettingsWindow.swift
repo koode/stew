@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import StewCore
 
@@ -89,6 +90,7 @@ final class SettingsWindowController {
     private let history = HistoryModel()
     private let updater: Updater
     private var window: NSWindow?
+    private var tabTitle: AnyCancellable?
 
     init(updater: Updater, onSaved: @escaping () -> Void) {
         self.updater = updater
@@ -118,16 +120,21 @@ final class SettingsWindowController {
         model.tab = tab
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+                contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
                 styleMask: [.titled, .closable, .resizable, .miniaturizable],
                 backing: .buffered,
                 defer: false
             )
-            window.title = "stew Settings"
+            // The title bar takes the window's background, so it and the tab bar below
+            // read as one toolbar, as in other Settings windows.
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, history: history, updater: updater))
             window.center()
             self.window = window
+            // Like other Settings windows, the title names the pane that is showing.
+            tabTitle = model.$tab.sink { [weak window] tab in window?.title = tab.title }
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
@@ -139,44 +146,36 @@ struct SettingsView: View {
     @ObservedObject var approvals: ApprovalsModel
     @ObservedObject var history: HistoryModel
     let updater: Updater
+    var link: PhoneLink = .shared
+    /// Starting state of the iPhone pane, for `stew snapshot`.
+    var phoneSample = PhonePaneSample()
 
     var body: some View {
         VStack(spacing: 0) {
-            TabView(selection: $model.tab) {
-                GeneralSettings(model: model, updater: updater).tabItem { Text("General") }.tag(SettingsTab.general)
-                KeySettings(model: model).tabItem { Text("Keys") }.tag(SettingsTab.keys)
-                ClaudeSettingsTab(model: model).tabItem { Text("Claude Code") }.tag(SettingsTab.claude)
-                PhoneSettingsTab(model: model, link: PhoneLink.shared).tabItem { Text("iPhone") }.tag(SettingsTab.phone)
-                ApprovalsView(model: approvals).tabItem { Text("Approvals") }.tag(SettingsTab.approvals)
-                HistoryView(model: history).tabItem { Text("History") }.tag(SettingsTab.history)
-            }
+            SettingsTabBar(selection: $model.tab)
+            Divider()
+            pane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if let error = model.error {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Notice(.error, error)
+                    .padding(.horizontal, SettingsMetrics.inset)
+                    .padding(.bottom, 14)
             }
         }
-        .padding(12)
-        .frame(minWidth: 680, minHeight: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(Brand.paprika)
+        .frame(minWidth: 680, minHeight: 500)
     }
-}
 
-/// A form field: the label is the name only; the hint sits under the input.
-struct SettingRow<Content: View>: View {
-    let hint: String?
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            content
-            if let hint {
-                Text(hint)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    @ViewBuilder
+    private var pane: some View {
+        switch model.tab {
+        case .general: GeneralSettings(model: model, updater: updater)
+        case .keys: KeySettings(model: model)
+        case .claude: ClaudeSettingsTab(model: model)
+        case .phone: PhoneSettingsTab(model: model, link: link, sample: phoneSample)
+        case .approvals: ApprovalsView(model: approvals)
+        case .history: HistoryView(model: history)
         }
     }
 }
@@ -192,73 +191,80 @@ struct GeneralSettings: View {
     private static let sounds = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"]
 
     var body: some View {
-        Form {
-            SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
-                Picker("Time to answer", selection: binding(\.responseTimeout)) {
-                    ForEach(Self.limits, id: \.1) { Text($0.0).tag($0.1) }
+        SettingsPane(tab: .general) {
+            SettingsForm {
+                Section("Timing") {
+                    SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
+                        Picker("Time to answer", selection: binding(\.responseTimeout)) {
+                            ForEach(Self.limits, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    SettingRow(hint: "Added each time you press More time. The clock also pauses while you type a note.") {
+                        Picker("More time", selection: binding(\.extendBy)) {
+                            ForEach(Self.extensions, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    SettingRow(hint: "Keys do nothing this long after a panel appears, so a shortcut meant for another app cannot answer it.") {
+                        Picker("Ignore keys at first", selection: binding(\.armDelay)) {
+                            ForEach(Self.delays, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
                 }
-            }
-            SettingRow(hint: "Added each time you press More time. The clock also pauses while you type a note.") {
-                Picker("More time", selection: binding(\.extendBy)) {
-                    ForEach(Self.extensions, id: \.1) { Text($0.0).tag($0.1) }
+                Section("Panel") {
+                    SettingRow(hint: nil) {
+                        Picker("Position", selection: binding(\.position)) {
+                            ForEach(Self.positions, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    SettingRow(hint: "Plays when a panel appears.") {
+                        Picker("Sound", selection: Binding(
+                            get: { model.config.sound ?? "" },
+                            set: { value in model.update { $0.sound = value } }
+                        )) {
+                            Text("None").tag("")
+                            ForEach(Self.sounds, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                    SettingRow(hint: "A short burst when you approve a request.") {
+                        Toggle("Confetti", isOn: binding(\.confetti))
+                    }
                 }
-            }
-            SettingRow(hint: "Keys do nothing this long after a panel appears, so a shortcut meant for another app cannot answer it.") {
-                Picker("Ignore keys at first", selection: binding(\.armDelay)) {
-                    ForEach(Self.delays, id: \.1) { Text($0.0).tag($0.1) }
-                }
-            }
-            SettingRow(hint: nil) {
-                Picker("Position", selection: binding(\.position)) {
-                    ForEach(Self.positions, id: \.1) { Text($0.0).tag($0.1) }
-                }
-            }
-            SettingRow(hint: "Plays when a panel appears.") {
-                Picker("Sound", selection: Binding(
-                    get: { model.config.sound ?? "" },
-                    set: { value in model.update { $0.sound = value } }
-                )) {
-                    Text("None").tag("")
-                    ForEach(Self.sounds, id: \.self) { Text($0).tag($0) }
-                }
-            }
-            SettingRow(hint: "A short burst when you approve a request.") {
-                Toggle("Confetti", isOn: binding(\.confetti))
-            }
-            Section("Updates") {
-                SettingRow(hint: updater.isReleaseBuild ? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
-                    Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
-                        .disabled(!updater.isReleaseBuild)
-                }
-                SettingRow(hint: updateHint) {
-                    LabeledContent("Version") {
-                        HStack {
-                            Text(AppVersion.running.description).foregroundStyle(.secondary)
-                            // Check now only reports; installing takes its own click.
-                            if updater.availableVersion != nil, updater.isReleaseBuild {
-                                Button("Install now") { updater.run(install: true) { _ in } }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(updater.busy)
+                Section("Updates") {
+                    SettingRow(hint: updater.isReleaseBuild ? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
+                        Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
+                            .disabled(!updater.isReleaseBuild)
+                    }
+                    SettingRow(hint: updateHint) {
+                        LabeledContent("Version") {
+                            HStack(spacing: 8) {
+                                Text(AppVersion.running.description).foregroundStyle(.secondary)
+                                if let available = updater.availableVersion, updater.isReleaseBuild {
+                                    StatusPill(text: "\(available) available", tone: Brand.paprika)
+                                }
                             }
-                            Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: false) { _ in } }
+                        }
+                    }
+                    HStack {
+                        Spacer()
+                        Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: false) { _ in } }
+                            .disabled(updater.busy)
+                        // Check now only reports; installing takes its own click.
+                        if updater.availableVersion != nil, updater.isReleaseBuild {
+                            Button("Install now") { updater.run(install: true) { _ in } }
+                                .buttonStyle(.borderedProminent)
                                 .disabled(updater.busy)
                         }
                     }
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     /// When stew last looked for an update, and what it found.
     private var updateHint: String {
         guard let lastCheck = updater.state.lastCheck else { return "Never checked for updates." }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.doesRelativeDateFormatting = true
         let result = updater.state.lastResult.map { " \($0)" } ?? ""
-        return "Last checked: \(formatter.string(from: lastCheck)).\(result)"
+        return "Last checked \(SettingsDate.text(lastCheck)).\(result)"
     }
 
     private func binding<Value: Hashable>(_ keyPath: WritableKeyPath<StewConfig, Value>) -> Binding<Value> {
@@ -269,13 +275,16 @@ struct GeneralSettings: View {
 struct KeySettings: View {
     @ObservedObject var model: SettingsModel
 
-    private static let actions: [(HotkeyAction, String)] = [
+    private static let answering: [(HotkeyAction, String)] = [
         (.approve, "Approve or OK"),
         (.deny, "Deny"),
         (.other, "Note or Other…"),
         (.grant, "Allow more…"),
         (.extend, "More time"),
         (.submit, "Confirm or send"),
+    ]
+
+    private static let moving: [(HotkeyAction, String)] = [
         (.previous, "Previous question"),
         (.next, "Next question"),
         (.dismiss, "Dismiss"),
@@ -283,38 +292,51 @@ struct KeySettings: View {
     ]
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(Self.actions, id: \.0) { action, name in
-                    LabeledContent(name) {
-                        KeyRecorder(shortcut: model.keymap[action]) { model.setShortcut($0, for: action) }
+        SettingsPane(tab: .keys) {
+            SettingsForm {
+                Section("Answer") {
+                    ForEach(Self.answering, id: \.0) { action, name in recorder(name, action) }
+                }
+                Section("Move and dismiss") {
+                    ForEach(Self.moving, id: \.0) { action, name in recorder(name, action) }
+                }
+                Section {
+                    ForEach(0..<4, id: \.self) { index in
+                        LabeledContent("Option \(index + 1)") {
+                            KeyRecorder(shortcut: model.keymap.options[index]) { model.setOptionShortcut($0, at: index) }
+                        }
+                    }
+                } header: {
+                    Text("Options")
+                } footer: {
+                    Hint("Click a key, then press the new combination. It needs Control, Option or Command, so plain typing never answers a panel. Esc cancels.")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Section("Hard deny") {
+                    SettingRow(hint: "Approving a call that auto mode would never allow needs this key as well as Approve.") {
+                        Picker("Extra key past a hard deny", selection: Binding(
+                            get: { model.config.hardDenyExtra },
+                            set: { value in model.update { $0.hardDenyExtra = value } }
+                        )) {
+                            Text("Shift").tag("shift")
+                            Text("Option").tag("option")
+                            Text("Control").tag("ctrl")
+                        }
                     }
                 }
-                ForEach(0..<4, id: \.self) { index in
-                    LabeledContent("Option \(index + 1)") {
-                        KeyRecorder(shortcut: model.keymap.options[index]) { model.setOptionShortcut($0, at: index) }
-                    }
+                HStack {
+                    Spacer()
+                    Button("Reset keys to defaults") { model.resetKeys() }
                 }
-            } footer: {
-                Text("Click a key, then press the new combination. It needs Control, Option or Command, so plain typing never answers a panel. Esc cancels.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                SettingRow(hint: "Approving a call that auto mode would never allow needs this key as well as Approve.") {
-                    Picker("Extra key past a hard deny", selection: Binding(
-                        get: { model.config.hardDenyExtra },
-                        set: { value in model.update { $0.hardDenyExtra = value } }
-                    )) {
-                        Text("Shift").tag("shift")
-                        Text("Option").tag("option")
-                        Text("Control").tag("ctrl")
-                    }
-                }
-                Button("Reset keys to defaults") { model.resetKeys() }
+                .listRowBackground(Color.clear)
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private func recorder(_ name: String, _ action: HotkeyAction) -> some View {
+        LabeledContent(name) {
+            KeyRecorder(shortcut: model.keymap[action]) { model.setShortcut($0, for: action) }
+        }
     }
 }
 
@@ -386,65 +408,70 @@ struct ClaudeSettingsTab: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        Form {
-            Section("Hooks") {
-                SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
-                    LabeledContent("Hooks") {
-                        HStack {
-                            switch model.hookState {
-                            case .complete:
-                                Text("Installed").foregroundStyle(.secondary)
-                                Button("Uninstall") { model.setHooks(installed: false) }
-                            case .partial:
-                                Text("Needs an update").foregroundStyle(.orange)
-                                Button("Update") { model.setHooks(installed: true) }
-                            case .none:
-                                Text("Not installed").foregroundStyle(.secondary)
-                                Button("Install") { model.setHooks(installed: true) }
+        SettingsPane(tab: .claude) {
+            SettingsForm {
+                Section("Hooks") {
+                    SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
+                        LabeledContent("Hooks") {
+                            HStack(spacing: 8) {
+                                switch model.hookState {
+                                case .complete:
+                                    StatusPill(text: "Installed", tone: .green)
+                                    Button("Uninstall") { model.setHooks(installed: false) }
+                                case .partial:
+                                    StatusPill(text: "Needs an update", tone: .orange)
+                                    Button("Update") { model.setHooks(installed: true) }
+                                        .buttonStyle(.borderedProminent)
+                                case .none:
+                                    StatusPill(text: "Not installed", tone: .secondary)
+                                    Button("Install") { model.setHooks(installed: true) }
+                                        .buttonStyle(.borderedProminent)
+                                }
                             }
                         }
                     }
                 }
-                SettingRow(hint: "Where Claude Code's questions (AskUserQuestion) appear. Unattended means background and remote sessions; a session you are typing in keeps asking in the terminal.") {
-                    Picker("Questions", selection: Binding(
-                        get: { model.config.routeQuestions },
-                        set: { value in model.update { $0.routeQuestions = value } }
-                    )) {
-                        Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
-                        Text("Always in stew").tag(QuestionRouting.always)
-                        Text("Always in the terminal").tag(QuestionRouting.never)
+                Section("Questions and needs") {
+                    SettingRow(hint: "Where Claude Code's questions (AskUserQuestion) appear. Unattended means background and remote sessions; a session you are typing in keeps asking in the terminal.") {
+                        Picker("Questions", selection: Binding(
+                            get: { model.config.routeQuestions },
+                            set: { value in model.update { $0.routeQuestions = value } }
+                        )) {
+                            Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
+                            Text("Always in stew").tag(QuestionRouting.always)
+                            Text("Always in the terminal").tag(QuestionRouting.never)
+                        }
+                    }
+                    SettingRow(hint: "When Claude ends a turn with a \"needs input:\" line, stew shows it as something that needs you, with its steps and commands. It goes away when you write to that session.") {
+                        Picker("Needs you from Claude Code", selection: Binding(
+                            get: { model.config.autoNeeds },
+                            set: { value in model.update { $0.autoNeeds = value } }
+                        )) {
+                            Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
+                            Text("Always in stew").tag(QuestionRouting.always)
+                            Text("Never").tag(QuestionRouting.never)
+                        }
                     }
                 }
-                SettingRow(hint: "When Claude ends a turn with a \"needs input:\" line, stew shows it as something that needs you, with its steps and commands. It goes away when you write to that session.") {
-                    Picker("Needs you from Claude Code", selection: Binding(
-                        get: { model.config.autoNeeds },
-                        set: { value in model.update { $0.autoNeeds = value } }
-                    )) {
-                        Text("In stew for unattended sessions").tag(QuestionRouting.unattended)
-                        Text("Always in stew").tag(QuestionRouting.always)
-                        Text("Never").tag(QuestionRouting.never)
+                Section("Risk check") {
+                    SettingRow(hint: "For direct stew permit calls: claude -p checks the command against your auto mode rules. Runs on your Claude subscription only, never on API billing.") {
+                        Toggle("Risk check", isOn: Binding(
+                            get: { model.config.classifier.enabled },
+                            set: { value in model.update { $0.classifier.enabled = value } }
+                        ))
                     }
-                }
-            }
-            Section("Risk check") {
-                SettingRow(hint: "For direct stew permit calls: claude -p checks the command against your auto mode rules. Runs on your Claude subscription only, never on API billing.") {
-                    Toggle("Risk check", isOn: Binding(
-                        get: { model.config.classifier.enabled },
-                        set: { value in model.update { $0.classifier.enabled = value } }
-                    ))
-                }
-                SettingRow(hint: "Haiku takes about 5 seconds per check. Larger models are slower and use more of your plan.") {
-                    Picker("Model", selection: Binding(
-                        get: { model.config.classifier.model },
-                        set: { value in model.update { $0.classifier.model = value } }
-                    )) {
-                        Text("Haiku").tag("haiku")
-                        Text("Sonnet").tag("sonnet")
-                        Text("Opus").tag("opus")
+                    SettingRow(hint: "Haiku takes about 5 seconds per check. Larger models are slower and use more of your plan.") {
+                        Picker("Model", selection: Binding(
+                            get: { model.config.classifier.model },
+                            set: { value in model.update { $0.classifier.model = value } }
+                        )) {
+                            Text("Haiku").tag("haiku")
+                            Text("Sonnet").tag("sonnet")
+                            Text("Opus").tag("opus")
+                        }
                     }
                 }
             }
         }
-        .formStyle(.grouped)
     }
 }

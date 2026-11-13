@@ -13,11 +13,21 @@ final class HistoryModel: ObservableObject {
     @Published private(set) var mailbox = LateMailbox()
     /// "Answer now": shows the request in the panel again. False when it is too late.
     var onAnswerNow: ((UUID) -> Bool)?
+    /// Sample entries for `stew snapshot`: reloading leaves them alone.
+    private var isSample = false
+
+    func showSample(_ entries: [HistoryEntry], missedOnly: Bool = false) {
+        isSample = true
+        self.entries = entries
+        self.missedOnly = missedOnly
+        selection = visible.first?.id
+    }
 
     var visible: [HistoryEntry] { History.filtered(entries, missedOnly: missedOnly) }
     var selected: HistoryEntry? { entries.first { $0.id == selection } }
 
     func reload() {
+        guard !isSample else { return }
         keepDays = loadConfig().0.historyDays
         entries = HistoryStore.readFile()
         mailbox = LateAnswerFile.read()
@@ -70,54 +80,66 @@ struct HistoryView: View {
     @ObservedObject var model: HistoryModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Toggle("Missed only", isOn: $model.missedOnly)
-            }
-            if model.visible.isEmpty {
-                Spacer()
-                Text(model.missedOnly ? "No missed requests." : "No requests yet.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                Spacer()
-            } else {
-                Table(model.visible, selection: $model.selection) {
-                    TableColumn("Time") { entry in
-                        Text(HistoryEntry.timeText(entry.ended)).monospacedDigit()
+        SettingsPane(
+            tab: .history,
+            subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered."
+        ) {
+            Toggle("Missed only", isOn: $model.missedOnly)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        } content: {
+            VStack(alignment: .leading, spacing: 12) {
+                if model.visible.isEmpty {
+                    SettingsCard {
+                        EmptyState(
+                            symbol: model.missedOnly ? "clock.badge.exclamationmark" : "clock",
+                            title: model.missedOnly ? "No missed requests" : "No requests yet",
+                            message: model.missedOnly
+                                ? "Requests that run out of time while nobody answers show here."
+                                : "Permission requests, questions and notifications show here once they finish."
+                        )
+                        .frame(maxHeight: .infinity)
                     }
-                    .width(min: 90, ideal: 100)
-                    TableColumn("Session") { entry in
-                        Text(entry.session).lineLimit(1).help(entry.cwd ?? entry.session)
+                } else {
+                    SettingsCard {
+                        Table(model.visible, selection: $model.selection) {
+                            TableColumn("Time") { entry in
+                                Text(HistoryEntry.timeText(entry.ended)).font(.system(size: 12)).monospacedDigit()
+                            }
+                            .width(min: 90, ideal: 100)
+                            TableColumn("Session") { entry in
+                                Text(entry.session).font(.system(size: 12)).lineLimit(1).help(entry.cwd ?? entry.session)
+                            }
+                            .width(min: 90, ideal: 130)
+                            TableColumn("Request") { entry in
+                                Text(entry.summary).font(.system(size: 12)).lineLimit(1).truncationMode(.tail).help(entry.summary)
+                            }
+                            .width(min: 160)
+                            TableColumn("Outcome") { entry in
+                                OutcomePill(entry: entry)
+                            }
+                            .width(140)
+                        }
+                        .scrollContentBackground(.hidden)
+                        .alternatingRowBackgrounds(.disabled)
                     }
-                    .width(min: 90, ideal: 130)
-                    TableColumn("Request") { entry in
-                        Text(entry.summary).lineLimit(1).truncationMode(.tail).help(entry.summary)
+                    .frame(minHeight: 160)
+                    if let entry = model.selected {
+                        SettingsCard {
+                            ScrollView {
+                                HistoryDetail(entry: entry, model: model)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(14)
+                            }
+                        }
+                        .frame(minHeight: 150, idealHeight: 200, maxHeight: 240)
                     }
-                    .width(min: 160)
-                    TableColumn("Outcome") { entry in
-                        OutcomePill(entry: entry)
-                    }
-                    .width(140)
                 }
-                .frame(minHeight: 160)
-                if let entry = model.selected {
-                    Divider()
-                    ScrollView {
-                        HistoryDetail(entry: entry, model: model)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(minHeight: 150, idealHeight: 200)
-                }
             }
+            .padding(.horizontal, SettingsMetrics.inset)
+            .padding(.top, 14)
+            .padding(.bottom, SettingsMetrics.inset)
         }
-        .padding(16)
-        .frame(minWidth: 640, minHeight: 300)
         .onAppear { model.reload() }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.reload() }
     }
@@ -138,13 +160,7 @@ struct OutcomePill: View {
     private var outcome: HistoryEntry.Outcome { entry.late?.outcome ?? entry.outcome }
 
     var body: some View {
-        Text(entry.outcomeLabel)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(tone)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(tone.opacity(0.15)))
-            .fixedSize()
+        StatusPill(text: entry.outcomeLabel, tone: tone)
     }
 
     private var tone: Color {
@@ -209,16 +225,14 @@ struct HistoryDetail: View {
                 }
             }
             if model.canAnswerNow(entry) {
-                HStack {
+                SettingRow(hint: "Shows it in the panel again. Claude gets your answer at its next step.") {
                     Button("Answer now") { model.answerNow(entry) }
+                        .buttonStyle(.borderedProminent)
                         .fixedSize()
-                    Text("Shows it in the panel again. Claude gets your answer at its next step.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
                 }
             }
             if entry.missed, let blocked = entry.blocked, !blocked.grantScopes.isEmpty {
-                HStack {
+                SettingRow(hint: "In \(URL(fileURLWithPath: blocked.projectRoot).lastPathComponent), without asking.") {
                     Menu("Allow next time…") {
                         ForEach(blocked.grantScopes, id: \.self) { scope in
                             Section(scopeTitle(scope)) {
@@ -228,9 +242,6 @@ struct HistoryDetail: View {
                         }
                     }
                     .fixedSize()
-                    Text("In \(URL(fileURLWithPath: blocked.projectRoot).lastPathComponent), without asking.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
                 }
             }
             if let message = model.message {
