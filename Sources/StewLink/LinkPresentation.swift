@@ -45,6 +45,10 @@ public struct LinkNotificationContent: Equatable, Sendable {
     /// Groups notifications per Mac in Notification Center.
     public var threadIdentifier: String
     public var requestId: String
+    /// A request with a time limit (a permission, a question, an input) breaks through
+    /// Focus modes as a Time Sensitive notification; it would otherwise time out unseen.
+    /// Needs items and notifications have no deadline and stay ordinary.
+    public var timeSensitive: Bool = false
 }
 
 /// What the phone shows for a request: the same facts as the Mac panel, in the same
@@ -251,8 +255,16 @@ public enum LinkPresentation {
             categoryIdentifier: categoryIdentifier(request),
             actions: actions(request),
             threadIdentifier: pairingId,
-            requestId: request.requestId
+            requestId: request.requestId,
+            timeSensitive: hasDeadline(request.request.prompt)
         )
+    }
+
+    public static func hasDeadline(_ prompt: Prompt) -> Bool {
+        switch prompt {
+        case .permission, .question, .input: true
+        case .notify, .needs: false
+        }
     }
 
     /// The same parts as the Mac panel, in its order: why, numbered steps, then the

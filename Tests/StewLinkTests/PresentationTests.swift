@@ -294,3 +294,12 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(QuestionFlow(set: set, linkAnswers: [LinkQuestionAnswer(selected: [0, 1]), LinkQuestionAnswer(selected: [0])]) == nil)
     }
 }
+
+struct TimeSensitiveTests {
+    @Test func requestsWithATimeLimitAreTimeSensitive() {
+        #expect(LinkPresentation.hasDeadline(.permission(PermissionRequest(action: "Push", reason: "Ship it"))))
+        #expect(LinkPresentation.hasDeadline(.input(InputRequest(question: "Which domain?"))))
+        #expect(!LinkPresentation.hasDeadline(.needs(NeedsRequest(title: "Log in to npm"))))
+        #expect(!LinkPresentation.hasDeadline(.notify(NotifyRequest(title: "Done"))))
+    }
+}
