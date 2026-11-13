@@ -43,8 +43,9 @@ final class Item: ObservableObject, Identifiable {
     /// the next choice or move.
     @Published var questionNotice: String?
     @Published var risk: RiskState = .off
-    /// stew's own notice, such as the return summary: kept out of the history.
-    var isInternal = false
+    /// `.stew` for stew's own notice, such as the return summary or a new version: kept
+    /// out of the history and off the phone.
+    var source: ItemSource = .caller
     /// Option under the mouse, so its preview shows.
     @Published var hoveredOption: Int?
     /// For a needs item: its id in needs.json.
@@ -469,6 +470,9 @@ final class Coordinator: ObservableObject {
         case "returned":
             // Simulates the user coming back after `argument` seconds away.
             userReturned(awaySince: Date().addingTimeInterval(-(Double(argument) ?? 0)))
+        case "announce":
+            // The update check found `argument`, which a test daemon never checks for.
+            announceAvailable(argument, route: .inPlace)
         case "open":
             // A click on a needs item in the menu bar.
             openNeeds(id: argument)
@@ -593,7 +597,7 @@ final class Coordinator: ObservableObject {
     /// session that timed out stays answerable from the history for a day.
     private func record(_ item: Item, _ response: StewResponse?) {
         // Needs items record their own ending in finishNeeds.
-        guard let history, !item.isInternal, !item.isNeeds else { return }
+        guard let history, item.source == .caller, !item.isNeeds else { return }
         let entry = HistoryEntry.record(item.request, received: item.received, response: response, ended: Date(), id: item.id)
         history.append(entry)
         let answerableLater = (response?.status == .timeout && LateMailbox.canAnswerLate(item.request))
@@ -716,10 +720,10 @@ final class Coordinator: ObservableObject {
     }
 
     /// stew's own notice, such as the return summary or a new version: shown like a
-    /// notification and kept out of the history.
+    /// notification, kept out of the history and never sent to a phone.
     func showNotice(_ notice: NotifyRequest) {
         let item = Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(notice), wait: false), connection: nil)
-        item.isInternal = true
+        item.source = .stew
         items.append(item)
         arrangeQueue()
         changed()

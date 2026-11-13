@@ -28,16 +28,23 @@ import Testing
 
     @Test func awayNeedsIdleOrLockAndTheWait() {
         let config = PhoneConfig()
-        #expect(!PushPolicy.shouldPush(config: config, openFor: 9, presence: away))
-        #expect(PushPolicy.shouldPush(config: config, openFor: 10, presence: away))
-        #expect(!PushPolicy.shouldPush(config: config, openFor: 30, presence: present))
-        #expect(PushPolicy.shouldPush(config: config, openFor: 30, presence: locked))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: config, openFor: 9, presence: away))
+        #expect(PushPolicy.shouldPush(source: .caller, config: config, openFor: 10, presence: away))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: config, openFor: 30, presence: present))
+        #expect(PushPolicy.shouldPush(source: .caller, config: config, openFor: 30, presence: locked))
     }
 
     @Test func alwaysAndNever() {
-        #expect(PushPolicy.shouldPush(config: PhoneConfig(push: "always"), openFor: 10, presence: present))
-        #expect(!PushPolicy.shouldPush(config: PhoneConfig(push: "always"), openFor: 5, presence: present))
-        #expect(!PushPolicy.shouldPush(config: PhoneConfig(push: "never"), openFor: 600, presence: locked))
+        #expect(PushPolicy.shouldPush(source: .caller, config: PhoneConfig(push: "always"), openFor: 10, presence: present))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: PhoneConfig(push: "always"), openFor: 5, presence: present))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: PhoneConfig(push: "never"), openFor: 600, presence: locked))
+    }
+
+    @Test func stewsOwnNoticesStayOnTheMac() {
+        let always = PhoneConfig(push: "always")
+        #expect(PushPolicy.shouldPush(source: .caller, config: always, openFor: 600, presence: locked))
+        #expect(!PushPolicy.shouldPush(source: .stew, config: always, openFor: 600, presence: locked))
+        #expect(!PushPolicy.shouldPush(source: .stew, config: PhoneConfig(), openFor: 600, presence: away))
     }
 
     @Test func needsItemsGoOutAfterTheWaitEvenWhileSomeoneIsAtTheMac() {
@@ -49,8 +56,8 @@ import Testing
 
     @Test func noWaitSendsAtOnce() {
         let instant = PhoneConfig(after: 0)
-        #expect(PushPolicy.shouldPush(config: instant, openFor: 0, presence: away))
-        #expect(!PushPolicy.shouldPush(config: instant, openFor: 0, presence: present))
+        #expect(PushPolicy.shouldPush(source: .caller, config: instant, openFor: 0, presence: away))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: instant, openFor: 0, presence: present))
         #expect(PushPolicy.shouldPushNeeds(config: instant, openFor: 0))
     }
 }

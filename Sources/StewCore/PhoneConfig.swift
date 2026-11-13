@@ -48,11 +48,21 @@ public struct MacPresence: Equatable, Sendable {
     }
 }
 
+/// Who put an item in the panel: a caller on the socket (a hook, `stew notify`, a
+/// question from Claude) or stew itself (an update notice, the return summary).
+public enum ItemSource: Sendable {
+    case caller
+    case stew
+}
+
 public enum PushPolicy {
     /// A request goes to the phone once it has been open `after` seconds and, in "away"
     /// mode, nobody has touched the Mac for `idleAfter` seconds or the screen is locked.
-    /// Someone at the Mac answers in the panel; a push would only be noise.
-    public static func shouldPush(config: PhoneConfig, openFor: TimeInterval, presence: MacPresence) -> Bool {
+    /// Someone at the Mac answers in the panel; a push would only be noise. stew's own
+    /// notices never go: they are about this Mac, such as an update to install here or
+    /// requests that timed out in its panel, and the phone has nothing to do with them.
+    public static func shouldPush(source: ItemSource, config: PhoneConfig, openFor: TimeInterval, presence: MacPresence) -> Bool {
+        guard source == .caller else { return false }
         switch config.mode {
         case .never:
             return false
