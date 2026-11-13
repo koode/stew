@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Darwin
 import Foundation
 import StewCore
@@ -130,11 +131,13 @@ enum Daemon {
         let history = HistoryStore()
         coordinator.history = history
         coordinator.needsStore = NeedsStore(path: NeedsStore.path)
+        coordinator.stateStore = DaemonStateStore(path: DaemonStateStore.path)
         let updater = Updater(log: Log.write)
         updater.restartsInBackground = true
         updater.isIdle = { coordinator.isIdle }
         coordinator.onIdle = { updater.idle() }
         coordinator.onUpdate = { reply in updater.run(install: true, completion: reply) }
+        watchUpdates(updater, coordinator: coordinator)
         if !Paths.headless {
             let panel = PanelController(coordinator: coordinator)
             coordinator.onChange = { panel.update() }
@@ -142,16 +145,34 @@ enum Daemon {
             coordinator.onCelebrate = {
                 if let frame = panel.visibleFrame { confetti.burst(around: frame) }
             }
-            let settings = SettingsWindowController(updater: updater) { coordinator.configChanged() }
+            let settings = SettingsWindowController(updater: updater, pause: coordinator.pauseModel) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
             coordinator.onOpenHistory = { missedOnly in settings.showHistory(missedOnly: missedOnly) }
             settings.onAnswerNow = { entryID in coordinator.answerLate(entryID: entryID) }
+            settings.onHistoryShown = { coordinator.historySeen() }
             coordinator.onLateAnswer = { settings.reloadHistory() }
-            let needsMenu = NeedsStatusItem(
-                onOpen: { id in coordinator.openNeeds(id: id) },
-                onOpenHistory: { settings.showHistory(missedOnly: false) }
-            )
-            coordinator.onNeedsChange = { open in needsMenu.update(open) }
+            coordinator.pauseModel.onPause = { coordinator.pause(seconds: Double(PauseState.defaultMinutes) * 60) }
+            coordinator.pauseModel.onResume = { coordinator.resume() }
+            // Only the real daemon has a menu bar item; a headless one answers `menu`.
+            let menuBar = MenuBarController()
+            menuBar.onOpenNeeds = { id in coordinator.openNeeds(id: id) }
+            menuBar.onHistory = { coordinator.openHistory(missedOnly: false) }
+            menuBar.onSettings = { settings.show(.general) }
+            menuBar.onPause = coordinator.pauseModel.onPause
+            menuBar.onResume = coordinator.pauseModel.onResume
+            menuBar.onHide = { settings.setShowInMenuBar(false) }
+            menuBar.onUpdate = {
+                switch coordinator.updateEntry {
+                case .homebrew:
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(UpdateNotice.homebrewCommand, forType: .string)
+                case .manual:
+                    settings.show(.general)
+                case .ready, .available, nil:
+                    coordinator.onInstallUpdate?()
+                }
+            }
+            coordinator.onMenuBarChange = { state in menuBar.update(state) }
             awayWatcher.start { awaySince in coordinator.userReturned(awaySince: awaySince) }
         }
 
@@ -188,7 +209,10 @@ enum Daemon {
         Log.write("stew daemon \(AppVersion.running) listening on \(Paths.socket)")
         history.prune(keepDays: coordinator.config.historyDays)
         LateAnswerFile.update { _ in }
+        // The pause first, so needs items that come back while paused wait in the menu.
+        coordinator.restoreState()
         coordinator.restoreNeeds()
+        announceUpdate(coordinator)
         historyPruner = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { _ in
             coordinator.reloadConfigIfChanged()
             history.prune(keepDays: coordinator.config.historyDays)
@@ -204,6 +228,51 @@ enum Daemon {
         exit(0)
     }
 
+    /// Keeps the menu's update entry current, installs on "Install now", announces a
+    /// version found and not installed, and keeps the notes of an install for the
+    /// "stew updated" notice of the next start.
+    private static func watchUpdates(_ updater: Updater, coordinator: Coordinator) {
+        coordinator.onInstallUpdate = {
+            if updater.readyVersion != nil {
+                updater.installReadyNow()
+            } else {
+                updater.run(install: true) { _ in }
+            }
+        }
+        updater.onInstalled = { manifest in
+            coordinator.stateStore.update { $0.installedUpdate = DaemonState.InstalledUpdate(version: manifest.version, notes: manifest.notes) }
+        }
+        updateWatch = updater.$availableVersion.combineLatest(updater.$readyVersion)
+            .receive(on: DispatchQueue.main)
+            .sink { available, ready in
+                if let ready {
+                    coordinator.updateEntry = .ready(ready)
+                } else if let available, updater.isReleaseBuild {
+                    let route = Updater.installRoute
+                    coordinator.updateEntry = UpdateNotice.menuEntry(available, route: route)
+                    // With automatic updates on, stew installs it by itself where it can.
+                    if !coordinator.config.autoUpdate || route != .inPlace {
+                        coordinator.announceAvailable(available, route: route)
+                    }
+                } else {
+                    coordinator.updateEntry = nil
+                }
+            }
+    }
+
+    /// The first start of a newer version says so, once.
+    private static func announceUpdate(_ coordinator: Coordinator) {
+        let running = AppVersion.running.version
+        if let notice = UpdateNotice.afterStart(coordinator.stateStore.state, running: running) {
+            coordinator.showNotice(notice)
+        }
+        coordinator.stateStore.update { state in
+            state.lastRunVersion = running
+            if state.installedUpdate?.version == running { state.installedUpdate = nil }
+        }
+    }
+
+    private static var updateWatch: AnyCancellable?
     private static var signalSources: [DispatchSourceSignal] = []
     private static let awayWatcher = AwayWatcher()
     private static var historyPruner: Timer?

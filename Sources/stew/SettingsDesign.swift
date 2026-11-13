@@ -41,7 +41,7 @@ extension SettingsTab {
     /// One line under the pane's title.
     var subtitle: String {
         switch self {
-        case .general: "How long the panel waits for you, where it appears and how it sounds."
+        case .general: "The menu bar, how long the panel waits for you, where it appears and how it sounds."
         case .keys: "Shortcuts that answer the panel from any app."
         case .claude: "How Claude Code's blocked calls, questions and needs reach stew."
         case .phone: "Answer requests on your iPhone while you are away from the Mac."

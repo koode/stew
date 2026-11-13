@@ -594,6 +594,14 @@ struct NotifyBody: View {
     let notify: NotifyRequest
     @ObservedObject var coordinator: Coordinator
 
+    private var approveTitle: String {
+        switch notify.action {
+        case .openHistory: "Open history"
+        case .installUpdate: "Install now"
+        case nil: "OK"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -606,9 +614,19 @@ struct NotifyBody: View {
                     LongText(text: body, secondary: true, maxLines: 10)
                 }
             }
-            HStack {
+            HStack(spacing: 8) {
+                if let link = notify.link, let url = URL(string: link.url) {
+                    Link(link.title, destination: url)
+                        .font(.system(size: 13, weight: .medium))
+                        .help(link.url)
+                }
                 Spacer()
-                ActionButton(title: notify.action == .openHistory ? "Open history" : "OK", shortcut: coordinator.keymap[.approve], prominent: true) {
+                if notify.action == .installUpdate {
+                    ActionButton(title: "Later", shortcut: coordinator.keymap[.dismiss]) {
+                        coordinator.perform(.dismiss)
+                    }
+                }
+                ActionButton(title: approveTitle, shortcut: coordinator.keymap[.approve], prominent: true) {
                     coordinator.perform(.approve)
                 }
             }

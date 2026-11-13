@@ -89,12 +89,23 @@ final class SettingsWindowController {
     private let approvals = ApprovalsModel()
     private let history = HistoryModel()
     private let updater: Updater
+    private let pause: PauseModel
     private var window: NSWindow?
     private var tabTitle: AnyCancellable?
+    private var historyTab: AnyCancellable?
+    /// Called each time the History pane shows, which counts as seeing missed requests.
+    var onHistoryShown: (() -> Void)?
 
-    init(updater: Updater, onSaved: @escaping () -> Void) {
+    init(updater: Updater, pause: PauseModel, onSaved: @escaping () -> Void) {
         self.updater = updater
+        self.pause = pause
         model.onSaved = onSaved
+    }
+
+    /// "Hide menu bar icon" in the menu: the same as turning off Show in menu bar.
+    func setShowInMenuBar(_ shown: Bool) {
+        model.load()
+        model.update { $0.menuBar = shown }
     }
 
     /// "Answer now" on a missed request: shows it in the panel again.
@@ -130,14 +141,18 @@ final class SettingsWindowController {
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, history: history, updater: updater))
+            window.contentView = NSHostingView(rootView: SettingsView(model: model, approvals: approvals, history: history, updater: updater, pause: pause))
             window.center()
             self.window = window
             // Like other Settings windows, the title names the pane that is showing.
             tabTitle = model.$tab.sink { [weak window] tab in window?.title = tab.title }
+            historyTab = model.$tab.sink { [weak self] tab in
+                if tab == .history, self?.window?.isVisible == true { self?.onHistoryShown?() }
+            }
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        if tab == .history { onHistoryShown?() }
     }
 }
 
@@ -146,6 +161,7 @@ struct SettingsView: View {
     @ObservedObject var approvals: ApprovalsModel
     @ObservedObject var history: HistoryModel
     let updater: Updater
+    var pause = PauseModel()
     var link: PhoneLink = .shared
     /// Starting state of the iPhone pane, for `stew snapshot`.
     var phoneSample = PhonePaneSample()
@@ -170,7 +186,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var pane: some View {
         switch model.tab {
-        case .general: GeneralSettings(model: model, updater: updater)
+        case .general: GeneralSettings(model: model, updater: updater, pause: pause)
         case .keys: KeySettings(model: model)
         case .claude: ClaudeSettingsTab(model: model)
         case .phone: PhoneSettingsTab(model: model, link: link, sample: phoneSample)
@@ -183,6 +199,7 @@ struct SettingsView: View {
 struct GeneralSettings: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var updater: Updater
+    @ObservedObject var pause: PauseModel
 
     private static let limits: [(String, Double)] = [("No limit", 0), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300), ("10 minutes", 600)]
     private static let extensions: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300)]
@@ -193,6 +210,24 @@ struct GeneralSettings: View {
     var body: some View {
         SettingsPane(tab: .general) {
             SettingsForm {
+                Section("Menu bar") {
+                    SettingRow(hint: "While paused, permission requests, questions and inputs time out at once, and Claude is told you are away. Notifications and needs items still arrive. A pause ends by itself.") {
+                        LabeledContent("Pause") {
+                            HStack(spacing: 8) {
+                                if let until = pause.until {
+                                    StatusPill(text: "Paused until \(Coordinator.clockText(until))", tone: .orange)
+                                    Button("Resume") { pause.onResume() }
+                                        .buttonStyle(.borderedProminent)
+                                } else {
+                                    Button("Pause for 1 hour") { pause.onPause() }
+                                }
+                            }
+                        }
+                    }
+                    SettingRow(hint: "Shows what waits for you, with History, Settings and Pause. When off, it still appears while something needs you, and stew settings or opening Stew.app brings you here.") {
+                        Toggle("Show in menu bar", isOn: binding(\.menuBar))
+                    }
+                }
                 Section("Timing") {
                     SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
                         Picker("Time to answer", selection: binding(\.responseTimeout)) {
@@ -230,7 +265,7 @@ struct GeneralSettings: View {
                     }
                 }
                 Section("Updates") {
-                    SettingRow(hint: updater.isReleaseBuild ? updater.installNote ?? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
+                    SettingRow(hint: updater.isReleaseBuild ? updater.installNote ?? (model.config.autoUpdate ? "Stew checks once a day and installs a new version when no request is open." : "Stew checks once a day and tells you when a new version is available.") : Updater.sourceBuildNote) {
                         Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
                             .disabled(!updater.isReleaseBuild)
                     }

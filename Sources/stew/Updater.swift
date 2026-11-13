@@ -26,6 +26,11 @@ final class Updater: ObservableObject {
     @Published private(set) var busy = false
     /// The version the last check found and did not install, for "Install now".
     @Published private(set) var availableVersion: String?
+    /// A downloaded and verified version that waits until no request is open.
+    @Published private(set) var readyVersion: String?
+    /// Told about each install that succeeded, before the restart, so the new daemon can
+    /// announce it with its release notes.
+    var onInstalled: ((UpdateManifest) -> Void)?
 
     /// True while no request is open, so the app may be swapped. The daemon sets it.
     var isIdle: () -> Bool = { true }
@@ -34,7 +39,9 @@ final class Updater: ObservableObject {
 
     private let queue = DispatchQueue(label: "stew.update")
     private let log: (String) -> Void
-    private var pending: (staged: String, manifest: UpdateManifest)?
+    private var pending: (staged: String, manifest: UpdateManifest)? {
+        didSet { readyVersion = pending?.manifest.version }
+    }
     private var timer: Timer?
 
     /// Only an app signed with the Koode team and not marked as built from source
@@ -133,15 +140,12 @@ final class Updater: ObservableObject {
         let firstCheck = override ?? 60
         DispatchQueue.main.asyncAfter(deadline: .now() + firstCheck) { [weak self] in
             guard let self else { return }
-            if enabled() {
-                self.run(install: true) { _ in }
-            } else {
-                self.log("update: automatic updates are off")
-            }
+            if !enabled() { self.log("update: automatic updates are off; checking only") }
+            self.run(install: enabled()) { _ in }
             self.timer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
-                guard let self, enabled() else { return }
+                guard let self else { return }
                 let last = self.state.lastCheck ?? .distantPast
-                if Date().timeIntervalSince(last) >= Self.checkInterval { self.run(install: true) { _ in } }
+                if Date().timeIntervalSince(last) >= Self.checkInterval { self.run(install: enabled()) { _ in } }
             }
         }
     }
@@ -199,6 +203,17 @@ final class Updater: ObservableObject {
         guard let pending, isIdle() else { return }
         self.pending = nil
         log("update: no open requests; installing \(pending.manifest.version)")
+        let outcome = install(staged: pending.staged, manifest: pending.manifest)
+        record(outcome)
+        if outcome.status == .installed { restart() }
+    }
+
+    /// "Restart to update" in the menu bar: installs the waiting version now, also while
+    /// a request is open; the restart ends that request like a stop would.
+    func installReadyNow() {
+        guard let pending else { return }
+        self.pending = nil
+        log("update: installing \(pending.manifest.version) now, as asked")
         let outcome = install(staged: pending.staged, manifest: pending.manifest)
         record(outcome)
         if outcome.status == .installed { restart() }
@@ -314,6 +329,7 @@ final class Updater: ObservableObject {
             return outcome
         }
         log("update: installed \(manifest.version) (build \(manifest.build)) at \(Paths.installedApp); previous version kept in \(backupFolder)")
+        onInstalled?(manifest)
         let restartNote = Self.canRestart ? " Stew restarts now." : ""
         return UpdateOutcome(status: .installed, message: "Installed version \(manifest.version) (build \(manifest.build)).\(restartNote)", version: manifest.version)
     }

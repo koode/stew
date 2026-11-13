@@ -805,6 +805,93 @@ expect "install completes a partial install" "$("$STEW" hooks status)" "hooks: i
 "$STEW" hooks uninstall > /dev/null
 expect "uninstall keeps only the other Stop hook" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), "UserPromptSubmit" in d)' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
 
+# pause: requests that need an answer now time out at once, with a note for Claude;
+# notifications and needs items still arrive, and needs items wait in the menu bar
+control history > /dev/null
+expect "opening History marks missed requests seen" "$(control menu)" "visible=true count=0 dot=false paused=false"
+expect "menu without anything waiting" "$(control menu)" "paused=false | History… | Settings… | - | Pause stew for 1 hour | - | Hide menu bar icon"
+# The history keeps whole seconds: what follows ends after the second History opened.
+sleep 1
+out=$("$STEW" pause 0 2>&1); code=$?
+expect "pause 0 is refused" "$code$out" "64stew: pause takes a whole number of minutes from 1 to 1440"
+out=$("$STEW" pause soon 2>&1); code=$?
+expect "pause needs a number" "$code" "64"
+expect "resume when not paused" "$("$STEW" resume)" "stew is not paused"
+expect "pause --help" "$("$STEW" pause --help)" "stew pause [MINUTES]"
+expect "pause replies until when" "$("$STEW" pause 30)" "stew is paused until"
+menu=$(control menu)
+expect "menu shows the pause" "$menu" "paused=true"
+expect "menu says until when" "$menu" "(Paused until "
+expect "menu offers resume" "$menu" "Resume stew"
+before=$SECONDS
+out=$(CLAUDE_CODE_SESSION_ID=paused-1 "$STEW" permit --action "Deploy while paused" --reason "release"); code=$?
+expect "paused permission times out" "$out$code" '"status":"timeout"}3'
+expect "paused note tells Claude the user is away" "$out" "The user paused stew and is away, so nobody saw this request. Treat it as denied and continue another way, or ask again after stew resumes in about 30 min. If they answer later"
+[[ $((SECONDS - before)) -lt 3 ]] && pass "paused request answers at once" || fail "paused request answers at once" "took $((SECONDS - before)) s"
+out=$("$STEW" ask --json '{"questions":[{"question":"Paused color?","header":"Color","options":[{"label":"Red","description":""},{"label":"Blue","description":""}]}]}'); code=$?
+expect "paused question times out" "$out$code" "Continue with a safe choice that does not need this answer, or ask again after stew resumes"
+out=$("$STEW" input "Paused domain?"); code=$?
+expect "paused input times out" "$out$code" '"status":"timeout"}3'
+expect "nothing showed while paused" "$(control state)" "items=0"
+"$STEW" notify "Build finished while paused" > /dev/null
+expect "a notification still shows while paused" "$(control state)" "items=1 kind=notify"
+control press approve > /dev/null
+out=$("$STEW" needs "Insert the YubiKey")
+KEY=$(id_of "$out")
+expect "a needs item waits in the menu while paused" "$(control state)" "items=0"
+menu=$(control menu)
+expect "the menu lists the waiting item" "$menu" "e2e · Insert the YubiKey"
+expect "badge counts needs and missed" "$menu" "count=4 dot=false paused=true"
+expect "History shows the missed count" "$menu" "History… [3]"
+control late "$(late_entry "Deploy while paused")" > /dev/null
+expect "Answer now still shows while paused" "$(control state)" "items=1 kind=permission"
+control press approve > /dev/null
+wait_items 0
+expect "a late answer leaves the missed count" "$(control menu)" "History… [2]"
+expect "resume" "$("$STEW" resume)" "stew resumed"
+state=$(control state)
+expect "resume shows what timed out, before the waiting item" "$state" "items=2 kind=notify"
+expect "the summary counts the paused timeouts" "$(control title)" "3 requests timed out while you were away"
+control press approve > /dev/null
+state=$(control state)
+expect "the waiting needs item follows" "$state" "items=1 kind=needs"
+expect "the waiting item is the one from the pause" "$state" "front=$KEY"
+expect "Open history on the summary marks them seen" "$(control menu)" "count=1 dot=false paused=false"
+"$STEW" needs resolve "$KEY" > /dev/null
+
+# A pause ends by itself, and needs items that waited come into the panel.
+control pausefor 1 > /dev/null
+out=$("$STEW" needs "Scan the badge")
+BADGE=$(id_of "$out")
+expect "waits during a short pause" "$(control state)" "items=0"
+sleep 1.6
+expect "the pause ended by itself" "$(control menu)" "paused=false"
+state=$(control state)
+expect "the waiting item shows when it ends" "$state" "items=1 kind=needs"
+expect "the waiting item is the one from the pause" "$state" "front=$BADGE"
+"$STEW" needs resolve "$BADGE" > /dev/null
+
+# A pause survives a daemon restart.
+"$STEW" pause 5 > /dev/null
+"$STEW" stop > /dev/null
+wait "$DAEMON" 2>/dev/null
+"$STEW" daemon 2>> "$WORK/daemon.log" &
+DAEMON=$!
+for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && control state > /dev/null 2>&1 && break; sleep 0.1; done
+expect "pause is back after a restart" "$(control menu)" "paused=true"
+expect "daemon-state.json is private" "$(stat -f %Lp "$WORK/daemon-state.json")" "600"
+"$STEW" resume > /dev/null
+expect "resumed" "$(control menu)" "paused=false"
+
+# Show in menu bar off: the item shows only while a needs item is open.
+set_config ',"menuBar":false'
+expect "hidden with nothing open" "$(control menu)" "visible=false"
+out=$("$STEW" needs "Tap the badge reader")
+expect "shown while a needs item is open" "$(control menu)" "visible=true"
+[[ "$(control menu)" != *"Hide menu bar icon"* ]] && pass "no Hide entry when already off" || fail "no Hide entry when already off" "$(control menu)"
+"$STEW" needs resolve "$(id_of "$out")" > /dev/null
+set_config ""
+
 # updates
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$UPD/site" > "$UPD/http.log" 2>&1 &
 HTTP=$!
@@ -874,9 +961,12 @@ expect "team check exit 21" "$code" "21"
 out=$("$STEW" update); code=$?
 expect "open request defers the install" "$out$code" "installs when no request is open.12"
 expect "deferred install waits" "$(installed_version)" "0.1.0"
+expect "the menu offers to restart for it" "$(control menu)" "stew 0.2.0 is ready, restart to update"
+expect "the menu shows the update dot" "$(control menu)" "dot=true"
 control press dismiss > /dev/null
 for _ in $(seq 1 50); do [[ "$(installed_version)" == "0.2.0" ]] && break; sleep 0.1; done
 expect "install runs once the panel is empty" "$(installed_version)" "0.2.0"
+expect "no update dot once installed" "$(control menu)" "dot=false"
 
 release 0.3.0 11
 out=$("$STEW" update); code=$?
@@ -923,6 +1013,42 @@ expect "a writable cask install updates itself" "$out$code" "Installed version 0
 expect "the update replaced the app where it runs" "$(cask_version)" "0.4.0"
 expect "the old app waits next to it" "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CASK_APPS/.stew-update/backup/Stew.app/Contents/Info.plist" 2>&1)" "0.3.0"
 [[ ! -e "$UPD/cask-home/Applications" ]] && pass "no second copy in ~/Applications" || fail "no second copy in ~/Applications" "$(ls -R "$UPD/cask-home")"
+
+# Automatic updates off: the daemon still checks, and announces the new version once,
+# with Install now. A daemon of its own, in a folder of its own.
+release 0.5.0 13
+MANUAL="$WORK/manual"
+mkdir -p "$MANUAL"
+echo '{"classifier":{"enabled":false},"sound":"","autoUpdate":false}' > "$MANUAL/config.json"
+manual() { STEW_SOCKET="$MANUAL/stew.sock" STEW_CONFIG="$MANUAL/config.json" "$@"; }
+STEW_SOCKET="$MANUAL/stew.sock" STEW_CONFIG="$MANUAL/config.json" STEW_UPDATE_FIRST_CHECK=0.5 "$STEW" daemon 2> "$MANUAL/daemon.log" &
+SCHEDULED=$!
+for _ in $(seq 1 100); do [[ "$(manual "$STEW" _control title 2>/dev/null)" == "stew 0.5.0 is available" ]] && break; sleep 0.1; done
+expect "auto update off announces the new version" "$(manual "$STEW" _control title)" "stew 0.5.0 is available"
+expect "the notice offers Install now and Later" "$(manual "$STEW" _control state)" "keys=⌘. ⌘↩"
+expect "auto update off installs nothing by itself" "$(installed_version)" "0.4.0"
+expect "the menu offers the install" "$(manual "$STEW" _control menu)" "stew 0.5.0 is available, install now"
+expect "the menu shows the update dot" "$(manual "$STEW" _control menu)" "dot=true"
+manual "$STEW" _control press approve > /dev/null
+for _ in $(seq 1 100); do [[ "$(installed_version)" == "0.5.0" ]] && break; sleep 0.1; done
+expect "Install now installs it" "$(installed_version)" "0.5.0"
+expect "the install keeps its release notes for the next start" "$(cat "$MANUAL/daemon-state.json")" '"notes" : "https://stewcli.com/changelog#0.5.0"'
+kill "$SCHEDULED"
+wait "$SCHEDULED" 2>/dev/null
+# The next start runs the new version, which says so once, with its release notes.
+STEW_SOCKET="$MANUAL/stew.sock" STEW_CONFIG="$MANUAL/config.json" "$STEW_APP_PATH/Contents/MacOS/stew" daemon 2>> "$MANUAL/daemon.log" &
+SCHEDULED=$!
+for _ in $(seq 1 100); do [[ "$(manual "$STEW" _control state)" == items=* ]] && break; sleep 0.1; done
+expect "the new version announces itself" "$(manual "$STEW" _control title)" "stew updated to 0.5.0 | What's new https://stewcli.com/changelog#0.5.0"
+manual "$STEW" _control press approve > /dev/null
+kill "$SCHEDULED"
+wait "$SCHEDULED" 2>/dev/null
+STEW_SOCKET="$MANUAL/stew.sock" STEW_CONFIG="$MANUAL/config.json" "$STEW_APP_PATH/Contents/MacOS/stew" daemon 2>> "$MANUAL/daemon.log" &
+SCHEDULED=$!
+for _ in $(seq 1 100); do [[ "$(manual "$STEW" _control state)" == items=* ]] && break; sleep 0.1; done
+expect "only once" "$(manual "$STEW" _control state)" "items=0"
+kill "$SCHEDULED"
+wait "$SCHEDULED" 2>/dev/null; SCHEDULED=""
 kill "$HTTP"; wait "$HTTP" 2>/dev/null; HTTP=""
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then

@@ -130,8 +130,22 @@ final class Coordinator: ObservableObject {
     var onUpdate: ((@escaping (UpdateOutcome) -> Void) -> Void)?
     /// Open needs items. In memory only until the daemon gives it needs.json.
     var needsStore = NeedsStore(path: nil)
-    /// Called whenever the open needs items change, for the menu bar.
-    var onNeedsChange: (([NeedsItem]) -> Void)?
+    /// Called whenever what the menu bar shows may have changed.
+    var onMenuBarChange: ((MenuBarState) -> Void)?
+    /// The pause, when History was last opened, and the update notices. In memory only
+    /// until the daemon gives it daemon-state.json.
+    var stateStore = DaemonStateStore(path: nil)
+    /// The pause, for the settings window.
+    let pauseModel = PauseModel()
+    /// The update entry of the menu, kept current by the daemon from the updater.
+    var updateEntry: MenuBarState.Update? {
+        didSet { if updateEntry != oldValue { menuBarChanged() } }
+    }
+    /// "Install now" on an update notice, and the update entry of the menu.
+    var onInstallUpdate: (() -> Void)?
+    /// Missed requests the user has not seen in History yet.
+    private(set) var missedCount = 0
+    private var pauseCheck: Timer?
     /// Callers of `stew needs --wait`, by item id. The item can leave the panel ("Not
     /// now") while its caller still waits.
     private var needsWaiters: [String: NeedsWaiter] = [:]
@@ -194,7 +208,16 @@ final class Coordinator: ObservableObject {
             onOpenSettings?(control == "approvals" ? .approvals : .general)
         case "history", "history missed":
             connection.send(Data("opened\n".utf8))
-            onOpenHistory?(control == "history missed")
+            openHistory(missedOnly: control == "history missed")
+        case "resume":
+            connection.send(Data((resume() ? "stew resumed\n" : "stew is not paused\n").utf8))
+        case _ where control.hasPrefix("pause "):
+            guard let minutes = try? PauseState.minutes(from: String(control.dropFirst("pause ".count))) else {
+                connection.send(Data("error: pause takes a whole number of minutes from 1 to \(PauseState.maximumMinutes)\n".utf8))
+                return
+            }
+            pause(seconds: Double(minutes) * 60)
+            connection.send(Data((pauseDescription + "\n").utf8))
         case "update":
             guard let onUpdate else {
                 connection.send((try? Wire.encode(UpdateOutcome(status: .checkFailed, message: "this daemon cannot update"))) ?? Data())
@@ -220,6 +243,11 @@ final class Coordinator: ObservableObject {
 
     func enqueue(_ request: StewRequest, connection: Connection?, lateEntryID: UUID? = nil) {
         reloadConfigIfChanged()
+        // A late answer is the user's own doing, so it shows also while paused.
+        if let pause = activePause, PauseState.timesOut(request.prompt), lateEntryID == nil {
+            timeOutWhilePaused(request, connection: connection, pause: pause)
+            return
+        }
         if case .needs(let needs) = request.prompt {
             addNeeds(needs, request: request, connection: connection)
             return
@@ -324,9 +352,11 @@ final class Coordinator: ObservableObject {
         needsChanged()
     }
 
-    /// Puts an open needs item in the panel queue, behind everything else.
-    private func queueNeeds(_ record: NeedsItem) {
+    /// Puts an open needs item in the panel queue, behind everything else. While stew is
+    /// paused it waits in the menu bar, unless the user opens it there (`evenWhilePaused`).
+    private func queueNeeds(_ record: NeedsItem, evenWhilePaused: Bool = false) {
         guard !items.contains(where: { $0.needsID == record.id }) else { return }
+        guard evenWhilePaused || activePause == nil else { return }
         let item = Item(request: StewRequest(session: record.session, prompt: .needs(record.needs), wait: false), connection: nil)
         item.needsID = record.id
         let wasEmpty = items.isEmpty
@@ -358,7 +388,7 @@ final class Coordinator: ObservableObject {
             items.insert(existing, at: textMode ? max(firstNeeds, 1) : firstNeeds)
             changed()
         } else {
-            queueNeeds(record)
+            queueNeeds(record, evenWhilePaused: true)
         }
         needsChanged()
     }
@@ -408,7 +438,7 @@ final class Coordinator: ObservableObject {
     }
 
     private func needsChanged() {
-        onNeedsChange?(needsStore.items)
+        menuBarChanged()
     }
 
     /// Simulated input for end-to-end tests: "press approve", "choose 2", "type text", "state".
@@ -442,6 +472,18 @@ final class Coordinator: ObservableObject {
         case "late":
             // "Answer now" on a missed request in the History tab.
             guard let entryID = UUID(uuidString: argument), answerLate(entryID: entryID) else { return "not waiting" }
+        case "menu":
+            // What the menu bar item shows, which a headless daemon does not create.
+            reloadConfigIfChanged()
+            return menuBarState.describe(timeText: Self.clockText)
+        case "title":
+            // The notification on screen: its title, and its link when it has one.
+            guard case .notify(let notify) = current?.request.prompt else { return "-" }
+            return [notify.title, notify.link.map { "\($0.title) \($0.url)" }].compactMap { $0 }.joined(separator: " | ")
+        case "pausefor":
+            // A pause of a few seconds, to see it end by itself.
+            guard let seconds = Double(argument), seconds > 0 else { return "bad seconds" }
+            pause(seconds: seconds)
         case "state":
             break
         default:
@@ -556,6 +598,7 @@ final class Coordinator: ObservableObject {
         if answerableLater {
             LateAnswerFile.update { $0.addWaiting(item.request, entryID: entry.id, now: entry.ended) }
         }
+        if entry.answerableLater { refreshMissed() }
     }
 
     /// Secrets entered late, by history entry, until a hook fetches them. Memory only:
@@ -622,13 +665,15 @@ final class Coordinator: ObservableObject {
         }
         history?.update(entryID) { $0.recordLate(stored, message: late.message, at: now) }
         onLateAnswer?()
+        refreshMissed()
     }
 
     /// The user is back after being away since `awaySince`. One notice for every
     /// request that timed out meanwhile and every open needs item; nothing when there is
     /// neither. Parked needs items come back into the panel, each one only once.
     func userReturned(awaySince: Date) {
-        guard let history else { return }
+        // While paused the user is away by their own say; Resume shows the summary.
+        guard let history, activePause == nil else { return }
         let entries = history.read()
         let missed = History.missed(entries, since: awaySince)
         let later = History.enterLater(entries, since: awaySince)
@@ -641,11 +686,156 @@ final class Coordinator: ObservableObject {
             needsChanged()
         }
         guard let notice = ReturnSummary.notice(missedCount: missed.count, laterCount: later.count, needsCount: needsStore.items.count) else { return }
+        showNotice(notice)
+    }
+
+    /// stew's own notice, such as the return summary or a new version: shown like a
+    /// notification and kept out of the history.
+    func showNotice(_ notice: NotifyRequest) {
         let item = Item(request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(notice), wait: false), connection: nil)
         item.isInternal = true
         items.append(item)
         arrangeQueue()
         changed()
+    }
+
+    /// A version found and not installed: one notice per version.
+    func announceAvailable(_ version: String, route: UpdateRoute) {
+        guard let notice = UpdateNotice.available(version, route: route, state: stateStore.state) else { return }
+        stateStore.update { state in
+            state.announcedVersions = Array((state.announcedVersions + [version]).suffix(20))
+        }
+        showNotice(notice)
+    }
+
+    /// The daemon started: the pause comes back unless it ran out meanwhile, missed
+    /// requests are counted, and a first start counts everything before it as seen.
+    func restoreState() {
+        if stateStore.state.historySeenAt == nil {
+            stateStore.update { $0.historySeenAt = Date() }
+        }
+        if stateStore.state.pause != nil, activePause == nil {
+            stateStore.update { $0.pause = nil }
+        }
+        schedulePauseCheck()
+        pauseModel.until = activePause?.until
+        refreshMissed()
+        menuBarChanged()
+    }
+
+    /// The pause in effect now, if any.
+    var activePause: PauseState? {
+        guard let pause = stateStore.state.pause, pause.isActive(now: Date()) else { return nil }
+        return pause
+    }
+
+    /// Pauses stew for `seconds` from now. Pausing again moves the end, and keeps when
+    /// the pause began for the summary on Resume.
+    func pause(seconds: Double) {
+        let now = Date()
+        let since = activePause?.since ?? now
+        stateStore.update { $0.pause = PauseState(since: since, until: now.addingTimeInterval(seconds)) }
+        Log.write("paused until \(Self.clockText(now.addingTimeInterval(seconds)))")
+        schedulePauseCheck()
+        pauseChanged()
+    }
+
+    /// Ends the pause by the user's hand: needs items that waited come into the panel,
+    /// with the summary of what timed out meanwhile. False when stew was not paused.
+    @discardableResult
+    func resume() -> Bool {
+        guard let pause = activePause else { return false }
+        endPause()
+        userReturned(awaySince: History.wholeSecond(pause.since))
+        return true
+    }
+
+    /// Needs items that waited during the pause come into the panel. When the pause runs
+    /// out by itself the user may still be away, so the summary waits for their return.
+    private func endPause() {
+        pauseCheck?.invalidate()
+        pauseCheck = nil
+        stateStore.update { $0.pause = nil }
+        Log.write("pause ended")
+        for record in needsStore.items where !record.parked {
+            queueNeeds(record)
+        }
+        pauseChanged()
+    }
+
+    /// Checks the wall clock at the end of the pause, and at least every 30 seconds,
+    /// so a Mac that slept through the end still resumes on time.
+    private func schedulePauseCheck() {
+        pauseCheck?.invalidate()
+        pauseCheck = nil
+        guard let pause = activePause else { return }
+        let wait = min(max(0, pause.until.timeIntervalSinceNow), 30)
+        pauseCheck = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if self.activePause == nil { self.endPause() } else { self.schedulePauseCheck() }
+        }
+    }
+
+    private func pauseChanged() {
+        pauseModel.until = activePause?.until
+        menuBarChanged()
+    }
+
+    /// The reply to `stew pause`.
+    var pauseDescription: String {
+        guard let pause = activePause else { return "stew is not paused" }
+        return "stew is paused until \(Self.clockText(pause.until)). Permission requests, questions and inputs time out at once; notifications and needs items still arrive."
+    }
+
+    /// The end of a pause: the time today, else the date and time.
+    static func clockText(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : HistoryEntry.timeText(date)
+    }
+
+    /// A request that needs an answer now, while paused: it times out at once and Claude
+    /// is told the user is away. It goes to the history like any timeout, so the user
+    /// can still answer it late.
+    private func timeOutWhilePaused(_ request: StewRequest, connection: Connection?, pause: PauseState) {
+        let item = Item(request: request, connection: connection)
+        let response = StewResponse(status: .timeout, note: request.pausedNote(remainingMinutes: pause.remainingMinutes(now: Date())))
+        record(item, response)
+        connection?.send((try? Wire.encode(response)) ?? Data())
+        Log.write("paused: a \(request.prompt.kind) from \(request.session.name) timed out at once")
+    }
+
+    var menuBarState: MenuBarState {
+        MenuBarState(
+            openNeeds: needsStore.items,
+            missedCount: missedCount,
+            pausedUntil: activePause?.until,
+            update: updateEntry,
+            showsAlways: config.menuBar
+        )
+    }
+
+    func menuBarChanged() {
+        onMenuBarChange?(menuBarState)
+    }
+
+    /// Recounts the missed requests the user has not seen yet.
+    func refreshMissed() {
+        guard let history else { return }
+        let count = MenuBarBadge.unseenMissed(history.read(), seenAt: stateStore.state.historySeenAt)
+        guard count != missedCount else { return }
+        missedCount = count
+        menuBarChanged()
+    }
+
+    /// Opens the History pane, which counts as seeing the missed requests in it.
+    func openHistory(missedOnly: Bool) {
+        onOpenHistory?(missedOnly)
+        historySeen()
+    }
+
+    /// The History pane showed: missed requests so far count as seen.
+    func historySeen() {
+        stateStore.update { $0.historySeenAt = Date() }
+        refreshMissed()
     }
 
     private func changed() {
@@ -763,7 +953,11 @@ final class Coordinator: ObservableObject {
             enterLater(item)
         case (.notify(let notify), .approve):
             respond(item, StewResponse(status: .acknowledged))
-            if notify.action == .openHistory { onOpenHistory?(true) }
+            switch notify.action {
+            case .openHistory: openHistory(missedOnly: true)
+            case .installUpdate: onInstallUpdate?()
+            case nil: break
+            }
         case (.question, .submit):
             guard var flow = item.flow else { return }
             let outcome = textMode ? flow.answerOther(draft) : flow.submitCurrent()
@@ -811,6 +1005,7 @@ final class Coordinator: ObservableObject {
     func configChanged() {
         reloadConfigIfChanged()
         changed()
+        menuBarChanged()
     }
 
     func choose(option index: Int) {
