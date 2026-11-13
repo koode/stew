@@ -66,3 +66,17 @@ Version folders never change, so the previous zip is still published. Point `lat
      --content-type application/json --cache-control no-store --remote
    ```
 4. Never delete or overwrite a `v<version>/` folder. Release the fix as a new version.
+
+## Shell completion in a Homebrew cask
+
+A cask never runs `stew`, so it cannot call `stew completions install`. Instead, `scripts/build-app.sh` puts the generated scripts in the app, in `Contents/Resources/completions` (`_stew`, `stew.fish` and `stew` for bash), and the cask links them with its completion stanzas, the way the Docker cask does:
+
+```ruby
+app "Stew.app"
+binary "#{appdir}/Stew.app/Contents/MacOS/stew"
+zsh_completion "#{appdir}/Stew.app/Contents/Resources/completions/_stew"
+fish_completion "#{appdir}/Stew.app/Contents/Resources/completions/stew.fish"
+bash_completion "#{appdir}/Stew.app/Contents/Resources/completions/stew"
+```
+
+Homebrew links them into its `share/zsh/site-functions`, `share/fish/vendor_completions.d` and `etc/bash_completion.d`, which zsh (through `brew shellenv`) and fish load, and removes the links on `brew uninstall`. The links point into the app, so a new version of the app brings its own scripts. Do not run `stew completions install` from a `postflight`: it writes copies into the user's home that `brew uninstall` would leave behind.
