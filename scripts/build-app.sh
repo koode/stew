@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Assembles Stew.app around a built stew binary. It does not compile or sign.
 #
-#   scripts/build-app.sh --binary PATH --out DIR [--version X.Y.Z] [--build N]
+#   scripts/build-app.sh --binary PATH --out DIR [--version X.Y.Z] [--build N] [--source-build]
 #
+# --source-build marks the app as built from source (StewSourceBuild in Info.plist),
+# so its updater reports new versions instead of installing over the user's build.
 # Writes DIR/Stew.app, replacing an earlier one. The version defaults to the
 # VERSION file. The build number defaults to the commit count of HEAD
 # (git rev-list --count HEAD): main is kept linear, so it only grows, and the
@@ -14,13 +16,15 @@ binary=""
 out_dir=""
 version=""
 build=""
+source_build=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --binary) binary="$2"; shift ;;
     --out) out_dir="$2"; shift ;;
     --version) version="$2"; shift ;;
     --build) build="$2"; shift ;;
-    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --source-build) source_build="<key>StewSourceBuild</key><true/>" ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build-app: unknown option: $1" >&2; exit 64 ;;
   esac
   shift
@@ -76,6 +80,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright 2026 Koode. Elastic License 2.0.</string>
+  $source_build
 </dict>
 </plist>
 PLIST

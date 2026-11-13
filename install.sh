@@ -38,8 +38,21 @@ echo "Building (release)…"
 swift build -c release 2>&1 | grep -E 'error|warning: |Compiling|Build complete' | grep -v '^\[' || true
 [[ -x .build/release/stew ]] || fail "build failed; run 'swift build -c release' to see why"
 
-scripts/build-app.sh --binary .build/release/stew --out .build/app > /dev/null
-# Ad-hoc signed, so the bundle and its Info.plist carry one consistent signature.
-codesign --force --sign - --identifier nl.koode.stew .build/app/Stew.app 2> /dev/null
+scripts/build-app.sh --binary .build/release/stew --out .build/app --source-build > /dev/null
+# Signed with a certificate when there is one: macOS ties keychain access (the iPhone
+# pairings) to the signature, and an ad hoc signature changes with every build, so each
+# rebuild would ask for the login password again. STEW_SIGN_IDENTITY picks one;
+# otherwise an Apple Development certificate, then a Developer ID, then ad hoc.
+sign_identity="${STEW_SIGN_IDENTITY:-}"
+if [[ -z "$sign_identity" ]]; then
+  identities="$(security find-identity -v -p codesigning 2> /dev/null | sed -n 's/^ *[0-9]*) [0-9A-F]* "\(.*\)"$/\1/p')"
+  sign_identity="$(grep -m1 '^Apple Development: ' <<< "$identities" || grep -m1 '^Developer ID Application: ' <<< "$identities" || true)"
+fi
+if [[ -n "$sign_identity" ]] && codesign --force --sign "$sign_identity" --identifier nl.koode.stew .build/app/Stew.app 2> /dev/null; then
+  echo "Signed with $sign_identity"
+else
+  codesign --force --sign - --identifier nl.koode.stew .build/app/Stew.app 2> /dev/null
+  echo "Signed ad hoc (no signing certificate): macOS asks for the keychain again after each rebuild"
+fi
 
 exec scripts/install-release.sh --app .build/app/Stew.app ${passthrough[@]+"${passthrough[@]}"}

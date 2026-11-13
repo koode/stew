@@ -37,9 +37,9 @@ final class Updater: ObservableObject {
     private var pending: (staged: String, manifest: UpdateManifest)?
     private var timer: Timer?
 
-    /// Only an app signed with the Koode Developer ID installs updates. A build from
-    /// source is signed ad hoc, and a release would silently replace the user's own
-    /// build, so it only checks and reports.
+    /// Only an app signed with the Koode team and not marked as built from source
+    /// installs updates. A release would silently replace the user's own build, so a
+    /// source build only checks and reports, even when it is signed with a certificate.
     let isReleaseBuild: Bool
 
     static let sourceBuildNote = "Built from source: install updates by rebuilding."
@@ -65,6 +65,7 @@ final class Updater: ObservableObject {
         if ProcessInfo.processInfo.environment["STEW_UPDATE_ASSUME_RELEASE_BUILD"] == "1" { return true }
         let installed = FileManager.default.fileExists(atPath: Paths.installedApp) ? Paths.installedApp : nil
         guard let app = installed ?? AppVersion.appBundle(forExecutable: Paths.executable) else { return false }
+        if Bundle(path: app)?.object(forInfoDictionaryKey: "StewSourceBuild") as? Bool == true { return false }
         return runTool("/usr/bin/codesign", ["--verify", "-R=\(teamRequirement)", app]).0 == 0
     }
 

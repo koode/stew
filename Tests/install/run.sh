@@ -33,6 +33,12 @@ FALLBACK_COMPLETION="$FAKE_HOME/.zsh/completions/_stew"
 "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/build" --version 0.1.0 --build 3 > /dev/null
 codesign --force --sign - --identifier nl.koode.stew "$WORK/build/Stew.app" 2> /dev/null
 
+# install.sh marks its app as built from source, so the updater never installs over it;
+# a release build carries no mark.
+"$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/source-build" --version 0.1.0 --build 3 --source-build > /dev/null
+expect "source build is marked" "$(/usr/libexec/PlistBuddy -c 'Print :StewSourceBuild' "$WORK/source-build/Stew.app/Contents/Info.plist" 2>&1)" "true"
+expect "release build is not marked" "$(/usr/libexec/PlistBuddy -c 'Print :StewSourceBuild' "$WORK/build/Stew.app/Contents/Info.plist" 2>&1)" "Does Not Exist"
+
 # The layout before Stew.app: a plain binary in ~/.local/bin and a LaunchAgent that runs it.
 cp "$STEW" "$FAKE_HOME/.local/bin/stew"
 cat > "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" <<PLIST
