@@ -34,12 +34,14 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
     @Test func multiSelectTogglesAndNeedsSubmit() {
         var flow = QuestionFlow(questions: sampleQuestions(multiSecond: true))
         flow.go(to: 1)
-        #expect(flow.submitCurrent() == .stay)
+        #expect(flow.submitCurrent() == .missing(0))
+        #expect(flow.index == 0)
+        flow.go(to: 1)
         #expect(flow.choose(2) == .stay)
         #expect(flow.choose(0) == .stay)
         #expect(flow.choose(2) == .stay)
         #expect(flow.choose(1) == .stay)
-        #expect(flow.submitCurrent() == .advanced)
+        #expect(flow.submitCurrent() == .missing(0))
         #expect(flow.index == 0)
         #expect(flow.choose(0) == .complete)
         #expect(flow.answers()["Which extras?"] == "Auth, Billing")
@@ -58,8 +60,68 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
 
     @Test func emptyOtherDoesNotAnswer() {
         var flow = QuestionFlow(questions: sampleQuestions())
-        #expect(flow.answerOther("   ") == .stay)
+        #expect(flow.answerOther("   ") == .missing(0))
         #expect(!flow.isAnswered(0))
+    }
+
+    /// The set from the bug report: a single select, then a multi select, answered in
+    /// order and sent with Submit on the last question.
+    static let reportedSet = [
+        Question(question: "Which maximum line width should oxfmt use?", header: "", options: [
+            QuestionOption(label: "160 (Recommended)", description: ""),
+            QuestionOption(label: "180", description: ""),
+            QuestionOption(label: "120", description: ""),
+        ]),
+        Question(question: "Which shared versions should Claude build?", header: "", options: [
+            QuestionOption(label: "e2e GraphQL helper", description: ""),
+            QuestionOption(label: "One upload function", description: ""),
+            QuestionOption(label: "One useNow hook", description: ""),
+        ], multiSelect: true),
+    ]
+
+    @Test func reportedSetCompletesOnSubmit() {
+        var flow = QuestionFlow(questions: Self.reportedSet)
+        #expect(flow.choose(0) == .advanced)
+        #expect(flow.index == 1)
+        #expect(flow.choose(0) == .stay)
+        #expect(flow.choose(2) == .stay)
+        #expect(flow.submitCurrent() == .complete)
+        #expect(flow.answers() == [
+            "Which maximum line width should oxfmt use?": "160 (Recommended)",
+            "Which shared versions should Claude build?": "e2e GraphQL helper, One useNow hook",
+        ])
+    }
+
+    @Test func submitWithAnOpenQuestionGoesThereAndSaysSo() {
+        var flow = QuestionFlow(questions: Self.reportedSet)
+        flow.go(to: 1)
+        _ = flow.choose(1)
+        #expect(flow.submitCurrent() == .missing(0))
+        #expect(flow.index == 0)
+        #expect(flow.missingMessage(0) == "Q1 has no answer yet.")
+        #expect(flow.firstUnanswered == 0)
+        _ = flow.choose(1)
+        #expect(flow.firstUnanswered == nil)
+    }
+
+    @Test func confirmOnAnUnansweredQuestionSaysSo() {
+        var flow = QuestionFlow(questions: sampleQuestions(multiSecond: true))
+        _ = flow.choose(0)
+        #expect(flow.submitCurrent() == .missing(1))
+        #expect(flow.missingMessage(1) == "Extras has no answer yet.")
+        let single = QuestionFlow(questions: [sampleQuestions(multiSecond: true)[1]])
+        #expect(single.missingMessage(0) == "Choose at least one option, or type an answer under Other.")
+        #expect(QuestionFlow(questions: [sampleQuestions()[0]]).missingMessage(0) == "Choose an option, or type an answer under Other.")
+    }
+
+    @Test func confirmOnAnAnsweredQuestionMovesOn() {
+        var flow = QuestionFlow(questions: sampleQuestions(multiSecond: true) + [Question(question: "Why?", header: "", options: [
+            QuestionOption(label: "Speed", description: ""),
+        ])])
+        flow.go(to: 1)
+        _ = flow.choose(0)
+        #expect(flow.submitCurrent() == .advanced)
+        #expect(flow.index == 2)
     }
 
     @Test func annotationsCarryChosenPreview() {

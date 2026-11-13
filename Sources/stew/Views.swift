@@ -688,6 +688,9 @@ struct QuestionBody: View {
                         interactive: interactive
                     )
                 }
+                if let notice = item.questionNotice {
+                    Notice(.error, notice)
+                }
                 if flow.questions.count > 1 || question.multiSelect || coordinator.textMode {
                     HStack(spacing: 8) {
                         if flow.questions.count > 1 {

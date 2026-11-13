@@ -107,6 +107,11 @@ QUESTIONS='{"questions":[
 echo "$QUESTIONS" | "$STEW" ask > "$WORK/out" & client=$!
 wait_items 1
 expect "question keys" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘O ⌘↩ ⌘E ⌘] ⌘["
+expect "⌘↩ with nothing chosen says what is missing" "$(control press submit)" "question=0 text=false"
+expect "the panel names the open question" "$(control state)" "notice=DB has no answer yet."
+control press next > /dev/null
+expect "⌘↩ on the last question goes to the open one" "$(control press submit)" "question=0"
+expect "and says so" "$(control state)" "notice=DB has no answer yet."
 control choose 2 > /dev/null
 expect "advances to question 2" "$(control state)" "question=1"
 control choose 1 > /dev/null

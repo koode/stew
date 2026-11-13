@@ -6,6 +6,9 @@ public struct QuestionFlow: Equatable, Sendable {
         case stay
         case advanced
         case complete
+        /// Submit or Confirm found this question without an answer. The flow shows it, and
+        /// the panel says so with `missingMessage`, so pressing the button never does nothing.
+        case missing(Int)
     }
 
     public let questions: [Question]
@@ -28,6 +31,24 @@ public struct QuestionFlow: Equatable, Sendable {
 
     public var isComplete: Bool { questions.indices.allSatisfy(isAnswered) }
 
+    public var firstUnanswered: Int? { questions.indices.first { !isAnswered($0) } }
+
+    /// The name of a question on its tab: its header, or Q1, Q2 and so on.
+    public func title(of questionIndex: Int) -> String {
+        let header = questions[questionIndex].header
+        return header.isEmpty ? "Q\(questionIndex + 1)" : header
+    }
+
+    /// What the panel says after `.missing`: which question still needs an answer.
+    public func missingMessage(_ questionIndex: Int) -> String {
+        guard questions.count > 1 else {
+            return questions[questionIndex].multiSelect
+                ? "Choose at least one option, or type an answer under Other."
+                : "Choose an option, or type an answer under Other."
+        }
+        return "\(title(of: questionIndex)) has no answer yet."
+    }
+
     /// Single select: pick and move on. Multi select: toggle and stay.
     public mutating func choose(_ optionIndex: Int) -> Outcome {
         guard current.options.indices.contains(optionIndex) else { return .stay }
@@ -44,16 +65,21 @@ public struct QuestionFlow: Equatable, Sendable {
         return advance()
     }
 
-    /// Confirms the current question (needed for multi select). Does nothing while unanswered.
+    /// Submit (on the last question) or Confirm (on the others). Confirm on an answered
+    /// question moves on. Otherwise, while any question is open, the flow goes to the first
+    /// one and returns `.missing`.
     public mutating func submitCurrent() -> Outcome {
-        guard isAnswered(index) else { return .stay }
-        return advance()
+        if isComplete { return .complete }
+        if isAnswered(index), !isLast { return advance() }
+        guard let open = firstUnanswered else { return .complete }
+        index = open
+        return .missing(open)
     }
 
     /// Free text answer ("Other"). Replaces the choice for single select, adds to it for multi select.
     public mutating func answerOther(_ text: String) -> Outcome {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return isAnswered(index) ? advance() : .stay }
+        guard !trimmed.isEmpty else { return submitCurrent() }
         otherText[index] = trimmed
         if !current.multiSelect {
             selections[index] = []

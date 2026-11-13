@@ -39,6 +39,9 @@ final class Item: ObservableObject, Identifiable {
         latestDeadline.map { min(date, $0) } ?? date
     }
     @Published var flow: QuestionFlow?
+    /// Why Submit did not send the answers: the question that still needs one. Cleared by
+    /// the next choice or move.
+    @Published var questionNotice: String?
     @Published var risk: RiskState = .off
     /// stew's own notice, such as the return summary: kept out of the history.
     var isInternal = false
@@ -510,7 +513,7 @@ final class Coordinator: ObservableObject {
             case .valid: inputState = "valid"
             }
         }
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) \(needsState) keys=\(bindings)"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -960,18 +963,22 @@ final class Coordinator: ObservableObject {
             }
         case (.question, .submit):
             guard var flow = item.flow else { return }
+            let typedQuestion = flow.index
             let outcome = textMode ? flow.answerOther(draft) : flow.submitCurrent()
             item.flow = flow
-            if textMode, outcome != .stay {
+            // The field stays open only while the typed question itself still has no answer.
+            if textMode, outcome != .stay, outcome != .missing(typedQuestion) {
                 draft = ""
                 setTextMode(false)
             }
             finishIfComplete(item, outcome)
         case (.question, .next):
             item.flow?.next()
+            item.questionNotice = nil
             changed()
         case (.question, .previous):
             item.flow?.previous()
+            item.questionNotice = nil
             changed()
         default:
             break
@@ -1029,11 +1036,19 @@ final class Coordinator: ObservableObject {
 
     func goToQuestion(_ index: Int) {
         current?.flow?.go(to: index)
+        current?.questionNotice = nil
         changed()
     }
 
+    /// Sends the answers once every question has one. Otherwise the panel shows what is
+    /// missing, so Submit and ⌘↩ never do nothing.
     private func finishIfComplete(_ item: Item, _ outcome: QuestionFlow.Outcome) {
         guard let flow = item.flow else { return }
+        if case .missing(let questionIndex) = outcome {
+            item.questionNotice = flow.missingMessage(questionIndex)
+        } else {
+            item.questionNotice = nil
+        }
         if outcome == .complete {
             let annotations = flow.annotations()
             respond(item, StewResponse(status: .answered, answers: flow.answers(), annotations: annotations.isEmpty ? nil : annotations))
