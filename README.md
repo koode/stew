@@ -201,6 +201,21 @@ Permission requests, questions and inputs get 1 minute by default (`responseTime
 
 For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session as context. The verdict shows above the command after approximately 5 seconds. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
 
+#### Severity
+
+![A critical request: the red banner with the Critical risk chip, the reversibility line and Approve anyway on ⇧⌘↩](docs/images/permission-severity-critical-light.png)
+
+The same check also rates how bad the action is if it runs, and says in one line whether it can be undone. Severity is about what the action does, not how sensitive the data it touches is: you approve each action, so reading a secret on this Mac (a keychain lookup, an `.env` file, `op read`) is low or medium. It becomes high or critical when the action also sends the secret out, or uses it to do something that cannot be undone.
+
+| Level | Examples | What changes |
+|---|---|---|
+| Low risk | Edit files in the repo, `git commit`, `rm -rf` of a build folder | Nothing |
+| Medium risk | `git push`, `git reset --hard` (the reflog keeps the commits), installing a package | Nothing |
+| High risk | `rm -rf` outside the project, a force-push to a shared branch, `DROP TABLE`, deleting cloud resources | The warning look, and 1 more minute to answer |
+| Critical risk | Sending money or emails to customers, deleting production data or backups, publishing a release | The red look, Approve needs ⇧⌘↩ like a hard deny, and 1 more minute to answer |
+
+The panel shows the level as a chip in the risk banner, with the reversibility line under the summary, such as "Can be undone with git reflog." or "Deletes files permanently; no undo." History shows the level in its own column. On the iPhone, high and critical need an extra confirmation before Approve (see [docs/PHONE.md](docs/PHONE.md)). When the risk check is off or fails, there is no severity and nothing changes. Each rule is a setting under Settings ▸ Claude Code ▸ Risk check.
+
 ### History: what you missed
 
 Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
@@ -315,7 +330,7 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 The window has six panes, picked from its toolbar:
 
-- **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, sound, confetti, updates.
+- **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, look (solid or glass), sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
@@ -337,11 +352,13 @@ The window has six panes, picked from its toolbar:
   "autoNeeds": "unattended",
   "sound": "Glass",
   "position": "top-right",
+  "panelLook": "solid",
   "confetti": false,
   "autoUpdate": true,
   "historyDays": 30,
   "menuBar": true,
-  "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
+  "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6,
+                  "criticalNeedsStrongApprove": true, "highExtraTime": 60, "phoneConfirmation": "highAndCritical" }
 }
 ```
 
@@ -352,12 +369,13 @@ The window has six panes, picked from its toolbar:
 - `autoNeeds` is `unattended`, `always` or `never`: for which sessions a `needs input:` line at the end of a turn becomes a needs item.
 - `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
 - `position` is `top-right`, `top-center` or `top-left`.
+- `panelLook` is `solid` or `glass`. Glass puts macOS's Liquid Glass behind the panel, tinted so text stays readable over busy windows. It needs macOS 26 or later; older macOS keeps the solid panel.
 - `sound` is a name from `/System/Library/Sounds` (such as `"Glass"`), or `""` for none.
 - `confetti` shows a short burst of confetti where the panel was when you approve a request. It is off by default, and never plays when "Reduce motion" is on in macOS.
 - `autoUpdate` installs new versions by itself (see Updates).
 - `historyDays` is how many days of request history to keep.
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
-- `classifier` controls the risk check on direct `stew permit` calls.
+- `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
 
 ## Security model
 

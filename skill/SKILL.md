@@ -109,7 +109,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 ## Reading the answer
 
 ```json
-{"status":"approved","note":"only the cache, not the logs","risk":{"verdict":"soft_deny","risk":"medium","rule":"...","summary":"..."}}
+{"status":"approved","note":"only the cache, not the logs","risk":{"verdict":"soft_deny","risk":"medium","rule":"...","summary":"...","severity":"medium","reversibility":"Can be undone with git reflog."}}
 {"status":"denied","note":"use a migration instead"}
 {"status":"answered","answers":{"Which database?":"SQLite"},"annotations":{...}}
 {"id":"…","status":"answered","text":"staging.example.com"}
@@ -128,7 +128,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 ### Late answers
 
 The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` or after a timeout arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
-- `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command.
+- `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command. `severity` (`low`, `medium`, `high`, `critical`) says how bad the action is if it runs, and `reversibility` whether it can be undone. A critical action takes the user a stronger shortcut to approve, so expect a slower answer.
 
 ## Writing a good request
 
