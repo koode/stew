@@ -293,24 +293,27 @@ struct KeySettings: View {
 
     var body: some View {
         SettingsPane(tab: .keys) {
+            Button("Reset keys to defaults") { model.resetKeys() }
+        } content: {
             SettingsForm {
-                Section("Answer") {
+                Section {
                     ForEach(Self.answering, id: \.0) { action, name in recorder(name, action) }
+                } header: {
+                    Text("Answer")
+                } footer: {
+                    Hint("Click a key, then press the new combination. It needs Control, Option or Command, so plain typing never answers a panel. Esc cancels.")
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Section("Move and dismiss") {
                     ForEach(Self.moving, id: \.0) { action, name in recorder(name, action) }
                 }
-                Section {
+                Section("Options") {
                     ForEach(0..<4, id: \.self) { index in
                         LabeledContent("Option \(index + 1)") {
                             KeyRecorder(shortcut: model.keymap.options[index]) { model.setOptionShortcut($0, at: index) }
                         }
                     }
-                } header: {
-                    Text("Options")
-                } footer: {
-                    Hint("Click a key, then press the new combination. It needs Control, Option or Command, so plain typing never answers a panel. Esc cancels.")
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Section("Hard deny") {
                     SettingRow(hint: "Approving a call that auto mode would never allow needs this key as well as Approve.") {
@@ -324,11 +327,6 @@ struct KeySettings: View {
                         }
                     }
                 }
-                HStack {
-                    Spacer()
-                    Button("Reset keys to defaults") { model.resetKeys() }
-                }
-                .listRowBackground(Color.clear)
             }
         }
     }
