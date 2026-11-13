@@ -230,7 +230,7 @@ struct GeneralSettings: View {
                     }
                 }
                 Section("Updates") {
-                    SettingRow(hint: updater.isReleaseBuild ? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
+                    SettingRow(hint: updater.isReleaseBuild ? updater.installNote ?? "Stew checks once a day and installs a new version when no request is open." : Updater.sourceBuildNote) {
                         Toggle("Install updates automatically", isOn: binding(\.autoUpdate))
                             .disabled(!updater.isReleaseBuild)
                     }
@@ -249,7 +249,7 @@ struct GeneralSettings: View {
                         Button(updater.busy ? "Checking…" : "Check now") { updater.run(install: false) { _ in } }
                             .disabled(updater.busy)
                         // Check now only reports; installing takes its own click.
-                        if updater.availableVersion != nil, updater.isReleaseBuild {
+                        if updater.availableVersion != nil, updater.isReleaseBuild, updater.installNote == nil {
                             Button("Install now") { updater.run(install: true) { _ in } }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(updater.busy)

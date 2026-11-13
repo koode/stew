@@ -1,4 +1,5 @@
 import Foundation
+import StewCore
 
 enum Paths {
     /// HOME first, like other command line tools, so the installer tests can point stew
@@ -48,10 +49,12 @@ enum Paths {
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
-    /// Where Stew.app is installed and where updates go. STEW_APP_PATH lets tests
+    /// Where Stew.app is installed and where updates go: the app this binary runs from,
+    /// in `~/Applications` from the install script or `/Applications` from the Homebrew
+    /// cask. A binary outside any app looks in `~/Applications`. STEW_APP_PATH lets tests
     /// install an update into a temporary folder.
     static var installedApp: String {
-        ProcessInfo.processInfo.environment["STEW_APP_PATH"] ?? home + "/Applications/Stew.app"
+        InstallLocation.app(override: ProcessInfo.processInfo.environment["STEW_APP_PATH"], runningExecutable: executable, home: home)
     }
 
     /// `claude` from config, then the usual install places, then PATH.

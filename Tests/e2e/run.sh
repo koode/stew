@@ -4,7 +4,10 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STEW="${STEW:-$ROOT/.build/debug/stew}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/stew-e2e.XXXXXX")"
+# stew names its app by its own canonical path, so the work folder gets no doubled
+# slash from a TMPDIR that ends in one.
+TMP_ROOT="${TMPDIR:-/tmp}"
+WORK="$(mktemp -d "${TMP_ROOT%/}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e"
 # Run from inside Claude Code, requests would carry that session's id; tests set their own.
 unset CLAUDE_CODE_SESSION_ID
@@ -893,6 +896,33 @@ for _ in $(seq 1 100); do [[ "$(installed_version)" == "0.4.0" ]] && break; slee
 expect "scheduled check installs the update" "$(installed_version)" "0.4.0"
 expect "new daemon removed the previous update's leftovers" "$(cat "$WORK/scheduled.log")" "update/Applications/.stew-update"
 kill "$SCHEDULED"; wait "$SCHEDULED" 2>/dev/null; SCHEDULED=""
+
+# An app outside ~/Applications, such as the Homebrew cask's in /Applications, updates
+# where it is. The app's own tool runs the update itself (no daemon on its socket),
+# without STEW_APP_PATH and with a temporary home, so the app it runs from is the one
+# to replace. HOMEBREW_PREFIX points at a fake prefix where the cask linked bin/stew.
+CASK_APPS="$UPD/cask-apps"
+CASK_TOOL="$CASK_APPS/Stew.app/Contents/MacOS/stew"
+mkdir -p "$CASK_APPS" "$UPD/cask-home" "$UPD/brew/bin" "$UPD/brew/Caskroom/stew" "$UPD/no-brew"
+ditto "$UPD/build-0.3.0-11/Stew.app" "$CASK_APPS/Stew.app"
+ln -s "$CASK_TOOL" "$UPD/brew/bin/stew"
+cask_version() { /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CASK_APPS/Stew.app/Contents/Info.plist" 2>/dev/null; }
+update_in_place() { env -u STEW_APP_PATH HOME="$UPD/cask-home" STEW_SOCKET="$WORK/none.sock" HOMEBREW_PREFIX="$UPD/no-brew" "$@" "$CASK_TOOL" update 2>&1; }
+
+chmod 555 "$CASK_APPS"
+out=$(update_in_place HOMEBREW_PREFIX="$UPD/brew"); code=$?
+expect "a read-only cask install points at brew upgrade" "$out" "Version 0.4.0 (build 12) is available. Stew cannot replace the app in this folder, so update it with Homebrew: brew upgrade --cask stew"
+expect "a read-only cask install reports available" "$code" "10"
+out=$(update_in_place); code=$?
+expect "a read-only folder without Homebrew is named" "$out$code" "Stew cannot replace the app in $CASK_APPS, because this user cannot write there."
+expect "a read-only folder keeps the app" "$(cask_version)" "0.3.0"
+chmod 755 "$CASK_APPS"
+
+out=$(update_in_place HOMEBREW_PREFIX="$UPD/brew"); code=$?
+expect "a writable cask install updates itself" "$out$code" "Installed version 0.4.0 (build 12).0"
+expect "the update replaced the app where it runs" "$(cask_version)" "0.4.0"
+expect "the old app waits next to it" "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CASK_APPS/.stew-update/backup/Stew.app/Contents/Info.plist" 2>&1)" "0.3.0"
+[[ ! -e "$UPD/cask-home/Applications" ]] && pass "no second copy in ~/Applications" || fail "no second copy in ~/Applications" "$(ls -R "$UPD/cask-home")"
 kill "$HTTP"; wait "$HTTP" 2>/dev/null; HTTP=""
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then

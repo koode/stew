@@ -93,6 +93,28 @@ final class Updater: ObservableObject {
         AppVersion.installed(at: Paths.installedApp) ?? AppVersion.running
     }
 
+    /// Whether this user can swap the installed app in place. When Stew.app is missing,
+    /// `prepare` reports that instead.
+    static var installRoute: UpdateRoute {
+        let app = Paths.installedApp
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: app) else { return .inPlace }
+        return UpdateRoute.choose(
+            app: app,
+            appWritable: fileManager.isWritableFile(atPath: app),
+            folderWritable: fileManager.isWritableFile(atPath: (app as NSString).deletingLastPathComponent),
+            homebrewCask: InstallLocation.isHomebrewCask(
+                app: app,
+                prefixes: InstallLocation.homebrewPrefixes(environment: ProcessInfo.processInfo.environment),
+                directoryExists: { fileManager.fileExists(atPath: $0) },
+                resolve: Setup.resolvedPath
+            )
+        )
+    }
+
+    /// Why updates cannot install here, for Settings; nil when they can.
+    var installNote: String? { isReleaseBuild ? Self.installRoute.note : nil }
+
     /// Restarting goes through launchd, and only for the real install: never for a test
     /// daemon, which has its own socket or app path.
     static var canRestart: Bool {
@@ -144,7 +166,11 @@ final class Updater: ObservableObject {
                 let (manifest, decision) = try check()
                 outcome = describe(decision, manifest: manifest)
                 if install, decision == .available {
-                    if isReleaseBuild {
+                    let route = Self.installRoute
+                    if isReleaseBuild, let note = route.note {
+                        outcome.message += " " + note
+                        log("update: not installing; cannot replace \(Paths.installedApp) (\(route))")
+                    } else if isReleaseBuild {
                         staged = (try prepare(manifest), manifest)
                     } else {
                         outcome.message += " " + Self.sourceBuildNote
