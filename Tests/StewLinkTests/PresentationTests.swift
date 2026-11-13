@@ -91,8 +91,8 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         let request = linkRequest(singleQuestion)
         let content = LinkPresentation.notification(for: request, pairingId: "pair", time: clock)
         #expect(content.categoryIdentifier == "stew.question.request1")
-        #expect(content.actions.map(\.title) == ["Postgres", "SQLite", "Other…"])
-        #expect(content.actions.last?.textPlaceholder != nil)
+        #expect(content.actions.map(\.title) == ["Postgres", "SQLite", "Other…", "More time (+2 min)"])
+        #expect(content.actions.first { $0.role == .other }?.textPlaceholder != nil)
         #expect(LinkPresentation.choice(forAction: "option.1", typedText: nil, request: request) == .answers([LinkQuestionAnswer(selected: [1])]))
         #expect(LinkPresentation.choice(forAction: "other", typedText: "  MySQL ", request: request) == .answers([LinkQuestionAnswer(selected: [], other: "MySQL")]))
         #expect(LinkPresentation.choice(forAction: "other", typedText: "  ", request: request) == nil)
@@ -102,7 +102,7 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
     @Test func severalQuestionsAnswerInTheApp() {
         let content = LinkPresentation.notification(for: linkRequest(twoQuestions), pairingId: "pair", time: clock)
         #expect(content.categoryIdentifier == "stew.question.inApp")
-        #expect(content.actions.isEmpty)
+        #expect(content.actions.map(\.role) == [.moreTime])
         #expect(content.body.contains("Open stew to answer 2 questions."))
     }
 

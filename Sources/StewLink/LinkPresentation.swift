@@ -147,7 +147,8 @@ public enum LinkPresentation {
             let base = request.hardDeny ? "stew.permission.macOnly" : request.confirmation != nil ? reviewCategory : "stew.permission"
             return canExtend(request) ? base : base + ".noTime"
         case .question:
-            return notificationQuestion(request) == nil ? "stew.question.inApp" : "stew.question.\(request.requestId)"
+            guard notificationQuestion(request) != nil else { return "stew.question.inApp" + (canExtend(request) ? "" : ".noTime") }
+            return "stew.question.\(request.requestId)"
         case .input(let input):
             guard input.secret else { return inputCategoryPrefix + request.requestId }
             return secretCategory + (canExtend(request) ? "" : ".noTime") + (request.request.offersEnterLater ? "" : ".noLater")
@@ -198,11 +199,12 @@ public enum LinkPresentation {
             if canExtend(request) { actions.append(moreTime) }
             return actions
         case .question:
-            guard let question = notificationQuestion(request) else { return [] }
+            guard let question = notificationQuestion(request) else { return canExtend(request) ? [moreTime] : [] }
             var actions = question.options.prefix(4).enumerated().map { index, option in
                 LinkNotificationAction(identifier: optionActionPrefix + String(index), title: option.label, role: .option(index))
             }
             actions.append(LinkNotificationAction(identifier: otherAction, title: "Other…", role: .other, textPlaceholder: "Your answer"))
+            if canExtend(request) { actions.append(moreTime) }
             return actions
         case .input(let input):
             // A notification text field cannot hide what is typed, so a secret is
@@ -210,7 +212,8 @@ public enum LinkPresentation {
             // move the time, they answer nothing.
             guard input.secret else {
                 let placeholder = input.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? "Your answer"
-                return [LinkNotificationAction(identifier: replyAction, title: "Reply", role: .reply, textPlaceholder: placeholder)]
+                let reply = LinkNotificationAction(identifier: replyAction, title: "Reply", role: .reply, textPlaceholder: placeholder)
+                return canExtend(request) ? [reply, moreTime] : [reply]
             }
             var actions: [LinkNotificationAction] = []
             if canExtend(request) {
@@ -229,6 +232,12 @@ public enum LinkPresentation {
         guard let severity = risk?.severity else { return nil }
         return ([severity.label, risk?.reversibilityLine].compactMap { $0 }).joined(separator: " · ")
     }
+
+    /// The phone shows this while the Mac took its "viewing" message.
+    public static let viewingPaused = "No rush: the clock is paused while you answer."
+
+    /// The Mac panel's header while a phone has the request open, in place of the clock.
+    public static func viewingOn(_ phoneName: String) -> String { "Viewing on \(phoneName)" }
 
     public static func moreTimeTitle(_ seconds: Double) -> String {
         seconds >= 60 && seconds.truncatingRemainder(dividingBy: 60) == 0 ? "More time (+\(Int(seconds / 60)) min)" : "More time (+\(Int(seconds)) s)"
@@ -395,6 +404,7 @@ public enum LinkRefusal {
     public static let needsConfirmation = "This request needs an extra confirmation. Open it in the stew app to approve it, or update the app if Approve does not ask you to confirm."
 
     public static let alreadyAnswered = "You already answered this request."
+    public static let viewingCapReached = "The clock is no longer paused for this request: it was open on your iPhone for the longest time stew pauses it."
     public static let riskChecking = "Your Mac is still checking this command against your auto mode rules. Try again in a few seconds."
     /// An answer older than this is refused, so a relay that held it back cannot apply it
     /// after the user has moved on.
@@ -416,7 +426,7 @@ public enum LinkRefusal {
             let isAnswer: Bool
             switch choice {
             case .approve, .deny, .answers, .text: isAnswer = true
-            case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater: isAnswer = false
+            case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left: isAnswer = false
             }
             guard isAnswer, LinkPresentation.canAnswerLate(request) else {
                 return tooLate(macName: request.macName, deadline: deadline)
@@ -429,6 +439,9 @@ public enum LinkRefusal {
             if request.queued { return clockNotStarted }
             return request.deadline == nil ? noTimeLimit : nil
         case (.deny, .permission), (.answers, .question), (.done, .needs):
+            return nil
+        case (.viewing, _), (.left, _):
+            // Only the clock depends on these; a request without one simply ignores them.
             return nil
         case (.needsAnswer(let label), .needs(let needs)):
             return needs.answers.contains(label) ? nil : unknownAnswer

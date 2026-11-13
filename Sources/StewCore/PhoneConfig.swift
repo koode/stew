@@ -12,12 +12,18 @@ public struct PhoneConfig: Codable, Equatable, Sendable {
     public var idleAfter: Double
     /// Relay for new pairings. Existing pairings keep the relay they were made with.
     public var relay: String
+    /// The longest a request's clock stays paused while it is open on a phone, in seconds.
+    public var viewingCap: Double
 
-    public init(push: String = PhonePushMode.away.rawValue, after: Double = 10, idleAfter: Double = 120, relay: String = PhoneConfig.defaultRelay) {
+    public init(
+        push: String = PhonePushMode.away.rawValue, after: Double = 10, idleAfter: Double = 120, relay: String = PhoneConfig.defaultRelay,
+        viewingCap: Double = ViewingPause.defaultCap
+    ) {
         self.push = push
         self.after = after
         self.idleAfter = idleAfter
         self.relay = relay
+        self.viewingCap = viewingCap
     }
 
     public init(from decoder: Decoder) throws {
@@ -27,6 +33,7 @@ public struct PhoneConfig: Codable, Equatable, Sendable {
         after = try container.decodeIfPresent(Double.self, forKey: .after) ?? defaults.after
         idleAfter = try container.decodeIfPresent(Double.self, forKey: .idleAfter) ?? defaults.idleAfter
         relay = try container.decodeIfPresent(String.self, forKey: .relay) ?? defaults.relay
+        viewingCap = try container.decodeIfPresent(Double.self, forKey: .viewingCap) ?? defaults.viewingCap
     }
 
     /// An unknown value counts as the default, so a typo never pushes more than asked.

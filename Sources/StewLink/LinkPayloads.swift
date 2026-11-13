@@ -33,6 +33,9 @@ public struct LinkRequest: Codable, Equatable, Sendable {
     /// severity and the Mac's setting. Nil: none. An older phone ignores it, and the Mac
     /// then refuses its approval.
     public var confirmation: PhoneConfirmation?
+    /// The name of the phone the request is open on, while its clock is paused for that.
+    /// Nil from a Mac that does not pause for viewing.
+    public var viewingOn: String?
 
     public init(
         requestId: String,
@@ -44,7 +47,8 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         extendBy: Double?,
         hardDeny: Bool,
         risk: RiskAssessment?,
-        confirmation: PhoneConfirmation? = nil
+        confirmation: PhoneConfirmation? = nil,
+        viewingOn: String? = nil
     ) {
         self.requestId = requestId
         self.macName = macName
@@ -56,6 +60,7 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         self.hardDeny = hardDeny
         self.risk = risk
         self.confirmation = confirmation
+        self.viewingOn = viewingOn
     }
 }
 
@@ -90,6 +95,11 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     case enterSoon
     /// A secret input: "I'll enter it later" ends Claude's wait with "later".
     case enterLater
+    /// The request is on screen in the app: the Mac pauses its clock. Not an answer.
+    case viewing
+    /// The request left the screen in the app: the clock runs again after a short grace
+    /// period. Not an answer.
+    case left
 }
 
 /// Phone to Mac.

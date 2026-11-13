@@ -32,7 +32,7 @@ private func linkRequest(_ input: InputRequest, sessionID: String? = "abc", dead
         #expect(content.body == "Which domain?\nWhy: The DNS record needs it.\nStudio · answer by T+60")
         #expect(content.categoryIdentifier == "stew.input.request1")
         let reply = try #require(content.actions.first)
-        #expect(content.actions.count == 1)
+        #expect(content.actions.map(\.identifier) == ["reply", "moreTime"])
         #expect(reply.identifier == "reply" && reply.title == "Reply" && reply.textPlaceholder == "example.com")
         #expect(!reply.requiresAuthentication)
         #expect(LinkPresentation.choice(forAction: "reply", typedText: "example.com", request: request) == .text("example.com"))
