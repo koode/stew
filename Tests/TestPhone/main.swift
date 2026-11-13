@@ -16,6 +16,7 @@ stew-test-phone COMMAND [options]
   answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
       ACTION is approve, deny, moreTime, option.N, other, done, answer.N, notNow,
       reply (with --text), enterSoon or enterLater. Prints the Mac's result.
+      ACTION viewing or left says the request opened or left the screen in the app.
       ACTION answers sends --answers JSON, one {"selected":[N],"other":TEXT} per
       question, the way the app answers a question set.
       --force skips the phone's own checks, to prove the Mac refuses too. With it,
@@ -181,6 +182,7 @@ func waitPush(_ values: [String: String]) throws {
                 output["actionTitles"] = content.actions.map(\.title)
                 output["hasDeadline"] = request.deadline != nil
                 output["confirmation"] = request.confirmation?.rawValue ?? ""
+                output["viewingOn"] = request.viewingOn ?? ""
                 if values["raw"] == "yes" {
                     // Everything the phone learned about the request, so a test can show
                     // what it never receives, such as a secret.
@@ -224,6 +226,10 @@ func answer(_ values: [String: String]) throws {
     if action == "answers" {
         let text = try required(values, "answers")
         choice = .answers(try LinkJSON.decode([LinkQuestionAnswer].self, from: Data(text.utf8)))
+    } else if action == "viewing" {
+        choice = .viewing
+    } else if action == "left" {
+        choice = .left
     } else if let offered {
         choice = offered
     } else if forced, action == LinkPresentation.approveAction {

@@ -375,6 +375,7 @@ The window has six panes, picked from its toolbar:
 - `autoUpdate` installs new versions by itself (see Updates).
 - `historyDays` is how many days of request history to keep.
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
+- `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
 - `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
 
 ## Security model

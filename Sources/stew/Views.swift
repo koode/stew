@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import StewCore
+import StewLink
 
 struct RootView: View {
     @ObservedObject var coordinator: Coordinator
@@ -230,7 +231,9 @@ struct TimeLimit: View {
     var body: some View {
         HStack(spacing: 6) {
             Group {
-                if let deadline = item.deadline {
+                if coordinator.isViewing(item), let pause = item.viewing {
+                    Text(LinkPresentation.viewingOn(pause.phoneName)).foregroundStyle(.secondary)
+                } else if let deadline = item.deadline {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = deadline.timeIntervalSince(context.date)
                         Text(Self.format(remaining))

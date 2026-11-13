@@ -22,6 +22,7 @@ struct PhoneSettingsTab: View {
     @State private var justPaired: String?
 
     private static let modes: [(String, PhonePushMode)] = [("When I'm away", .away), ("Always", .always), ("Never", .never)]
+    private static let viewingCaps: [(String, Double)] = [("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800), ("1 hour", 3600)]
     private static let waits: [(String, Double)] = [("Instantly", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
     private static let pairHint = "Requests that stay open while you are away arrive as notifications you can answer. Everything is end-to-end encrypted; the relay cannot read requests or answers."
 
@@ -85,6 +86,14 @@ struct PhoneSettingsTab: View {
                             set: { value in model.update { $0.phone.after = value } }
                         )) {
                             ForEach(Self.waits, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    SettingRow(hint: "While a request is open in the stew app, its clock pauses, and runs again 30 seconds after you leave it. After this long open, it times out anyway.") {
+                        Picker("Longest pause while open on iPhone", selection: Binding(
+                            get: { model.config.phone.viewingCap },
+                            set: { value in model.update { $0.phone.viewingCap = value } }
+                        )) {
+                            ForEach(Self.viewingCaps, id: \.1) { Text($0.0).tag($0.1) }
                         }
                     }
                     SettingRow(hint: "Used for new pairings. To run your own relay, set phone.relay in config.json.") {

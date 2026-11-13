@@ -31,6 +31,10 @@ final class Item: ObservableObject, Identifiable {
     /// Time left, kept while the clock is paused for typing a note or picking a grant.
     @Published var pausedRemaining: TimeInterval?
     var timer: DispatchWorkItem?
+    /// Open on a paired phone: the clock pauses while the user reads it there.
+    @Published var viewing: ViewingPause?
+    /// Fires when the viewing pause ends, to resume the clock or time out at the cap.
+    var viewingTimer: DispatchWorkItem?
 
     /// The caller's hard ceiling, such as Claude Code's hook timeout.
     var latestDeadline: Date? { request.maxWait.map { received.addingTimeInterval($0) } }
@@ -510,6 +514,7 @@ final class Coordinator: ObservableObject {
         case .off, nil: risk = "off"
         }
         let severity = current?.risk.assessment?.severity?.rawValue ?? "-"
+        let viewingState = current.flatMap { item in isViewing(item) ? item.viewing?.phoneName : nil } ?? "-"
         let bindings = activeBindings().map { "\($0.0)" }.joined(separator: " ")
         var clockState = "none"
         if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
@@ -523,7 +528,7 @@ final class Coordinator: ObservableObject {
             case .valid: inputState = "valid"
             }
         }
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) viewing=\(viewingState) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -888,7 +893,7 @@ final class Coordinator: ObservableObject {
             item.grantedSeconds = limit
             item.deadline = item.capped(Date().addingTimeInterval(limit))
         }
-        let shouldPause = textMode || grantMode
+        let shouldPause = textMode || grantMode || isViewing(item)
         if shouldPause, let deadline = item.deadline {
             item.pausedRemaining = max(0, deadline.timeIntervalSinceNow)
             item.deadline = nil
@@ -909,8 +914,65 @@ final class Coordinator: ObservableObject {
 
     /// Times the request out now. Also used when a phone answer arrives the moment the
     /// time ran out, before the timer fired, so it can go as a late answer.
-    func expire(_ item: Item) {
-        respond(item, StewResponse(status: .timeout, note: item.request.timeoutNote(after: item.grantedSeconds), risk: item.risk.assessment))
+    func expire(_ item: Item, reason: String? = nil) {
+        let note = [item.request.timeoutNote(after: item.grantedSeconds), reason].compactMap { $0 }.joined(separator: " ")
+        respond(item, StewResponse(status: .timeout, note: note, risk: item.risk.assessment))
+    }
+
+    /// True while a phone has the request open and the pause has not run out.
+    func isViewing(_ item: Item) -> Bool {
+        item.viewing?.isActive(at: Date(), cap: config.phone.viewingCap, grace: Self.viewingGrace) == true
+    }
+
+    /// The headless test daemon can shorten the grace period with STEW_VIEWING_GRACE.
+    static let viewingGrace: TimeInterval = {
+        guard Paths.headless, let text = ProcessInfo.processInfo.environment["STEW_VIEWING_GRACE"], let seconds = Double(text) else { return ViewingPause.grace }
+        return seconds
+    }()
+
+    /// A paired phone opened the request: its clock pauses, the same as while typing a
+    /// note, until the phone leaves it or the cap runs out. False when it does not pause,
+    /// such as past the cap.
+    @discardableResult
+    func startViewing(_ item: Item, phoneName: String, pairingId: String) -> Bool {
+        let now = Date()
+        if var pause = item.viewing {
+            pause.viewed(at: now, phoneName: phoneName, pairingId: pairingId, cap: config.phone.viewingCap)
+            item.viewing = pause
+        } else {
+            item.viewing = ViewingPause(phoneName: phoneName, pairingId: pairingId, started: now)
+        }
+        scheduleViewingEnd(item)
+        changed()
+        return isViewing(item)
+    }
+
+    /// The phone left the request: the clock runs again after the grace period.
+    func stopViewing(_ item: Item, pairingId: String) {
+        guard var pause = item.viewing else { return }
+        pause.left(at: Date(), pairingId: pairingId)
+        item.viewing = pause
+        scheduleViewingEnd(item)
+        changed()
+    }
+
+    private func scheduleViewingEnd(_ item: Item) {
+        item.viewingTimer?.cancel()
+        guard let pause = item.viewing else { return }
+        let cap = config.phone.viewingCap
+        let work = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item, let pause = item.viewing, self.items.contains(where: { $0 === item }) else { return }
+            if pause.reachedCap(at: Date(), cap: cap) {
+                // Open on the phone all along without an answer: time out, and say why.
+                self.expire(item, reason: ViewingPause.capNote(phoneName: pause.phoneName, cap: cap))
+            } else {
+                // The pause stays on record, so a later open still counts against the
+                // cap from the first one.
+                self.changed()
+            }
+        }
+        item.viewingTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, pause.endsAt(cap: cap, grace: Self.viewingGrace).timeIntervalSinceNow), execute: work)
     }
 
     /// High and critical actions get extra time to read before the clock runs out. The

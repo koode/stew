@@ -61,7 +61,16 @@ public struct ViewingPause: Equatable, Sendable {
 extension ViewingPause {
     /// What Claude reads when a request times out at the cap while open on the phone.
     public static func capNote(phoneName: String, cap: TimeInterval) -> String {
-        let minutes = max(1, Int((cap / 60).rounded()))
-        return "The request was open on the user's iPhone (\(phoneName)) for \(minutes) minutes without an answer, the longest stew pauses the clock for."
+        return "The request was open on the user's iPhone (\(phoneName)) for \(durationText(cap)) without an answer, the longest stew pauses the clock for."
+    }
+
+    /// "1 minute", "15 minutes", or seconds below a minute.
+    static func durationText(_ seconds: TimeInterval) -> String {
+        guard seconds >= 60 else {
+            let whole = max(1, Int(seconds.rounded()))
+            return whole == 1 ? "1 second" : "\(whole) seconds"
+        }
+        let minutes = Int((seconds / 60).rounded())
+        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
     }
 }

@@ -254,11 +254,18 @@ final class PhoneLink: ObservableObject {
         guard let coordinator,
               let item = coordinator.items.first(where: { $0.id.uuidString == requestId }),
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
+            if answer.choice == .viewing || answer.choice == .left {
+                // Ignored for a request that already ended; the phone shows its outcome.
+                return refuse(LinkRefusal.closed(recentlyResolved[requestId]?.outcome, macName: macName))
+            }
             if let late = applyLate(answer, from: pairingId) { return late }
             if let recent = recentlyResolved[requestId] {
                 return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName))
             }
             return refuse(LinkRefusal.closed(nil, macName: macName))
+        }
+        if answer.choice == .viewing || answer.choice == .left {
+            return applyViewing(answer, item: item, coordinator: coordinator, from: pairingId)
         }
         if let deadline = item.deadline, deadline <= Date() {
             // The time ran out a moment ago and the timer has not fired yet: time the
@@ -453,6 +460,31 @@ final class PhoneLink: ObservableObject {
         }
     }
 
+    /// "Viewing" pauses the request's clock while it is open on the phone; "left" lets it
+    /// run again after the grace period. The new deadline reaches every phone through the
+    /// usual update, as after More time.
+    private func applyViewing(_ answer: LinkAnswer, item: Item, coordinator: Coordinator, from pairingId: String) -> LinkResult {
+        let requestId = answer.requestId
+        guard item.timeLimit != nil else { return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.noTimeLimit) }
+        if let deadline = item.deadline, deadline <= Date() {
+            return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.tooLate(macName: macName, deadline: deadline))
+        }
+        if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
+            return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.tooSlow)
+        }
+        let phoneName = paired.first { $0.pairingId == pairingId }?.phoneName ?? answer.phoneName
+        if answer.choice == .viewing {
+            guard coordinator.startViewing(item, phoneName: phoneName, pairingId: pairingId) else {
+                return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.viewingCapReached)
+            }
+            let ends = item.viewing?.endsAt(cap: coordinator.config.phone.viewingCap, grace: Coordinator.viewingGrace)
+            return LinkResult(requestId: requestId, accepted: true, message: LinkPresentation.viewingPaused, deadline: ends)
+        }
+        coordinator.stopViewing(item, pairingId: pairingId)
+        let deadline = item.deadline ?? item.pausedRemaining.map { Date().addingTimeInterval($0) }
+        return LinkResult(requestId: requestId, accepted: true, message: "", deadline: deadline)
+    }
+
     /// The request as the phone should see it now.
     private func linkRequest(for item: Item, previous: LinkRequest?) -> LinkRequest {
         var deadline = item.deadline
@@ -471,7 +503,8 @@ final class PhoneLink: ObservableObject {
             extendBy: item.timeLimit == nil ? nil : coordinator?.config.extendBy,
             hardDeny: item.isHardDeny,
             risk: item.risk.assessment,
-            confirmation: confirmation(for: item)
+            confirmation: confirmation(for: item),
+            viewingOn: coordinator.flatMap { $0.isViewing(item) ? item.viewing?.phoneName : nil }
         )
     }
 
@@ -490,7 +523,7 @@ final class PhoneLink: ObservableObject {
     }
 
     private static func needsUpdate(_ old: LinkRequest, _ new: LinkRequest) -> Bool {
-        if old.queued != new.queued || old.hardDeny != new.hardDeny || old.risk != new.risk || old.confirmation != new.confirmation { return true }
+        if old.queued != new.queued || old.hardDeny != new.hardDeny || old.risk != new.risk || old.confirmation != new.confirmation || old.viewingOn != new.viewingOn { return true }
         switch (old.deadline, new.deadline) {
         case (nil, nil): return false
         case (let before?, let after?): return abs(before.timeIntervalSince(after)) > deadlineTolerance
