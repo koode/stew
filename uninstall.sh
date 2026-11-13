@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Removes stew: hooks, daemon, Stew.app, the stew link, skill, caches and stored approvals.
+# Removes stew: hooks, daemon, Stew.app, the stew link, skill, shell completion, caches and
+# stored approvals.
 # Keeps ~/.config/stew and any allow rules stew added to projects' .claude/settings.local.json.
 #
 #   ./uninstall.sh [--bin-dir DIR] [--app-dir DIR]
@@ -12,7 +13,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --bin-dir) bin_dir="$2"; shift ;;
     --app-dir) app_dir="$2"; shift ;;
-    -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 64 ;;
   esac
   shift
@@ -35,6 +36,7 @@ if [[ -x "$bin_dir/stew" ]]; then
     exit 0
   fi
   "$bin_dir/stew" hooks uninstall || true
+  "$bin_dir/stew" completions uninstall 2> /dev/null || true
 fi
 launchctl_run bootout "gui/$(id -u)/$label" 2> /dev/null || true
 rm -f "$HOME/Library/LaunchAgents/$label.plist" "$bin_dir/stew"

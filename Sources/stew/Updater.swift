@@ -178,11 +178,14 @@ final class Updater: ObservableObject {
     }
 
     /// Removes what an earlier update left: the previous app and any half-done download.
+    /// The new daemon runs this on start, so it also rewrites the installed shell
+    /// completion scripts to match its own commands.
     func cleanUpAfterUpdate() {
         let work = Self.workDirectory
         guard FileManager.default.fileExists(atPath: work) else { return }
         try? FileManager.default.removeItem(atPath: work)
         log("update: removed \(work)")
+        CompletionInstaller.refresh(log: log)
     }
 
     private func check() throws -> (UpdateManifest, UpdateDecision) {

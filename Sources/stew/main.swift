@@ -48,6 +48,11 @@ USAGE
   stew uninstall [--bin-dir DIR] [--app-dir DIR]
       Remove the hooks, daemon, Stew.app, the stew link, skill, caches and
       stored approvals. Keeps ~/.config/stew.
+  stew completions fish|zsh|bash
+      Print the shell completion script.
+  stew completions install|uninstall
+      Write the fish and zsh scripts where those shells load them, or remove
+      them. The installers do this.
 
 COMMON
   --session NAME     Label for the panel. Default: the Claude job name or folder.
@@ -392,6 +397,16 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
             binDirectory: arguments.options["bin-dir"] ?? Paths.home + "/.local/bin",
             appDirectory: arguments.options["app-dir"] ?? Paths.home + "/Applications"
         ))
+
+    case "completions":
+        switch arguments.positional.first {
+        case "install": exit(CompletionInstaller.install())
+        case "uninstall": exit(CompletionInstaller.uninstall() == 0 ? 0 : 1)
+        case let name?:
+            guard let shell = CompletionShell(rawValue: name) else { throw UsageError("completions needs fish, zsh, bash, install or uninstall") }
+            print(CompletionScript.script(for: shell), terminator: "")
+        case nil: throw UsageError("completions needs fish, zsh, bash, install or uninstall")
+        }
 
     case "_sign-update":
         // Release tooling: the private key arrives on stdin and never touches disk.

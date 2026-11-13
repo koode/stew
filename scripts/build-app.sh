@@ -45,6 +45,17 @@ cp "$project_root/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 mkdir -p "$app/Contents/Resources/skill"
 cp "$project_root/skill/SKILL.md" "$app/Contents/Resources/skill/SKILL.md"
 install -m 755 "$project_root/uninstall.sh" "$app/Contents/Resources/uninstall.sh"
+# Pre-generated completion scripts, for package managers that link them in place
+# (the Homebrew cask's zsh_completion and fish_completion) instead of running stew.
+mkdir -p "$app/Contents/Resources/completions"
+for shell in fish zsh bash; do
+  case "$shell" in
+    fish) file="stew.fish" ;;
+    zsh) file="_stew" ;;
+    bash) file="stew" ;;
+  esac
+  "$binary" completions "$shell" > "$app/Contents/Resources/completions/$file" || fail "could not generate the $shell completion"
+done
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

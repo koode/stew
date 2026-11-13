@@ -9,10 +9,12 @@
 #   ~/.local/bin/stew                             a link to the tool inside Stew.app
 #   ~/Library/LaunchAgents/nl.koode.stew.plist    starts the daemon at login
 #   ~/.claude/skills/stew                         the Claude Code skill, if ~/.claude exists
+#   shell completion for fish and zsh             see `stew completions install`
 #
 # Options:
 #   --with-hooks     also ask in stew when Claude Code's auto mode blocks a call
 #   --no-skill       skip the Claude Code skill
+#   --no-completions skip shell completion
 #   --bin-dir DIR    put the stew link in DIR instead of ~/.local/bin
 #   --app-dir DIR    put Stew.app in DIR instead of ~/Applications
 #   --app PATH       install this Stew.app instead of the latest release. ./install.sh
@@ -25,9 +27,10 @@
 # so they keep working. To remove Stew: stew uninstall
 #
 # For tests only: STEW_UPDATE_URL points at another latest.json,
-# STEW_UPDATE_SKIP_TEAM_CHECK=1 accepts ad hoc signed builds, and
+# STEW_UPDATE_SKIP_TEAM_CHECK=1 accepts ad hoc signed builds,
 # STEW_INSTALL_LAUNCHCTL_LOG makes launchctl calls go to that file instead of
-# running, so a test never stops or starts the real daemon.
+# running, so a test never stops or starts the real daemon, and STEW_ZSH_FPATH
+# stands in for the fpath of the user's zsh.
 set -euo pipefail
 
 manifest_url="${STEW_UPDATE_URL:-https://releases.stewcli.com/latest.json}"
@@ -36,6 +39,7 @@ label="nl.koode.stew"
 
 with_hooks=0
 with_skill=1
+with_completions=1
 bin_dir="$HOME/.local/bin"
 app_dir="$HOME/Applications"
 local_app=""
@@ -43,10 +47,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --with-hooks) with_hooks=1 ;;
     --no-skill) with_skill=0 ;;
+    --no-completions) with_completions=0 ;;
     --bin-dir) bin_dir="$2"; shift ;;
     --app-dir) app_dir="$2"; shift ;;
     --app) local_app="$2"; shift ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "stew: unknown option: $1" >&2; exit 64 ;;
   esac
   shift
@@ -200,6 +205,12 @@ if [[ $with_skill -eq 1 ]]; then
   else
     note "No ~/.claude folder, so the Claude Code skill was skipped."
   fi
+fi
+
+if [[ $with_completions -eq 1 ]]; then
+  step "Installing shell completion"
+  # The installed binary writes its own scripts, so they match its commands.
+  "$link" completions install 2>&1 | sed 's/^/    /' || note "Shell completion was not installed completely; see above."
 fi
 
 if [[ $with_hooks -eq 1 ]]; then

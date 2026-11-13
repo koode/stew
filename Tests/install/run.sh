@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests the installers against a temporary home folder. launchctl calls are logged
 # instead of run (STEW_INSTALL_LAUNCHCTL_LOG), so the real daemon is never touched,
-# and Claude Code settings go to a temporary file.
+# and Claude Code settings go to a temporary file. STEW_ZSH_FPATH stands in for the
+# fpath of the user's zsh, so shell completion lands in the temporary folder too.
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STEW="${STEW:-$ROOT/.build/debug/stew}"
@@ -9,7 +10,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/stew-install-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 FAKE_HOME="$WORK/home"
 LAUNCHCTL_LOG="$WORK/launchctl.log"
-mkdir -p "$FAKE_HOME/.local/bin" "$FAKE_HOME/Library/LaunchAgents" "$FAKE_HOME/.claude"
+SITE_FUNCTIONS="$WORK/share/zsh/site-functions"
+mkdir -p "$FAKE_HOME/.local/bin" "$FAKE_HOME/Library/LaunchAgents" "$FAKE_HOME/.claude" "$FAKE_HOME/.config/fish" "$SITE_FUNCTIONS"
 
 failures=0
 pass() { echo "ok    $1"; }
@@ -17,11 +19,16 @@ fail() { echo "FAIL  $1"; echo "      $2"; failures=$((failures + 1)); }
 expect() { # name, haystack, needle
   if [[ "$2" == *"$3"* ]]; then pass "$1"; else fail "$1" "expected '$3' in: $2"; fi
 }
+ZSH_FPATH="$SITE_FUNCTIONS:/usr/share/zsh/site-functions"
 in_home() {
-  env HOME="$FAKE_HOME" STEW_INSTALL_LAUNCHCTL_LOG="$LAUNCHCTL_LOG" \
+  env -u XDG_CONFIG_HOME -u ZDOTDIR HOME="$FAKE_HOME" STEW_INSTALL_LAUNCHCTL_LOG="$LAUNCHCTL_LOG" \
     STEW_CLAUDE_USER_SETTINGS="$WORK/claude-settings.json" STEW_CONFIG="$WORK/config.json" \
-    STEW_SOCKET="$WORK/no-daemon.sock" "$@"
+    STEW_SOCKET="$WORK/no-daemon.sock" STEW_ZSH_FPATH="$ZSH_FPATH" PATH="$FAKE_HOME/.local/bin:$PATH" "$@"
 }
+FISH_COMPLETION="$FAKE_HOME/.config/fish/completions/stew.fish"
+ZSH_COMPLETION="$SITE_FUNCTIONS/_stew"
+FALLBACK_COMPLETION="$FAKE_HOME/.zsh/completions/_stew"
+
 
 "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/build" --version 0.1.0 --build 3 > /dev/null
 codesign --force --sign - --identifier nl.koode.stew "$WORK/build/Stew.app" 2> /dev/null
@@ -50,13 +57,60 @@ expect "the link runs the app" "$("$FAKE_HOME/.local/bin/stew" version)" "stew 0
 [[ ! -e "$FAKE_HOME/Applications/.Stew.app.installing" && ! -e "$FAKE_HOME/Applications/.Stew.app.previous" ]] \
   && pass "no staging left behind" || fail "no staging left behind" "$(ls -a "$FAKE_HOME/Applications")"
 
-# Running it again updates in place.
+# Shell completion: fish's own folder, and a writable site-functions folder on fpath.
+expect "fish completion installed" "$out" "fish: wrote $FISH_COMPLETION"
+expect "zsh completion installed on fpath" "$out" "zsh: wrote $ZSH_COMPLETION; new shells load it"
+expect "fish completion is the binary's script" "$(cat "$FISH_COMPLETION" 2>&1)" "$(in_home "$FAKE_HOME/.local/bin/stew" completions fish)"
+expect "zsh completion is the binary's script" "$(cat "$ZSH_COMPLETION" 2>&1)" "$(in_home "$FAKE_HOME/.local/bin/stew" completions zsh)"
+[[ "$(cat "$WORK/completion-files" 2>&1)" == "$FISH_COMPLETION"$'\n'"$ZSH_COMPLETION" ]] \
+  && pass "installed completion files are recorded" || fail "installed completion files are recorded" "$(cat "$WORK/completion-files" 2>&1)"
+[[ -f "$app/Contents/Resources/completions/_stew" && -f "$app/Contents/Resources/completions/stew.fish" ]] \
+  && pass "the app carries completion scripts for package managers" || fail "the app carries completion scripts for package managers" "$(ls "$app/Contents/Resources")"
+
+# The installed scripts work in real shells. One open needs item, for `needs resolve`.
+cat > "$WORK/needs.json" <<'JSON'
+[{"id":"ab12cd34","created":"2026-11-13T10:00:00Z","session":{"name":"demo"},"needs":{"title":"Log in to npm","steps":[],"commands":[],"links":[],"answers":[]},"parked":false,"reminded":false}]
+JSON
+if command -v fish > /dev/null; then
+  fish_complete() { in_home fish --no-config -c "source '$FISH_COMPLETION'; complete -C '$1'" 2>&1 | cut -f1 | tr '\n' ' '; }
+  in_home fish --no-config -n "$FISH_COMPLETION" && pass "fish parses the script" || fail "fish parses the script" "fish -n failed"
+  expect "fish completes commands" "$(fish_complete 'stew ne')" "needs"
+  expect "fish completes subcommands" "$(fish_complete 'stew hooks ')" "install"
+  expect "fish completes options" "$(fish_complete 'stew needs --')" "--answer"
+  expect "fish completes option values" "$(fish_complete 'stew notify --level ')" "warning"
+  expect "fish completes needs ids" "$(fish_complete 'stew needs resolve ')" "ab12cd34"
+  [[ "$(fish_complete 'stew ')" != *"daemon"* && "$(fish_complete 'stew _')" != *"_control"* ]] \
+    && pass "fish hides internal commands" || fail "fish hides internal commands" "$(fish_complete 'stew ')"
+else
+  echo "skip  fish checks: fish is not installed"
+fi
+zsh_complete() { in_home /bin/zsh -f "$ROOT/Tests/install/zsh-complete.zsh" "$SITE_FUNCTIONS" "$1" 2>&1 | tr '\n' ' '; }
+/bin/zsh -n "$ZSH_COMPLETION" && pass "zsh parses the script" || fail "zsh parses the script" "zsh -n failed"
+expect "zsh completes commands" "$(zsh_complete 'stew ne')" "needs"
+expect "zsh completes subcommands" "$(zsh_complete 'stew needs ')" "list resolve"
+expect "zsh completes options" "$(zsh_complete 'stew needs --w')" "--wait --why"
+expect "zsh completes option values" "$(zsh_complete 'stew notify --level ')" "info success warning error"
+expect "zsh completes needs ids" "$(zsh_complete 'stew needs resolve ')" "ab12cd34"
+[[ "$(zsh_complete 'stew ')" != *"daemon"* ]] && pass "zsh hides internal commands" || fail "zsh hides internal commands" "$(zsh_complete 'stew ')"
+bash -n <(in_home "$FAKE_HOME/.local/bin/stew" completions bash) && pass "bash parses the script" || fail "bash parses the script" "bash -n failed"
+
+# Running it again updates in place. This time nothing on fpath is writable, so the
+# zsh script goes to ~/.zsh/completions with a hint, and the earlier one is removed.
 "$ROOT/scripts/build-app.sh" --binary "$STEW" --out "$WORK/build" --version 0.1.1 --build 4 > /dev/null
 codesign --force --sign - --identifier nl.koode.stew "$WORK/build/Stew.app" 2> /dev/null
+ZSH_FPATH="/usr/share/zsh/site-functions"
 out=$(in_home "$ROOT/scripts/install-release.sh" --app "$WORK/build/Stew.app" --no-skill 2>&1); code=$?
 expect "update exits 0" "$code" "0"
 expect "update replaces the app" "$("$FAKE_HOME/.local/bin/stew" version)" "stew 0.1.1 (build 4)"
 [[ "$out" != *"Replacing the old binary"* ]] && pass "an existing link is kept as a link" || fail "an existing link is kept as a link" "$out"
+expect "zsh falls back to a personal folder" "$out" "zsh: wrote $FALLBACK_COMPLETION. To load it, add this line to ~/.zshrc above compinit:"
+expect "the fallback prints the fpath line" "$out" "fpath=(~/.zsh/completions \$fpath)"
+[[ -f "$FALLBACK_COMPLETION" && ! -e "$ZSH_COMPLETION" && -f "$FISH_COMPLETION" ]] \
+  && pass "the zsh script moved, fish stayed" || fail "the zsh script moved, fish stayed" "$(ls "$SITE_FUNCTIONS" "$FAKE_HOME/.zsh/completions" 2>&1)"
+
+out=$(in_home "$ROOT/scripts/install-release.sh" --app "$WORK/build/Stew.app" --no-skill --no-completions 2>&1); code=$?
+expect "install without completions exits 0" "$code" "0"
+[[ "$out" != *"shell completion"* ]] && pass "--no-completions skips shell completion" || fail "--no-completions skips shell completion" "$out"
 
 out=$(in_home "$ROOT/scripts/install-release.sh" --bogus 2>&1); code=$?
 expect "unknown option exits 64" "$code" "64"
@@ -75,6 +129,9 @@ expect "LaunchAgent stopped" "$(tail -1 "$LAUNCHCTL_LOG")" "launchctl bootout gu
   && pass "support and cache folders removed" || fail "support and cache folders removed" "$(ls "$FAKE_HOME/Library")"
 [[ ! -e "$app" && ! -L "$FAKE_HOME/.local/bin/stew" && ! -e "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" && ! -e "$FAKE_HOME/.claude/skills/stew" ]] \
   && pass "uninstall removes app, link, LaunchAgent and skill" || fail "uninstall removes app, link, LaunchAgent and skill" "$(find "$FAKE_HOME" -name '*stew*' -o -name 'Stew.app')"
+expect "uninstall reports the completion files" "$out" "removed $FALLBACK_COMPLETION"
+[[ ! -e "$FISH_COMPLETION" && ! -e "$FALLBACK_COMPLETION" && ! -e "$WORK/completion-files" && -d "$FAKE_HOME/.config/fish/completions" ]] \
+  && pass "uninstall removes exactly the completion files" || fail "uninstall removes exactly the completion files" "$(find "$FAKE_HOME/.config" "$FAKE_HOME/.zsh" "$WORK/completion-files" 2>&1)"
 expect "uninstall removes the hooks" "$(cat "$WORK/claude-settings.json")" "{"
 [[ "$(cat "$WORK/claude-settings.json")" != *"stew hook"* ]] && pass "no stew hooks left" || fail "no stew hooks left" "$(cat "$WORK/claude-settings.json")"
 
@@ -117,9 +174,16 @@ expect "download install exits 0" "$code" "0"
 expect "download install verifies the zip" "$out" "Size and sha256 match."
 expect "downloaded version installed" "$("$FAKE_HOME/.local/bin/stew" version)" "stew 0.2.0 (build 6)"
 
+[[ -f "$FISH_COMPLETION" && -f "$FALLBACK_COMPLETION" ]] && pass "download install adds shell completion" || fail "download install adds shell completion" "$out"
+# A file of the same name that stew did not write stays, even when it is listed.
+echo "#compdef stew" > "$SITE_FUNCTIONS/_stew"
+echo "$SITE_FUNCTIONS/_stew" >> "$WORK/completion-files"
+
 out=$(in_home "$FAKE_HOME/.local/bin/stew" uninstall); code=$?
 expect "stew uninstall exits 0" "$code" "0"
 [[ ! -e "$app" && ! -L "$FAKE_HOME/.local/bin/stew" ]] && pass "stew uninstall removes the app and link" || fail "stew uninstall removes the app and link" "$out"
+[[ ! -e "$FISH_COMPLETION" && ! -e "$FALLBACK_COMPLETION" ]] && pass "stew uninstall removes the completion files" || fail "stew uninstall removes the completion files" "$out"
+expect "a foreign _stew is left alone" "$(cat "$SITE_FUNCTIONS/_stew" 2>&1)" "#compdef stew"
 
 echo
 if [[ $failures -eq 0 ]]; then echo "all install checks passed"; else echo "$failures install check(s) failed"; fi

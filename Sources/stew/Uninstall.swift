@@ -4,8 +4,8 @@ import Foundation
 /// from the release script can be removed without the source repository.
 ///
 /// Order matters: the hooks go first, while the binary they call still exists, so
-/// Claude Code never calls a missing stew. The iPhone pairings in the login keychain go
-/// too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
+/// Claude Code never calls a missing stew. The shell completion files the installer
+/// wrote and the iPhone pairings in the login keychain go too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
 /// .claude/settings.local.json.
 enum Uninstaller {
     static func run(binDirectory: String, appDirectory: String) -> Int32 {
@@ -24,6 +24,8 @@ enum Uninstaller {
             remove(appDirectory + "/" + name, &failures)
         }
         remove(binDirectory + "/stew", &failures)
+        // Before the support folder goes, because the list of completion files is in it.
+        failures += CompletionInstaller.uninstall()
         remove(Paths.home + "/.claude/skills/stew", &failures)
         remove(Paths.home + "/Library/Caches/stew", &failures)
         remove(Paths.home + "/Library/Application Support/stew", &failures)

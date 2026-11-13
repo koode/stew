@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds Stew.app from source and installs it for the current user.
 #
-#   ./install.sh                 Stew.app, background daemon, Claude Code skill
+#   ./install.sh                 Stew.app, background daemon, Claude Code skill, shell completion
 #   ./install.sh --with-hooks    also ask in stew when Claude Code's auto mode blocks a call
 #   ./install.sh --no-skill      skip the Claude Code skill
+#   ./install.sh --no-completions  skip shell completion for fish and zsh
 #   ./install.sh --bin-dir DIR   put the stew link somewhere other than ~/.local/bin
 #   ./install.sh --app-dir DIR   put Stew.app somewhere other than ~/Applications
 #
@@ -16,9 +17,9 @@ cd "$(dirname "$0")"
 passthrough=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --with-hooks|--no-skill) passthrough+=("$1") ;;
+    --with-hooks|--no-skill|--no-completions) passthrough+=("$1") ;;
     --bin-dir|--app-dir) passthrough+=("$1" "$2"); shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 64 ;;
   esac
   shift
