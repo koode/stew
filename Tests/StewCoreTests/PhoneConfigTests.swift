@@ -39,4 +39,11 @@ import Testing
         #expect(!PushPolicy.shouldPush(config: PhoneConfig(push: "always"), openFor: 5, presence: present))
         #expect(!PushPolicy.shouldPush(config: PhoneConfig(push: "never"), openFor: 600, presence: locked))
     }
+
+    @Test func needsItemsGoOutAfterTheWaitEvenWhileSomeoneIsAtTheMac() {
+        #expect(!PushPolicy.shouldPushNeeds(config: PhoneConfig(), openFor: 9))
+        #expect(PushPolicy.shouldPushNeeds(config: PhoneConfig(), openFor: 10))
+        #expect(PushPolicy.shouldPushNeeds(config: PhoneConfig(push: "always"), openFor: 10))
+        #expect(!PushPolicy.shouldPushNeeds(config: PhoneConfig(push: "never"), openFor: 600))
+    }
 }

@@ -62,4 +62,11 @@ public enum PushPolicy {
             return openFor >= config.after && (presence.screenLocked || presence.idleSeconds >= config.idleAfter)
         }
     }
+
+    /// A needs item goes to the phone once it has been open `after` seconds, also while
+    /// someone is at the Mac: it has no deadline, and the task often takes the user away
+    /// from the desk. "Never" still sends nothing.
+    public static func shouldPushNeeds(config: PhoneConfig, openFor: TimeInterval) -> Bool {
+        config.mode != .never && openFor >= config.after
+    }
 }

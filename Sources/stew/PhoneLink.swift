@@ -461,9 +461,7 @@ final class PhoneLink: ObservableObject {
             resolve(LinkPresentation.needsRequestId(needsID), pairingIds: pairingIds, outcome: .movedOn, answering: nil)
         }
         for record in open where !record.parked && pushedNeeds[record.id] == nil {
-            let current = presence ?? Self.samplePresence()
-            presence = current
-            guard PushPolicy.shouldPush(config: coordinator.config.phone, openFor: now.timeIntervalSince(record.created), presence: current) else { continue }
+            guard PushPolicy.shouldPushNeeds(config: coordinator.config.phone, openFor: now.timeIntervalSince(record.created)) else { continue }
             let request = LinkRequest(
                 requestId: LinkPresentation.needsRequestId(record.id),
                 macName: macName,
