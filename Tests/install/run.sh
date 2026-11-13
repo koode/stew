@@ -275,6 +275,32 @@ out=$(in_home "$cask_tool" setup extra 2>&1); code=$?
 expect "setup takes no arguments" "$code" "64"
 expect "setup --help" "$(in_home "$cask_tool" setup --help)" "stew setup [--with-hooks] [--no-skill]"
 
+# The Homebrew cask for a release, as scripts/release.sh writes it for the tap.
+CASK="$WORK/tap/Casks/stew.rb"
+SAMPLE_SHA=$(printf 'ab%.0s' $(seq 1 32))
+out=$("$ROOT/scripts/render-cask.sh" --version 1.2.3 --sha256 "$SAMPLE_SHA" --url https://releases.stewcli.com/v1.2.3/Stew-1.2.3.zip --out "$CASK" 2>&1); code=$?
+expect "cask renders" "$code" "0"
+cask="$(cat "$CASK" 2>&1)"
+expect "cask names the version" "$cask" 'version "1.2.3"'
+expect "cask names the sha256" "$cask" "sha256 \"$SAMPLE_SHA\""
+expect "cask url follows the version" "$cask" 'url "https://releases.stewcli.com/v#{version}/Stew-#{version}.zip"'
+expect "cask lets stew update itself" "$cask" "auto_updates true"
+expect "cask links the command" "$cask" 'binary "#{appdir}/Stew.app/Contents/MacOS/stew"'
+expect "cask links the zsh completion the app carries" "$cask" 'zsh_completion "#{appdir}/Stew.app/Contents/Resources/completions/_stew"'
+expect "cask runs stew setup" "$cask" 'args:         ["setup"]'
+expect "cask zap keeps the app for Homebrew to remove" "$cask" '"uninstall", "--keep-app"'
+[[ "$cask" != *"@"[A-Z]*"@"* ]] && pass "cask has no placeholders left" || fail "cask has no placeholders left" "$cask"
+for completion in _stew stew.fish stew; do
+  [[ -f "$cask_app/Contents/Resources/completions/$completion" ]] || fail "the app carries $completion" "$(ls "$cask_app/Contents/Resources/completions")"
+done
+if command -v ruby > /dev/null; then
+  ruby -c "$CASK" > /dev/null 2>&1 && pass "cask is valid Ruby" || fail "cask is valid Ruby" "$(ruby -c "$CASK" 2>&1)"
+else
+  echo "skip  cask Ruby syntax: ruby is not installed"
+fi
+out=$("$ROOT/scripts/render-cask.sh" --version 1.2.3 --sha256 "$SAMPLE_SHA" --url https://releases.stewcli.com/latest/Stew.zip --out "$CASK" 2>&1); code=$?
+expect "cask url must name the version" "$out$code" "--url must contain the version 1.2.31"
+
 echo
 if [[ $failures -eq 0 ]]; then echo "all install checks passed"; else echo "$failures install check(s) failed"; fi
 exit $failures

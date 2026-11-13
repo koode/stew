@@ -6,6 +6,11 @@
 #                                  update key, no notarization, no upload. Output in build/dist.
 #   scripts/release.sh keygen      once: make the update signing key and store it in 1Password
 #
+#   --tap-dir PATH   a checkout of the koode/homebrew-apps tap: after the upload, the
+#                    Homebrew cask for this release goes to PATH/Casks/stew.rb, to commit
+#                    and push there. Without it, the script says where the cask would go.
+#                    A dry run never writes there. The cask is always in build/dist/stew.rb.
+#
 # Environment (defaults in brackets):
 #   STEW_SIGN_IDENTITY     [Developer ID Application: Koode (PXD36584ME)]
 #   STEW_NOTARY_PROFILE    [stew-notary] a `xcrun notarytool store-credentials` profile
@@ -42,13 +47,23 @@ step() { printf '==> %s\n' "$*"; }
 fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
 
 mode="release"
-case "${1:-}" in
-  "") ;;
-  --dry-run) mode="dry-run" ;;
-  keygen) mode="keygen" ;;
-  -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *) fail "unknown argument: $1 (use --dry-run, keygen or nothing)" ;;
-esac
+tap_dir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) mode="dry-run" ;;
+    keygen) mode="keygen" ;;
+    --tap-dir)
+      [[ $# -ge 2 && -n "$2" ]] || fail "--tap-dir needs a path"
+      tap_dir="$2"; shift ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) fail "unknown argument: $1 (use --dry-run, keygen, --tap-dir PATH or nothing)" ;;
+  esac
+  shift
+done
+if [[ -n "$tap_dir" ]]; then
+  [[ -d "$tap_dir" ]] || fail "--tap-dir $tap_dir is not a folder"
+  tap_dir="$(cd "$tap_dir" && pwd)"
+fi
 
 # The public key compiled into the updater. Empty until keygen has run.
 embedded_public_key() {
@@ -205,6 +220,12 @@ JSON
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$dist_dir/latest.json" || fail "latest.json is not valid JSON"
 install -m 755 scripts/install-release.sh "$dist_dir/install.sh"
 
+step "Writing the Homebrew cask"
+scripts/render-cask.sh --version "$version" --sha256 "$sha256" --url "$public_base/$zip_key" --out "$dist_dir/stew.rb" > /dev/null
+if command -v ruby > /dev/null; then
+  ruby -c "$dist_dir/stew.rb" > /dev/null || fail "$dist_dir/stew.rb is not valid Ruby"
+fi
+
 if [[ "$mode" == "dry-run" ]]; then
   echo
   echo "Dry run done. Nothing was notarized or uploaded."
@@ -212,7 +233,12 @@ if [[ "$mode" == "dry-run" ]]; then
   echo "  $zip ($size bytes, sha256 $sha256)"
   echo "  $dist_dir/latest.json"
   echo "  $dist_dir/install.sh"
+  echo "  $dist_dir/stew.rb"
   echo "The throwaway public key is in $dist_dir/dry-run-public-key.txt."
+  # The dry run's zip is ad hoc signed and not published, so its cask never goes to the tap.
+  if [[ -n "$tap_dir" ]]; then
+    echo "A real release would write the cask to $tap_dir/Casks/stew.rb."
+  fi
   exit 0
 fi
 
@@ -232,9 +258,22 @@ r2 put "$bucket/latest.json" --file "$dist_dir/latest.json" --content-type "appl
   --cache-control "no-store" > /dev/null
 echo "    latest.json"
 
+# After the upload, so the tap never names a zip that is not published yet.
+if [[ -n "$tap_dir" ]]; then
+  mkdir -p "$tap_dir/Casks"
+  install -m 644 "$dist_dir/stew.rb" "$tap_dir/Casks/stew.rb"
+fi
+
 echo
 echo "Released stew $version (build $build_number):"
 echo "  $public_base/$zip_key"
 echo "  $public_base/latest.json"
 echo "  $public_base/install.sh"
 echo "Tag it: git tag v$version && git push origin v$version"
+if [[ -n "$tap_dir" ]]; then
+  echo "Wrote $tap_dir/Casks/stew.rb. Commit and push it in the tap:"
+  echo "  git -C \"$tap_dir\" add Casks/stew.rb && git -C \"$tap_dir\" commit -m \"stew $version\" -- Casks/stew.rb && git -C \"$tap_dir\" push"
+else
+  echo "The Homebrew cask is in $dist_dir/stew.rb. Copy it to Casks/stew.rb in the koode/homebrew-apps tap"
+  echo "and push it there, or run the next release with --tap-dir PATH to write it there."
+fi
