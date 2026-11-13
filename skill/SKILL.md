@@ -123,7 +123,7 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 - `note` is free text the user typed with their answer. Follow it; it can change what "approved" means.
 - `answers` maps question text to the chosen label. Multi-select labels are joined with ", ". An "Other" answer is the user's own text.
 - `dismissed` means the user closed it without answering. Do not repeat the same request. Stop or choose the safe path.
-- `timeout` means the user did not answer in time (1 minute by default) and may be away. Read the `note`, continue another way that does not need this, and ask again later only if there is no other way.
+- `timeout` means the user did not answer in time (1 minute by default) and may be away. Read the `note`, continue another way that does not need this, and ask again later only if there is no other way. When the user paused stew, `timeout` comes back at once and the note says so and when stew resumes: do not ask again before then.
 
 ### Late answers
 

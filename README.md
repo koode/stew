@@ -10,6 +10,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
 - **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
+- **In the menu bar.** The stew icon counts what waits for you, opens History and Settings, and pauses stew for an hour while you are away.
 
 ## Requirements
 
@@ -131,7 +132,7 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 ![Claude needs you to sign in, with Signed in and two other answers](docs/images/needs-answers-light.png)
 - **Not now** (⌘.) keeps it open for later. It has no time limit.
 - Permission requests and questions always go first. A needs item shows when nothing else is waiting.
-- While anything is open, the menu bar shows a hand with the count. Its menu lists each item (session · title) and opens it in the panel.
+- The menu bar icon counts open items. Its menu lists each item (session · title) and opens it in the panel.
 - When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
 - Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
 
@@ -212,6 +213,8 @@ stew history --missed           # the same, showing only missed requests
 stew history --missed --json    # print them as a JSON array, for scripts
 ```
 
+Until you open History, the menu bar icon counts missed requests too, and its History… entry shows how many.
+
 For a missed call that auto mode blocked, the History tab offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
 
 The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
@@ -264,9 +267,23 @@ The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save"
 
 Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak, Colemak or a remapped keyboard.
 
+## Menu bar and pause
+
+The stew icon in the menu bar is the app icon. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey while stew is paused. Its menu lists the open needs items, then History…, Settings…, Pause stew for 1 hour (or Resume stew), an update entry when there is one, and Hide menu bar icon.
+
+**Pause** when you step away: permission requests, questions and inputs then time out at once, and Claude is told you paused stew and are away, so it can go another way. They are recorded as missed, so you can still answer them late from History. Notifications still show, and needs items wait in the menu bar until the pause ends. A pause ends by itself; Resume ends it early and shows what timed out meanwhile. Settings → General shows the pause too.
+
+```bash
+stew pause         # for 1 hour
+stew pause 20      # for 20 minutes (at most 1440)
+stew resume        # end it now
+```
+
+Hide the icon with Hide menu bar icon, Settings → General → "Show in menu bar", or `"menuBar": false`. It still shows while a needs item is open, and `stew settings` (or opening Stew.app) brings Settings back.
+
 ## Updates
 
-stew updates itself. The daemon checks for a new version one minute after it starts and then once a day, and installs it when no request is open in the panel, then restarts. Turn this off in `stew settings` → General → "Install updates automatically", or with `"autoUpdate": false`.
+stew updates itself. The daemon checks for a new version one minute after it starts and then once a day, and installs it when no request is open in the panel, then restarts. The first start of the new version shows "stew updated to 0.2.0", with a link to the release notes. Turn installing off in `stew settings` → General → "Install updates automatically", or with `"autoUpdate": false`: stew still checks, and shows one notice per new version with **Install now** (⌘↩) and **Later** (⌘.). The menu bar offers the install too.
 
 ```bash
 stew version           # the version and build
@@ -298,7 +315,7 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 The window has six panes, picked from its toolbar:
 
-- **General:** time to answer, more time, arming delay, position, sound, confetti, updates.
+- **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
@@ -323,6 +340,7 @@ The window has six panes, picked from its toolbar:
   "confetti": false,
   "autoUpdate": true,
   "historyDays": 30,
+  "menuBar": true,
   "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6 }
 }
 ```
@@ -338,6 +356,7 @@ The window has six panes, picked from its toolbar:
 - `confetti` shows a short burst of confetti where the panel was when you approve a request. It is off by default, and never plays when "Reduce motion" is on in macOS.
 - `autoUpdate` installs new versions by itself (see Updates).
 - `historyDays` is how many days of request history to keep.
+- `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
 - `classifier` controls the risk check on direct `stew permit` calls.
 
 ## Security model
