@@ -548,7 +548,7 @@ final class Coordinator: ObservableObject {
             onCelebrate?()
         }
         if let entryID = item.lateEntryID {
-            storeLateAnswer(item, response, entryID: entryID)
+            storeLateAnswer(item.request, response, entryID: entryID)
         } else {
             record(item, response)
         }
@@ -636,24 +636,46 @@ final class Coordinator: ObservableObject {
         return true
     }
 
+    /// The request of a timed-out history entry that can still be answered late.
+    func lateRequest(entryID: UUID) -> StewRequest? {
+        LateAnswerFile.read().waiting(entryID, now: Date())?.request
+    }
+
+    /// A late answer given somewhere else than the panel, such as on the iPhone: stored
+    /// exactly like an answer after Answer now. When Answer now has the request in the
+    /// panel, the panel closes with it. False when it can no longer be answered.
+    func answerLate(entryID: UUID, with response: StewResponse) -> Bool {
+        if let item = items.first(where: { $0.lateEntryID == entryID }) {
+            respond(item, response)
+            return LateAnswerFile.read().answer(entryID) != nil
+        }
+        guard let waiting = LateAnswerFile.read().waiting(entryID, now: Date()) else { return false }
+        return storeLateAnswer(waiting.request, response, entryID: entryID)
+    }
+
     /// The user answered a timed-out request: store the answer for the session's next
     /// hook call, the one-shot retry grant for an approved blocked call, and the late
     /// outcome on the history entry. Closing the panel is no answer: the request stays
-    /// answerable.
-    private func storeLateAnswer(_ item: Item, _ response: StewResponse, entryID: UUID) {
-        guard [.approved, .denied, .answered].contains(response.status) else { return }
+    /// answerable. False when nothing was stored.
+    @discardableResult
+    private func storeLateAnswer(_ request: StewRequest, _ response: StewResponse, entryID: UUID) -> Bool {
+        guard [.approved, .denied, .answered].contains(response.status) else { return false }
         let now = Date()
         // A secret stays out of late-answers.json and the history: the file gets a
         // placeholder, and the daemon keeps the secret until a hook fetches it.
-        let secret = item.input?.secret == true ? response.text : nil
+        var isSecret = false
+        if case .input(let input) = request.prompt { isSecret = input.secret }
+        let secret = isSecret ? response.text : nil
         var stored = response
         if secret != nil { stored.text = nil }
         guard let late = LateAnswerFile.update(now: now, { $0.answer(entryID, with: stored, now: now) }) else {
             Log.write("late answer: \(entryID) is no longer waiting")
-            return
+            return false
         }
         if let secret { heldSecrets[entryID] = secret }
-        if response.status == .approved, let blocked = item.blocked, let origin = item.request.origin,
+        var blockedCall: BlockedCall?
+        if case .permission(let permission) = request.prompt { blockedCall = permission.blocked }
+        if response.status == .approved, let blocked = blockedCall, let origin = request.origin,
            let toolName = origin.toolName, let callKey = origin.callKey {
             do {
                 try GrantFile.update { grants in
@@ -669,6 +691,7 @@ final class Coordinator: ObservableObject {
         history?.update(entryID) { $0.recordLate(stored, message: late.message, at: now) }
         onLateAnswer?()
         refreshMissed()
+        return true
     }
 
     /// The user is back after being away since `awaySince`. One notice for every
@@ -874,7 +897,9 @@ final class Coordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
     }
 
-    private func expire(_ item: Item) {
+    /// Times the request out now. Also used when a phone answer arrives the moment the
+    /// time ran out, before the timer fired, so it can go as a late answer.
+    func expire(_ item: Item) {
         respond(item, StewResponse(status: .timeout, note: item.request.timeoutNote(after: item.grantedSeconds), risk: item.risk.assessment))
     }
 

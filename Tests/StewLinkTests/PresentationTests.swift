@@ -13,12 +13,13 @@ private func linkRequest(
     deadline: Date? = deadline,
     queued: Bool = false,
     extendBy: Double? = 120,
-    risk: RiskAssessment? = nil
+    risk: RiskAssessment? = nil,
+    sessionID: String? = "abc"
 ) -> LinkRequest {
     LinkRequest(
         requestId: "request1",
         macName: "Studio",
-        request: StewRequest(session: SessionInfo(name: "stew-build", id: "abc", cwd: "/Users/someone/Projects/stew"), prompt: prompt),
+        request: StewRequest(session: SessionInfo(name: "stew-build", id: sessionID, cwd: "/Users/someone/Projects/stew"), prompt: prompt),
         receivedAt: received,
         deadline: deadline,
         queued: queued,
@@ -185,7 +186,7 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
     }
 
     @Test func phoneRefusesLateAndMacOnlyAnswersBeforeSending() {
-        let request = linkRequest(permission)
+        let request = linkRequest(permission, sessionID: nil)
         #expect(LinkRefusal.beforeSending(.approve, for: request, now: received) == nil)
         let late = LinkRefusal.beforeSending(.approve, for: request, now: deadline.addingTimeInterval(1))
         #expect(late?.hasPrefix("Too late: the request on Studio timed out at") == true)
@@ -193,6 +194,34 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(LinkRefusal.beforeSending(.deny, for: linkRequest(permission, hardDeny: true), now: received) == nil)
         #expect(LinkRefusal.beforeSending(.moreTime, for: linkRequest(permission, deadline: nil, queued: true), now: received) == LinkRefusal.clockNotStarted)
         #expect(LinkRefusal.beforeSending(.approve, for: linkRequest(singleQuestion), now: received) != nil)
+    }
+
+    @Test func lateAnswersPassForAKnownSession() {
+        let afterDeadline = deadline.addingTimeInterval(1)
+        let request = linkRequest(permission)
+        #expect(LinkPresentation.canAnswerLate(request))
+        #expect(LinkPresentation.isOverdue(request, now: afterDeadline))
+        #expect(!LinkPresentation.isOverdue(request, now: received))
+        #expect(LinkRefusal.beforeSending(.approve, for: request, now: afterDeadline) == nil)
+        #expect(LinkRefusal.beforeSending(.deny, for: request, now: afterDeadline) == nil)
+        #expect(LinkRefusal.beforeSending(.answers([LinkQuestionAnswer(selected: [0])]), for: linkRequest(singleQuestion), now: afterDeadline) == nil)
+        // More time cannot bring a timed-out request back, and the Mac's rules still hold.
+        #expect(LinkRefusal.beforeSending(.moreTime, for: request, now: afterDeadline)?.hasPrefix("Too late") == true)
+        #expect(LinkRefusal.beforeSending(.approve, for: linkRequest(permission, hardDeny: true), now: afterDeadline) == LinkRefusal.macOnly)
+        // Without a session id there is nobody to give a late answer to.
+        #expect(!LinkPresentation.canAnswerLate(linkRequest(permission, sessionID: nil)))
+        // A secret is never answered from the phone, late or not.
+        let secret = linkRequest(.input(InputRequest(question: "OTP?", secret: true)))
+        #expect(!LinkPresentation.canAnswerLate(secret))
+        #expect(LinkRefusal.beforeSending(.enterLater, for: secret, now: afterDeadline)?.hasPrefix("Too late") == true)
+    }
+
+    @Test func lateResultRoundTrips() throws {
+        let result = LinkResult(requestId: "request1", accepted: true, message: "Sent as a late answer.", late: true)
+        #expect(try LinkJSON.decode(LinkResult.self, from: LinkJSON.encode(result)) == result)
+        // A Mac without late answers sends no flag.
+        let older = try LinkJSON.decode(LinkResult.self, from: Data(#"{"requestId":"request1","accepted":true,"message":"Approved."}"#.utf8))
+        #expect(older.late == nil)
     }
 
     @Test func outcomeLabelsMatchTheMac() {

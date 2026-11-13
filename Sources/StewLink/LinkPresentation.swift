@@ -153,6 +153,20 @@ public enum LinkPresentation {
         request.extendBy != nil && (request.deadline != nil || request.queued)
     }
 
+    /// Whether the phone may still answer the request after its time ran out: the Mac
+    /// then passes the answer to the Claude session as a late answer, as History's Answer
+    /// now does. It needs the session's id. A secret never: the phone has no field for it.
+    public static func canAnswerLate(_ request: LinkRequest) -> Bool {
+        if case .input(let input) = request.request.prompt, input.secret { return false }
+        return LateMailbox.canAnswerLate(request.request)
+    }
+
+    /// True once the time to answer has run out.
+    public static func isOverdue(_ request: LinkRequest, now: Date = Date()) -> Bool {
+        guard let deadline = request.deadline else { return false }
+        return deadline <= now
+    }
+
     public static func actions(_ request: LinkRequest) -> [LinkNotificationAction] {
         let moreTime = LinkNotificationAction(identifier: moreTimeAction, title: moreTimeTitle(request.extendBy ?? 0), role: .moreTime)
         switch request.request.prompt {
@@ -370,10 +384,23 @@ public enum LinkRefusal {
     public static let noTimeLimit = "This request has no time limit."
     public static let unknownAnswer = "This item does not offer that answer. Open stew to see its answers."
 
-    /// Checked on the phone before anything is sent.
+    /// The phone shows this when the Mac took an answer as a late answer.
+    public static let lateAnswerSent = "Sent as a late answer"
+    public static let lateAnswerDetail = "The request had timed out. Claude gets this answer at its next step, in place of the timeout."
+
+    /// Checked on the phone before anything is sent. After the deadline only an answer
+    /// that can go as a late answer passes: approve, deny, the question's answers or a
+    /// typed reply, for a request of a known Claude session.
     public static func beforeSending(_ choice: LinkChoice, for request: LinkRequest, now: Date = Date()) -> String? {
         if let deadline = request.deadline, deadline <= now {
-            return tooLate(macName: request.macName, deadline: deadline)
+            let isAnswer: Bool
+            switch choice {
+            case .approve, .deny, .answers, .text: isAnswer = true
+            case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater: isAnswer = false
+            }
+            guard isAnswer, LinkPresentation.canAnswerLate(request) else {
+                return tooLate(macName: request.macName, deadline: deadline)
+            }
         }
         switch (choice, request.request.prompt) {
         case (.approve, .permission):

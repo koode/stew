@@ -34,6 +34,10 @@ final class PhoneLink: ObservableObject {
     private var answeredBy: [UUID: String] = [:]
     /// Outcomes of recent requests, so a late answer gets a reason and not just "no".
     private var recentlyResolved: [String: (outcome: LinkOutcome, pairingId: String?, at: Date)] = [:]
+    /// Requests that timed out on phones, by request id: which phones had them, and
+    /// whether auto mode never allows them, so a phone can answer them late but not
+    /// approve what only the Mac may. Memory only: after a restart only the Mac answers late.
+    private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, at: Date)] = [:]
     private var timer: Timer?
     let macName = Host.current().localizedName ?? "Mac"
 
@@ -250,13 +254,17 @@ final class PhoneLink: ObservableObject {
         guard let coordinator,
               let item = coordinator.items.first(where: { $0.id.uuidString == requestId }),
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
+            if let late = applyLate(answer, from: pairingId) { return late }
             if let recent = recentlyResolved[requestId] {
                 return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName))
             }
             return refuse(LinkRefusal.closed(nil, macName: macName))
         }
         if let deadline = item.deadline, deadline <= Date() {
-            return refuse(LinkRefusal.tooLate(macName: macName, deadline: deadline))
+            // The time ran out a moment ago and the timer has not fired yet: time the
+            // request out now, so the answer can still go as a late answer.
+            coordinator.expire(item)
+            return applyLate(answer, from: pairingId) ?? refuse(LinkRefusal.tooLate(macName: macName, deadline: deadline))
         }
         if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
             return refuse(LinkRefusal.tooSlow)
@@ -375,7 +383,56 @@ final class PhoneLink: ObservableObject {
             default: outcome = .answeredOnMac
             }
         }
+        if outcome == .timedOut {
+            lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, Date())
+        }
         resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering)
+    }
+
+    /// An answer from the phone to a request that timed out: it goes to the Claude session
+    /// as a late answer, exactly like Answer now in History. Nil when the request is not
+    /// one the phone may answer late, so the usual refusal applies.
+    private func applyLate(_ answer: LinkAnswer, from pairingId: String) -> LinkResult? {
+        let requestId = answer.requestId
+        func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
+        guard let coordinator, let sent = lateAnswerable[requestId], sent.pairingIds.contains(pairingId),
+              let entryID = UUID(uuidString: requestId) else { return nil }
+        guard let request = coordinator.lateRequest(entryID: entryID) else {
+            // Answered late on the Mac already, or too old to answer.
+            if LateAnswerFile.read().answer(entryID) != nil { return refuse(LinkRefusal.closed(.answeredOnMac, macName: macName)) }
+            return nil
+        }
+        if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
+            return refuse(LinkRefusal.tooSlow)
+        }
+        let note = answer.note.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        let response: StewResponse
+        switch (answer.choice, request.prompt) {
+        case (.approve, .permission):
+            guard !sent.hardDeny else { return refuse(LinkRefusal.macOnly) }
+            response = StewResponse(status: .approved, note: note)
+        case (.deny, .permission):
+            response = StewResponse(status: .denied, note: note)
+        case (.answers(let answers), .question(let set)):
+            guard let flow = QuestionFlow(set: set, linkAnswers: answers) else {
+                return refuse("Answer every question, with one choice where only one is allowed.")
+            }
+            let annotations = flow.annotations()
+            response = StewResponse(status: .answered, answers: flow.answers(), annotations: annotations.isEmpty ? nil : annotations)
+        case (.text(let text), .input(let input)):
+            // A secret is refused here too: the phone never sends one.
+            if let refusal = LinkRefusal.inputRefusal(text, for: input) { return refuse(refusal) }
+            guard case .valid(let answerText) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
+            response = StewResponse(status: .answered, text: answerText)
+        default:
+            return refuse(LinkRefusal.closed(.timedOut, macName: macName))
+        }
+        guard coordinator.answerLate(entryID: entryID, with: response) else {
+            return refuse(LinkRefusal.closed(nil, macName: macName))
+        }
+        lateAnswerable[requestId] = nil
+        recentlyResolved[requestId] = (.answered, pairingId, Date())
+        return LinkResult(requestId: requestId, accepted: true, message: LinkRefusal.lateAnswerSent + ".", late: true)
     }
 
     private func resolve(_ requestId: String, pairingIds: Set<String>, outcome: LinkOutcome, answering: String?) {
@@ -455,6 +512,7 @@ final class PhoneLink: ObservableObject {
             pairingError = "The pairing code expired after 10 minutes. Pair again for a new one."
         }
         recentlyResolved = recentlyResolved.filter { now.timeIntervalSince($0.value.at) < Self.recentLifetime }
+        lateAnswerable = lateAnswerable.filter { now.timeIntervalSince($0.value.at) < LateMailbox.lifetime }
         let liveIDs = Set(coordinator.items.map(\.id))
         for (itemID, entry) in pushed where !liveIDs.contains(itemID) {
             // The caller went away (Ctrl-C, a hook timeout) without an answer.

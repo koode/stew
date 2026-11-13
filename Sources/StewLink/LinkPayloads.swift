@@ -112,12 +112,16 @@ public struct LinkResult: Codable, Equatable, Sendable {
     public var message: String
     /// The new deadline after "More time".
     public var deadline: Date?
+    /// True when the request had timed out and the answer went to Claude as a late
+    /// answer. Nil from a Mac that does not take late answers from the phone.
+    public var late: Bool?
 
-    public init(requestId: String, accepted: Bool, message: String, deadline: Date? = nil) {
+    public init(requestId: String, accepted: Bool, message: String, deadline: Date? = nil, late: Bool? = nil) {
         self.requestId = requestId
         self.accepted = accepted
         self.message = message
         self.deadline = deadline
+        self.late = late
     }
 }
 

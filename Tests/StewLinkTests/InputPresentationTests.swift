@@ -43,7 +43,10 @@ private func linkRequest(_ input: InputRequest, sessionID: String? = "abc", dead
         #expect(LinkRefusal.beforeSending(.text("example.com"), for: request, now: received) == nil)
         #expect(LinkRefusal.beforeSending(.text("not a domain"), for: request, now: received) == "Not in the expected format. Expected: [a-z0-9.-]+\\.[a-z]{2,}")
         #expect(LinkRefusal.beforeSending(.text("  "), for: request, now: received) == LinkRefusal.emptyAnswer)
-        #expect(LinkRefusal.beforeSending(.text("example.com"), for: request, now: deadline.addingTimeInterval(1))?.hasPrefix("Too late") == true)
+        #expect(LinkRefusal.beforeSending(.text("example.com"), for: linkRequest(domain, sessionID: nil), now: deadline.addingTimeInterval(1))?.hasPrefix("Too late") == true)
+        // With a session, a reply after the deadline goes as a late answer, still checked.
+        #expect(LinkRefusal.beforeSending(.text("example.com"), for: request, now: deadline.addingTimeInterval(1)) == nil)
+        #expect(LinkRefusal.beforeSending(.text("not a domain"), for: request, now: deadline.addingTimeInterval(1)) != nil)
     }
 
     @Test func phoneNamesTheFormatInPlainWords() {
