@@ -38,7 +38,10 @@ enum Snapshot {
         // The Updates section after Check now found a newer version: a window tall enough
         // to show the whole General pane.
         settings("settings-update-available", in: directory, height: 940, updater: Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)) { _, _, _ in }
+        // The Menu bar section while stew is paused.
+        settings("settings-general-paused", in: directory, pause: PauseModel(until: Date().addingTimeInterval(42 * 60))) { _, _, _ in }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
+        MenuBarSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
     }
 
@@ -51,6 +54,7 @@ enum Snapshot {
         in directory: String,
         height: CGFloat = settingsSize.height,
         updater: Updater = Updater(log: { _ in }),
+        pause: PauseModel = PauseModel(),
         prepare: (SettingsModel, ApprovalsModel, HistoryModel) -> Void
     ) {
         for dark in [false, true] {
@@ -61,7 +65,7 @@ enum Snapshot {
             prepare(model, approvals, history)
             let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
             write(
-                SettingsView(model: model, approvals: approvals, history: history, updater: updater)
+                SettingsView(model: model, approvals: approvals, history: history, updater: updater, pause: pause)
                     .frame(width: settingsSize.width, height: height),
                 dark: dark,
                 to: path
@@ -187,6 +191,16 @@ enum Snapshot {
     private static let branchCommand = "git push origin --delete feature/login release/2.1 && git tag -d v2.0"
 
     private static let scenarios: [(String, (Coordinator) -> Void)] = [
+        ("update-installed", { coordinator in
+            let state = DaemonState(lastRunVersion: "0.1.0", installedUpdate: DaemonState.InstalledUpdate(version: "0.2.0", notes: "https://stewcli.com/changelog#0.2.0"))
+            if let notice = UpdateNotice.afterStart(state, running: "0.2.0") { coordinator.showNotice(notice) }
+        }),
+        ("update-available", { coordinator in
+            if let notice = UpdateNotice.available("0.2.0", route: .inPlace, state: DaemonState()) { coordinator.showNotice(notice) }
+        }),
+        ("update-available-homebrew", { coordinator in
+            if let notice = UpdateNotice.available("0.2.0", route: .homebrew, state: DaemonState()) { coordinator.showNotice(notice) }
+        }),
         ("permission-checking", { coordinator in
             coordinator.show(permission(branchCommand, risk: .checking, timeout: 600))
         }),
