@@ -271,7 +271,9 @@ final class Coordinator: ObservableObject {
             RiskChecker(config: config.classifier).check(permission, session: request.session) { [weak self, weak item] result in
                 guard let item else { return }
                 switch result {
-                case .success(let assessment): item.risk = .done(assessment)
+                case .success(let assessment):
+                    item.risk = .done(assessment)
+                    self?.addSeverityTime(item, assessment)
                 case .failure(let error): item.risk = .failed("\(error)")
                 }
                 self?.changed()
@@ -504,6 +506,7 @@ final class Coordinator: ObservableObject {
         case .blocked(let blocked): risk = "blocked:\(blocked.hardDeny ? "hard" : "soft")"
         case .off, nil: risk = "off"
         }
+        let severity = current?.risk.assessment?.severity?.rawValue ?? "-"
         let bindings = activeBindings().map { "\($0.0)" }.joined(separator: " ")
         var clockState = "none"
         if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
@@ -517,7 +520,7 @@ final class Coordinator: ObservableObject {
             case .valid: inputState = "valid"
             }
         }
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
     }
 
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
@@ -907,6 +910,29 @@ final class Coordinator: ObservableObject {
         respond(item, StewResponse(status: .timeout, note: item.request.timeoutNote(after: item.grantedSeconds), risk: item.risk.assessment))
     }
 
+    /// High and critical actions get extra time to read before the clock runs out. The
+    /// check finishes after the request arrived, so the time goes on the clock if it
+    /// runs, or on the limit while the request still waits its turn.
+    private func addSeverityTime(_ item: Item, _ assessment: RiskAssessment) {
+        let extra = SeverityRules.extraTime(assessment.severity, config: config.classifier)
+        guard extra > 0, let limit = item.timeLimit else { return }
+        if let remaining = item.pausedRemaining {
+            item.grantedSeconds += extra
+            item.pausedRemaining = remaining + extra
+        } else if let deadline = item.deadline {
+            item.grantedSeconds += extra
+            item.deadline = item.capped(deadline.addingTimeInterval(extra))
+        } else {
+            item.timeLimit = limit + extra
+        }
+    }
+
+    /// Approving needs the stronger shortcut (⇧⌘↩ by default): auto mode never allows
+    /// the call, or the risk check says it is critical.
+    func needsStrongApprove(_ item: Item) -> Bool {
+        item.isHardDeny || SeverityRules.needsStrongApprove(item.risk.assessment?.severity, config: config.classifier)
+    }
+
     /// "More time": adds `extendBy`, or `seconds` when given, to the clock, running or paused.
     func extendTime(by seconds: Double? = nil) {
         guard let item = current, item.timeLimit != nil else { return }
@@ -1113,7 +1139,7 @@ final class Coordinator: ObservableObject {
                 ]
                 break
             }
-            let approve = item.isHardDeny ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
+            let approve = needsStrongApprove(item) ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
             bindings += [(approve, .action(.approve)), (keymap[.deny], .action(.deny)), (keymap[.other], .action(.other))]
             if let blocked = item.blocked, !blocked.grantScopes.isEmpty {
                 bindings.append((keymap[.grant], .action(.grant)))

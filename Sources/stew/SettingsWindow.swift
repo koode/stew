@@ -442,6 +442,17 @@ struct KeyRecorder: View {
 struct ClaudeSettingsTab: View {
     @ObservedObject var model: SettingsModel
 
+    private static let extraTimes: [(String, Double)] = [("Off", 0), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
+
+    private var strongApproveText: String {
+        guard let keymap = try? Keymap(config: model.config) else { return "⇧⌘↩" }
+        return keymap[.approve].adding(keymap.hardDenyExtra).description
+    }
+
+    private func classifierBinding<Value: Hashable>(_ keyPath: WritableKeyPath<StewConfig.ClassifierConfig, Value>) -> Binding<Value> {
+        Binding(get: { model.config.classifier[keyPath: keyPath] }, set: { value in model.update { $0.classifier[keyPath: keyPath] = value } })
+    }
+
     var body: some View {
         SettingsPane(tab: .claude) {
             SettingsForm {
@@ -505,6 +516,24 @@ struct ClaudeSettingsTab: View {
                             Text("Opus").tag("opus")
                         }
                     }
+                    SettingRow(hint: "The check also rates how bad an action is if it runs: low, medium, high or critical risk, with a line on whether it can be undone. Critical actions take \(strongApproveText) to approve, like calls auto mode never allows.") {
+                        Toggle("Stronger approve for critical", isOn: classifierBinding(\.criticalNeedsStrongApprove))
+                    }
+                    .disabled(!model.config.classifier.enabled)
+                    SettingRow(hint: "Added to the time to answer for high and critical risk actions, so there is time to read them.") {
+                        Picker("Extra time for high risk", selection: classifierBinding(\.highExtraTime)) {
+                            ForEach(Self.extraTimes, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    .disabled(!model.config.classifier.enabled)
+                    SettingRow(hint: "Approve on the iPhone first shows the action, the command and whether it can be undone. For critical, you also hold Approve down.") {
+                        Picker("Extra confirmation on iPhone", selection: classifierBinding(\.phoneConfirmation)) {
+                            Text("High and critical").tag(SeverityRules.PhoneScope.highAndCritical)
+                            Text("Critical only").tag(SeverityRules.PhoneScope.critical)
+                            Text("Off").tag(SeverityRules.PhoneScope.off)
+                        }
+                    }
+                    .disabled(!model.config.classifier.enabled)
                 }
             }
         }

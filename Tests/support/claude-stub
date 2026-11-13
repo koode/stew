@@ -1,0 +1,17 @@
+#!/bin/bash
+# Stands in for the claude CLI in the risk check tests, so no test runs the real one.
+# Answers the subscription check and the auto mode policy, and rates a command by a few
+# words in it. STEW_STUB_LOG, when set, collects the arguments of each check.
+case "$1" in
+  auth) echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
+  auto-mode) echo '{"hard_deny":[],"soft_deny":[],"allow":[]}'; exit 0 ;;
+esac
+[[ -n "${STEW_STUB_LOG:-}" ]] && printf '%s\n' "$*" >> "$STEW_STUB_LOG"
+input=$(cat)
+severity=low; reversibility="Can be undone with git reset."
+case "$input" in
+  *"rm -rf ~"*) severity=critical; reversibility="Deletes files permanently; no undo." ;;
+  *"--force"*) severity=high; reversibility="Rewrites history others have pulled." ;;
+  *"git push"*) severity=medium; reversibility="Can be undone with git reflog." ;;
+esac
+printf '{"type":"result","is_error":false,"structured_output":{"verdict":"allow","risk":"low","rule":null,"summary":"Stub verdict.","severity":"%s","reversibility":"%s"}}\n' "$severity" "$reversibility"

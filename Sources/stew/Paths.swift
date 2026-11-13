@@ -16,8 +16,9 @@ enum Paths {
         return path
     }
 
+    /// STEW_CACHE keeps test runs out of the real cache.
     static var cacheDirectory: String {
-        let path = home + "/Library/Caches/stew"
+        let path = ProcessInfo.processInfo.environment["STEW_CACHE"] ?? home + "/Library/Caches/stew"
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
     }

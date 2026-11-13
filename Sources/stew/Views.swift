@@ -349,13 +349,33 @@ struct RiskBanner: View {
                     : "Approving lets Claude retry this exact call once."
             )
         case .done(let assessment):
+            let look = Look(assessment)
+            banner(tint: look.tint, symbol: look.symbol, title: title(look.title, assessment), detail: assessment.summary, severity: assessment.severity, reversibility: assessment.reversibilityLine)
+        }
+    }
+
+    /// The verdict sets the look, and a high or critical severity raises it: high takes
+    /// the warning look, critical the red one, also when auto mode would allow the call.
+    private struct Look {
+        let tint: Color
+        let symbol: String
+        let title: String
+
+        init(_ assessment: RiskAssessment) {
             switch assessment.verdict {
-            case .allow:
-                banner(tint: .green, symbol: "checkmark", title: title("Auto mode would allow this", assessment), detail: assessment.summary)
-            case .softDeny:
-                banner(tint: .orange, symbol: "exclamationmark.triangle.fill", title: title("Auto mode would block this", assessment), detail: assessment.summary)
-            case .hardDeny:
-                banner(tint: .red, symbol: "xmark.octagon.fill", title: title("Auto mode never allows this", assessment), detail: assessment.summary)
+            case .allow: title = "Auto mode would allow this"
+            case .softDeny: title = "Auto mode would block this"
+            case .hardDeny: title = "Auto mode never allows this"
+            }
+            if assessment.verdict == .hardDeny || assessment.severity == .critical {
+                tint = .red
+                symbol = "xmark.octagon.fill"
+            } else if assessment.verdict == .softDeny || SeverityRules.warns(assessment.severity) {
+                tint = .orange
+                symbol = "exclamationmark.triangle.fill"
+            } else {
+                tint = .green
+                symbol = "checkmark"
             }
         }
     }
@@ -365,7 +385,7 @@ struct RiskBanner: View {
         return "\(base) · \(rule)"
     }
 
-    private func banner(tint: Color, symbol: String?, title: String, detail: String?) -> some View {
+    private func banner(tint: Color, symbol: String?, title: String, detail: String?, severity: Severity? = nil, reversibility: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Group {
                 if let symbol {
@@ -377,13 +397,24 @@ struct RiskBanner: View {
             .foregroundStyle(tint)
             .frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 12, weight: .semibold))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title).font(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 0)
+                    if let severity { SeverityPill(severity: severity) }
+                }
                 if let detail, !detail.isEmpty {
                     Text(detail)
                         .font(.system(size: 12))
                         .foregroundStyle(.primary.opacity(0.8))
                         .fixedSize(horizontal: false, vertical: true)
                         .lineLimit(5)
+                }
+                if let reversibility {
+                    Text(reversibility)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
                 }
             }
             Spacer(minLength: 0)
@@ -440,7 +471,8 @@ struct PermissionBody: View {
 
     var body: some View {
         let keymap = coordinator.keymap
-        let approveShortcut = item.isHardDeny ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
+        let strongApprove = coordinator.needsStrongApprove(item)
+        let approveShortcut = strongApprove ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 SectionLabel(text: "Claude wants to")
@@ -480,10 +512,10 @@ struct PermissionBody: View {
                 }
                 Spacer()
                 ActionButton(
-                    title: item.isHardDeny ? "Approve anyway" : "Approve",
+                    title: strongApprove ? "Approve anyway" : "Approve",
                     shortcut: approveShortcut,
                     prominent: true,
-                    tint: item.isHardDeny ? .red : .accentColor
+                    tint: strongApprove ? .red : .accentColor
                 ) { coordinator.perform(.approve) }
             }
             }

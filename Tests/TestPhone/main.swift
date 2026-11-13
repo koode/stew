@@ -23,6 +23,8 @@ stew-test-phone COMMAND [options]
       to any input, also a secret one.
       --twice posts the same envelope again and adds the relay's status for it.
       --age SECONDS dates the answer that far back, to prove the Mac refuses stale answers.
+      --confirmed yes says the user went through the extra confirmation, as the app
+      does after its sheet for a high or critical request.
   unpair --state FILE
       End the pairing from the phone.
   pending --state FILE
@@ -178,6 +180,7 @@ func waitPush(_ values: [String: String]) throws {
                 output["actions"] = content.actions.map(\.identifier)
                 output["actionTitles"] = content.actions.map(\.title)
                 output["hasDeadline"] = request.deadline != nil
+                output["confirmation"] = request.confirmation?.rawValue ?? ""
                 if values["raw"] == "yes" {
                     // Everything the phone learned about the request, so a test can show
                     // what it never receives, such as a secret.
@@ -238,7 +241,10 @@ func answer(_ values: [String: String]) throws {
         exit(5)
     }
     let age = Double(values["age"] ?? "0") ?? 0
-    let answer = LinkAnswer(requestId: requestId, choice: choice, note: values["note"], phoneName: state.phoneName, answeredAt: Date().addingTimeInterval(-age))
+    let answer = LinkAnswer(
+        requestId: requestId, choice: choice, note: values["note"], phoneName: state.phoneName, answeredAt: Date().addingTimeInterval(-age),
+        confirmed: values["confirmed"] == "yes" ? true : nil
+    )
     let expires = min(request.deadline ?? .distantFuture, Date().addingTimeInterval(120))
     // A deadline already near still gets a minute, so the Mac can explain that it was late.
     let envelope = try channel.seal(answer, kind: .answer, requestId: requestId, expiresAt: max(expires, Date().addingTimeInterval(60)))

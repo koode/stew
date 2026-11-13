@@ -38,6 +38,10 @@ enum Snapshot {
         // The Updates section after Check now found a newer version: a window tall enough
         // to show the whole General pane.
         settings("settings-update-available", in: directory, height: 940, updater: Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)) { _, _, _ in }
+        // The whole Claude Code pane, down to the risk check's severity settings.
+        settings("settings-claude-risk", in: directory, height: 1180) { model, _, _ in
+            model.tab = .claude
+        }
         // The Menu bar section while stew is paused.
         settings("settings-general-paused", in: directory, pause: PauseModel(until: Date().addingTimeInterval(42 * 60))) { _, _, _ in }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
@@ -95,7 +99,8 @@ enum Snapshot {
                 received: ago(14), ended: ago(9), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "permission",
                 summary: "Force-push the rebased main branch", command: "git push --force origin main",
                 detail: "The rebase rewrote three commits on main, so a normal push is rejected.", outcome: .timedOut,
-                note: "The user did not respond in time.", blocked: blocked
+                note: "The user did not respond in time.", blocked: blocked,
+                severity: .high, reversibility: "Rewrites history others have pulled; they must reset to recover."
             ),
             HistoryEntry(
                 received: ago(30), ended: ago(29), session: "release", cwd: "~/code/web-app", kind: "input",
@@ -109,7 +114,8 @@ enum Snapshot {
             ),
             HistoryEntry(
                 received: ago(41), ended: ago(40), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "permission",
-                summary: "Run the database migrations", command: "pnpm db:migrate", detail: "The new session table needs them.", outcome: .approved
+                summary: "Run the database migrations", command: "pnpm db:migrate", detail: "The new session table needs them.", outcome: .approved,
+                severity: .medium, reversibility: "Can be undone with the down migration."
             ),
             HistoryEntry(
                 received: ago(75), ended: ago(73), session: "mobile-app", cwd: "~/code/mobile-app", kind: "question",
@@ -119,7 +125,8 @@ enum Snapshot {
             HistoryEntry(
                 received: ago(130), ended: ago(129), session: "mobile-app", cwd: "~/code/mobile-app", kind: "permission",
                 summary: "Delete the build folder", command: "rm -rf build", detail: "A stale build breaks the preview.", outcome: .denied,
-                note: "Use make clean instead."
+                note: "Use make clean instead.",
+                severity: .low, reversibility: "The next build recreates the folder."
             ),
             HistoryEntry(
                 received: ago(200), ended: ago(180), session: "release", cwd: "~/code/web-app", kind: "needs",
@@ -216,6 +223,40 @@ enum Snapshot {
                 question: "Ship to TestFlight now?", header: "Ship",
                 options: [QuestionOption(label: "Yes", description: ""), QuestionOption(label: "No", description: "")]
             )]))), connection: nil))
+        }),
+        ("permission-severity-low", { coordinator in
+            coordinator.show(permission(
+                "git commit -am \"Tidy imports in the auth middleware\"",
+                risk: .done(RiskAssessment(verdict: .allow, risk: .low, rule: nil, summary: "Commits the staged import changes in web-app.", severity: .low, reversibility: "Can be undone with git reset.")),
+                action: "Commit the tidied imports",
+                reason: "The tests pass with the new import order."
+            ))
+        }),
+        ("permission-severity-medium", { coordinator in
+            coordinator.show(permission(
+                "git push origin feature/login",
+                risk: .done(RiskAssessment(verdict: .allow, risk: .medium, rule: nil, summary: "Pushes feature/login to origin, where others can see it.", severity: .medium, reversibility: "Can be undone with another push; the reflog keeps the old commits.")),
+                action: "Push the login branch",
+                reason: "You asked for a merge request once the tests pass."
+            ))
+        }),
+        ("permission-severity-high", { coordinator in
+            coordinator.show(permission(
+                "git push --force origin main",
+                risk: .done(RiskAssessment(verdict: .allow, risk: .high, rule: nil, summary: "Replaces the history of main on origin with the rebased one.", severity: .high, reversibility: "Rewrites history others have pulled; they must reset to recover.")),
+                timeout: 120,
+                action: "Force-push the rebased main branch",
+                reason: "The rebase rewrote three commits on main, so a normal push is rejected."
+            ))
+        }),
+        ("permission-severity-critical", { coordinator in
+            coordinator.show(permission(
+                "rm -rf ~/Backups/postgres",
+                risk: .done(RiskAssessment(verdict: .softDeny, risk: .high, rule: "Irreversible Local Destruction", summary: "Deletes every Postgres backup in your home folder, outside the project.", severity: .critical, reversibility: "Deletes files permanently; no undo.")),
+                timeout: 120,
+                action: "Delete the old database backups",
+                reason: "The disk is almost full and the backups are older than a month."
+            ))
         }),
         ("permission-hard-deny-note", { coordinator in
             coordinator.show(permission(

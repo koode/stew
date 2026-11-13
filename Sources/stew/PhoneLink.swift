@@ -37,7 +37,7 @@ final class PhoneLink: ObservableObject {
     /// Requests that timed out on phones, by request id: which phones had them, and
     /// whether auto mode never allows them, so a phone can answer them late but not
     /// approve what only the Mac may. Memory only: after a restart only the Mac answers late.
-    private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, at: Date)] = [:]
+    private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, confirmation: PhoneConfirmation?, at: Date)] = [:]
     private var timer: Timer?
     let macName = Host.current().localizedName ?? "Mac"
 
@@ -274,6 +274,11 @@ final class PhoneLink: ObservableObject {
         case (.approve, .permission):
             guard !item.isHardDeny else { return refuse(LinkRefusal.macOnly) }
             if case .checking = item.risk { return refuse(LinkRefusal.riskChecking) }
+            // A stale or forged notification action, or an app from before severity,
+            // cannot skip the extra confirmation a high or critical request asks for.
+            guard SeverityRules.acceptsPhoneApproval(confirmation: confirmation(for: item), confirmed: answer.confirmed) else {
+                return refuse(LinkRefusal.needsConfirmation)
+            }
             answeredBy[item.id] = pairingId
             coordinator.respond(item, StewResponse(status: .approved, note: note, risk: item.risk.assessment))
             return LinkResult(requestId: requestId, accepted: true, message: "Approved on \(macName).")
@@ -384,7 +389,7 @@ final class PhoneLink: ObservableObject {
             }
         }
         if outcome == .timedOut {
-            lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, Date())
+            lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date())
         }
         resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering)
     }
@@ -410,6 +415,9 @@ final class PhoneLink: ObservableObject {
         switch (answer.choice, request.prompt) {
         case (.approve, .permission):
             guard !sent.hardDeny else { return refuse(LinkRefusal.macOnly) }
+            guard SeverityRules.acceptsPhoneApproval(confirmation: sent.confirmation, confirmed: answer.confirmed) else {
+                return refuse(LinkRefusal.needsConfirmation)
+            }
             response = StewResponse(status: .approved, note: note)
         case (.deny, .permission):
             response = StewResponse(status: .denied, note: note)
@@ -462,8 +470,16 @@ final class PhoneLink: ObservableObject {
             queued: queued,
             extendBy: item.timeLimit == nil ? nil : coordinator?.config.extendBy,
             hardDeny: item.isHardDeny,
-            risk: item.risk.assessment
+            risk: item.risk.assessment,
+            confirmation: confirmation(for: item)
         )
+    }
+
+    /// The extra step the phone must ask for before it approves, from the risk check's
+    /// severity and the setting in force now.
+    private func confirmation(for item: Item) -> PhoneConfirmation? {
+        guard let coordinator else { return nil }
+        return SeverityRules.phoneConfirmation(item.risk.assessment?.severity, config: coordinator.config.classifier)
     }
 
     /// The origin holds the raw tool input of a blocked call, which only the Mac needs.
@@ -474,7 +490,7 @@ final class PhoneLink: ObservableObject {
     }
 
     private static func needsUpdate(_ old: LinkRequest, _ new: LinkRequest) -> Bool {
-        if old.queued != new.queued || old.hardDeny != new.hardDeny || old.risk != new.risk { return true }
+        if old.queued != new.queued || old.hardDeny != new.hardDeny || old.risk != new.risk || old.confirmation != new.confirmation { return true }
         switch (old.deadline, new.deadline) {
         case (nil, nil): return false
         case (let before?, let after?): return abs(before.timeIntervalSince(after)) > deadlineTolerance

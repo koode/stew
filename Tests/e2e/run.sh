@@ -8,7 +8,7 @@ STEW="${STEW:-$ROOT/.build/debug/stew}"
 # slash from a TMPDIR that ends in one.
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK="$(mktemp -d "${TMP_ROOT%/}/stew-e2e.XXXXXX")"
-export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e"
+export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e" STEW_CACHE="$WORK/cache" STEW_STUB_LOG="$WORK/claude-stub.log"
 # Run from inside Claude Code, requests would carry that session's id; tests set their own.
 unset CLAUDE_CODE_SESSION_ID
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
@@ -1055,6 +1055,63 @@ expect "only once" "$(manual "$STEW" _control state)" "items=0"
 kill "$SCHEDULED"
 wait "$SCHEDULED" 2>/dev/null; SCHEDULED=""
 kill "$HTTP"; wait "$HTTP" 2>/dev/null; HTTP=""
+
+# Severity from the risk check, with a stub in place of the claude CLI: it answers the
+# subscription check, and rates commands by a few words in them.
+STUB="$ROOT/Tests/support/claude-stub"
+severity_config() { echo "{\"classifier\":{\"enabled\":true,\"claudePath\":\"$STUB\"$1},\"sound\":\"\",\"responseTimeout\":60}" > "$STEW_CONFIG"; }
+wait_checked() {
+  for _ in $(seq 1 100); do [[ "$(control state)" != *"risk=checking"* ]] && break; sleep 0.1; done
+  control state
+}
+clock_of() { sed -E 's/.*clock=running:([0-9]+).*/\1/' <<< "$1"; }
+severity_config ""
+
+"$STEW" permit --action "Delete the old backups" --command "rm -rf ~/Backups" --reason "disk full" > "$WORK/out" & client=$!
+wait_items 1
+state=$(wait_checked)
+expect "critical severity from the check" "$state" "risk=allow severity=critical"
+expect "critical needs the stronger approve" "$state" "keys=⌘. ⌘E ⇧⌘↩ ⌘D ⌘O"
+expect "the check asked for severity" "$(cat "$STEW_STUB_LOG")" '"severity":{"type":"string","enum":["low","medium","high","critical"]}'
+control press deny > /dev/null
+wait $client
+expect "severity reported to caller" "$(cat "$WORK/out")" '"severity":"critical"'
+expect "reversibility reported to caller" "$(cat "$WORK/out")" '"reversibility":"Deletes files permanently; no undo."'
+expect "history keeps the severity" "$(tail -1 "$WORK/history.jsonl")" '"severity":"critical"'
+
+"$STEW" permit --action "Force-push main" --command "git push --force origin main" --reason "rebased" > "$WORK/out" & client=$!
+wait_items 1
+state=$(wait_checked)
+expect "high severity from the check" "$state" "severity=high"
+expect "high keeps the plain approve" "$state" "keys=⌘. ⌘E ⌘↩ ⌘D ⌘O"
+clock=$(clock_of "$state")
+(( clock > 100 && clock <= 120 )) && pass "high gets a minute on top of the limit" || fail "high gets a minute on top of the limit" "$state"
+control press approve > /dev/null
+wait $client
+expect "high approves with ⌘↩" "$(cat "$WORK/out")" '"status":"approved"'
+
+"$STEW" permit --action "Push the branch" --command "git push origin feature" --reason "review" > "$WORK/out" & client=$!
+wait_items 1
+state=$(wait_checked)
+expect "medium severity from the check" "$state" "severity=medium"
+clock=$(clock_of "$state")
+(( clock <= 60 )) && pass "medium changes nothing" || fail "medium changes nothing" "$state"
+control press deny > /dev/null; wait $client
+
+severity_config ',"criticalNeedsStrongApprove":false,"highExtraTime":0'
+"$STEW" permit --action "Delete the old backups" --command "rm -rf ~/Backups" --reason "disk full" > "$WORK/out" & client=$!
+wait_items 1
+state=$(wait_checked)
+expect "critical with the setting off takes the plain approve" "$state" "keys=⌘. ⌘E ⌘↩ ⌘D ⌘O"
+clock=$(clock_of "$state")
+(( clock <= 60 )) && pass "no extra time when set to off" || fail "no extra time when set to off" "$state"
+control press deny > /dev/null; wait $client
+
+echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
+"$STEW" permit --action "Delete the old backups" --command "rm -rf ~/Backups" --reason "disk full" > "$WORK/out" & client=$!
+wait_items 1
+expect "no severity while the check is off" "$(control state)" "risk=off severity=-"
+control press deny > /dev/null; wait $client
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then
   echo '{"classifier":{"enabled":true,"model":"haiku"},"sound":""}' > "$STEW_CONFIG"

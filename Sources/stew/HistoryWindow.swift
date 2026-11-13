@@ -115,6 +115,10 @@ struct HistoryView: View {
                                 Text(entry.summary).font(.system(size: 12)).lineLimit(1).truncationMode(.tail).help(entry.summary)
                             }
                             .width(min: 160)
+                            TableColumn("Risk") { entry in
+                                if let severity = entry.severity { SeverityPill(severity: severity) }
+                            }
+                            .width(100)
                             TableColumn("Outcome") { entry in
                                 OutcomePill(entry: entry)
                             }
@@ -192,6 +196,9 @@ struct HistoryDetail: View {
                 row("Ended", HistoryEntry.timeText(entry.ended))
                 if let command = entry.command {
                     row("Command", command, monospaced: true)
+                }
+                if let severity = entry.severity {
+                    row("Risk", [severity.label, entry.reversibility].compactMap { $0 }.joined(separator: " · "))
                 }
                 if let detail = entry.detail, !detail.isEmpty {
                     row(detailLabel, detail)
