@@ -5,6 +5,7 @@ import StewCore
 let usage = """
 stew: ask the user for permission, tell them something, or ask a question, in a
 floating panel that never takes keyboard focus. Answers print as one JSON line.
+Add --help to a command (or run stew help COMMAND) for only its part of this text.
 
 USAGE
   stew permit --action TEXT --reason TEXT [--command TEXT|-] [common]
@@ -440,9 +441,24 @@ if LaunchContext.isOpenedAsApp(arguments: commandLine, parentProcessID: getppid(
     // Double-clicking Stew.app opens the settings window in the daemon, starting it if needed.
     exit(Client.sendControl("settings", startDaemon: true) == nil ? 1 : 0)
 }
-guard commandLine.count > 1, !["-h", "--help", "help"].contains(commandLine[1]) else {
+guard commandLine.count > 1, !["-h", "--help"].contains(commandLine[1]) else {
     print(usage)
     exit(commandLine.count > 1 ? 0 : 64)
+}
+// `stew help [COMMAND]` and `stew COMMAND --help` print help and run nothing.
+let helpTopic: String? = commandLine[1] == "help" ? (commandLine.count > 2 ? commandLine[2] : "") :
+    (CommandHelp.isRequested(Array(commandLine.dropFirst(2))) ? commandLine[1] : nil)
+if let helpTopic {
+    if helpTopic.isEmpty {
+        print(usage)
+        exit(0)
+    }
+    guard let help = CommandHelp.text(for: helpTopic, usage: usage) else {
+        FileHandle.standardError.write(Data("stew: unknown command \(helpTopic)\n\nRun `stew --help` for usage.\n".utf8))
+        exit(64)
+    }
+    print(help)
+    exit(0)
 }
 do {
     try runCommand(commandLine[1], try Arguments(commandLine.dropFirst(2), booleanFlags: Arguments.booleanFlags(for: commandLine[1])))
