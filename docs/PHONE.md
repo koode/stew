@@ -5,7 +5,8 @@ When a request stays open while you are away from your Mac, stew sends it to you
 ## How it behaves
 
 - **When it pushes.** A request goes to the phone once it has been open 10 seconds (`phone.after`) and the Mac is idle (no keyboard or mouse input for 2 minutes, `phone.idleAfter`) or its screen is locked. Settings ▸ iPhone ▸ Send requests offers "When I'm away" (the default), "Always" and "Never" (`phone.push`: `away`, `always`, `never`).
-- **The time limit still applies.** The notification shows when the time to answer runs out. An answer that arrives later is refused, and the phone says so. More time on the phone adds the same time as ⌘E on the Mac.
+- **The time limit still applies.** The notification shows when the time to answer runs out. More time on the phone adds the same time as ⌘E on the Mac.
+- **Late answers.** When the time runs out on a permission request, question or input from a Claude Code session, the phone can still answer it for 24 hours, like Answer now in the Mac's History: an open request screen stays open and says "Time ran out", and History lists the request with Answer now. Approve, Deny, the question's answers or a typed reply then go to the Mac, which passes them to the session as a late answer, exactly as if you answered from its History, and the phone shows "Sent as a late answer". The History row then shows the late outcome, such as "Approved late". More time cannot bring a request back, a secret is never answered from the phone (you enter it on the Mac), and Approve on a request auto mode never allows stays Mac-only. A request answered elsewhere or dismissed stays refused, and the phone says why. A request without a Claude session id (a `stew` call outside Claude Code) cannot take a late answer, so the phone refuses it as too late. The Mac remembers which phone may answer late only while it runs: after a restart, answer late on the Mac.
 - **First answer wins.** When the request is answered anywhere (Mac, phone or another phone), times out or is dismissed, the other devices remove their notification.
 - **Hard denies stay on the Mac.** A call auto mode never allows can be approved on the Mac only. The phone shows it and offers Deny and More time, but no Approve.
 - **Approve needs an unlocked phone.** On a locked phone the Approve action asks for Face ID or the passcode first. On an unlocked phone, and on the Watch while it is unlocked on your wrist, iOS does not ask again. Approve in the app always asks. Deny and More time never ask.
@@ -48,7 +49,7 @@ The `phone` object in `~/.config/stew/config.json`. Every field is optional.
 
 ```bash
 swift test              # StewLink: encryption, signatures, replays, expiry, notification text, history
-Tests/phone/run.sh      # a local relay in MOCK_APNS mode, a headless daemon and a test phone
+Tests/phone/run.sh      # a local relay in MOCK_APNS mode, a headless daemon and a test phone (RELAY_PORT picks its port)
 ```
 
 `Tests/phone/run.sh` needs the relay's dependencies (`pnpm install` in `relay/`) and runs everything on this Mac: the relay records pushes instead of sending them to Apple, and `stew-test-phone` decrypts them with the same code as the iOS app and answers.
@@ -62,6 +63,14 @@ The app is in `ios/App`: the app (`nl.koode.stew.ios`), its notification service
 Needs items show the same parts as the Mac panel: the title, Why, the steps, the commands with secrets masked, and the links. Done (with Claude's label for it) and the other answers tell Claude how to go on and ask for no Face ID, because they run nothing. Not now sends nothing: the notification goes, and the item stays in Requests and on the Mac. Needs items have no time limit, so they never show as missed.
 
 ![A needs item on the iPhone, with Done and Not now](images/iphone-notification-expanded-needs-light.png)
+
+Questions follow the Mac panel's rules: a single-select option answers and moves on, multi select toggles until Confirm, and Other… takes typed text. The last question of a set always shows Submit, so a send that failed can be tried again. Submit or Confirm while a question has no answer goes to the first open question and says so ("Q1 has no answer yet."), as ⌘↩ does on the Mac; it never does nothing. While the answer goes out the button shows "Sending…". When it fails or the Mac refuses it, the reason shows on the screen under the buttons, which scroll into view, and the answers stay as they were for another try. The Mac also writes every refusal of a phone answer to its log.
+
+![Submit with a question left open](images/iphone-app-question-incomplete-light.png)
+
+![An answer that could not reach the Mac](images/iphone-app-question-send-error-light.png)
+
+![An answer after the time ran out, sent as a late answer](images/iphone-app-question-late-sent-light.png)
 
 Inputs show the question, Why and an Answer field; Send stays off until the answer fits the pattern. A secret shows "Enter it on your Mac" with Give me 5 min and I'll enter it later instead of a field.
 
@@ -94,11 +103,11 @@ On the simulator, debug builds take three launch arguments. None of them exist i
 
 - `-StewSeed <base64>` installs the phone state that `stew-test-phone sample-push --out DIR` writes to `DIR/seed.txt`, without a relay.
 - `-StewDeliver <base64>` runs a push payload (`base64 -i DIR/push-permission.json`) through the notification extension's code in the app and shows the result 15 seconds later. `xcrun simctl push` delivers payloads, but the simulator does not start notification service extensions for them, so this is how to see a decrypted notification there.
-- `-StewDemo [requests|request|question|needs|input|secret|history|macs]` shows sample requests and history on that screen, for screenshots.
+- `-StewDemo [requests|request|question|questions|questions-offline|late|needs|input|secret|history|macs]` shows sample requests and history on that screen, for screenshots. `questions` is a set of two questions, `questions-offline` the same set with the Mac offline, and `late` that set after its time ran out. A demo never contacts a relay: a stand-in answers for the Mac.
 
 ### Screenshots
 
-`StewUITests/ScreenShots/testNotification` launches the app with `TEST_RUNNER_STEW_SEED` and `TEST_RUNNER_STEW_PUSH`, goes to the Home Screen, and captures the banner and the expanded notification. Export them with `xcrun xcresulttool export attachments`. The app screens come from `-StewDemo` and `xcrun simctl io <device> screenshot`. A headless simulator applies `xcrun simctl ui <device> appearance dark` only after a reboot.
+`StewUITests/ScreenShots/testAnswerFeedback` taps through the question demos and captures Submit with a question left open, sending, a failed send, and a late answer; run it once more with the simulator dark and `TEST_RUNNER_STEW_APPEARANCE=dark` for the dark versions. `StewUITests/ScreenShots/testNotification` launches the app with `TEST_RUNNER_STEW_SEED` and `TEST_RUNNER_STEW_PUSH`, goes to the Home Screen, and captures the banner and the expanded notification. Export them with `xcrun xcresulttool export attachments`. The app screens come from `-StewDemo` and `xcrun simctl io <device> screenshot`. A headless simulator applies `xcrun simctl ui <device> appearance dark` only after a reboot.
 
 ## Security
 

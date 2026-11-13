@@ -221,7 +221,7 @@ The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600)
 
 ### Late answers
 
-A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, pick the options of the question, or type the answer). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it.
+A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, pick the options of the question, or type the answer). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it. A paired iPhone can answer such a request late too, for as long as the Mac runs: the answer goes the same way, and the phone shows "Sent as a late answer" (see [docs/PHONE.md](docs/PHONE.md)).
 
 The answer goes to the Claude Code session that asked, through the hooks, at its next step:
 
@@ -255,7 +255,7 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 | ⌘G | Allow more… on a call auto mode blocked |
 | ⌘E | More time (+2 minutes) |
 | ⌘1 to ⌘4 | Pick an option, or one of a needs item's other answers |
-| ⌘↩ | Confirm a multi-select question, or send typed text |
+| ⌘↩ | Confirm a multi-select question, or send typed text. With a question still unanswered, the panel goes to it and says so |
 | ⌘5 | Give me 5 min, on a secret input |
 | ⌘L | I'll enter it later, on a secret input |
 | ⌘[ / ⌘] | Previous or next question |
