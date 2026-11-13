@@ -281,6 +281,11 @@ public enum History {
         entries.filter { !missedOnly || $0.answerableLater }.sorted { $0.ended > $1.ended }
     }
 
+    /// `date` without its fraction of a second, as the history stores it.
+    public static func wholeSecond(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+    }
+
     /// Requests that timed out at or after `since`.
     public static func missed(_ entries: [HistoryEntry], since: Date) -> [HistoryEntry] {
         entries.filter { $0.missed && $0.ended >= since }

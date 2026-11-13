@@ -215,6 +215,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var autoUpdate: Bool
     /// Days of request history to keep.
     public var historyDays: Int
+    /// The stew item in the menu bar. Off, it still shows while a needs item is open.
+    public var menuBar: Bool
     public var classifier: ClassifierConfig
     /// When open requests go to paired iPhones.
     public var phone: PhoneConfig
@@ -279,6 +281,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         confetti = false
         autoUpdate = true
         historyDays = History.defaultKeepDays
+        menuBar = true
         classifier = ClassifierConfig()
         phone = PhoneConfig()
     }
@@ -301,6 +304,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
+        menuBar = try container.decodeIfPresent(Bool.self, forKey: .menuBar) ?? defaults.menuBar
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
     }

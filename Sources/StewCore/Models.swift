@@ -45,6 +45,19 @@ public enum NotifyLevel: String, Codable, Sendable, CaseIterable {
 public enum NotifyAction: String, Codable, Sendable {
     /// The return summary: open the history of missed requests.
     case openHistory
+    /// A new version is available: "Install now" installs it, "Later" closes the panel.
+    case installUpdate
+}
+
+/// A link shown beside the buttons of a notification, such as the release notes.
+public struct NotifyLink: Codable, Equatable, Sendable {
+    public var title: String
+    public var url: String
+
+    public init(title: String, url: String) {
+        self.title = title
+        self.url = url
+    }
 }
 
 public struct NotifyRequest: Codable, Equatable, Sendable {
@@ -52,12 +65,14 @@ public struct NotifyRequest: Codable, Equatable, Sendable {
     public var body: String?
     public var level: NotifyLevel
     public var action: NotifyAction?
+    public var link: NotifyLink?
 
-    public init(title: String, body: String? = nil, level: NotifyLevel = .info, action: NotifyAction? = nil) {
+    public init(title: String, body: String? = nil, level: NotifyLevel = .info, action: NotifyAction? = nil, link: NotifyLink? = nil) {
         self.title = title
         self.body = body
         self.level = level
         self.action = action
+        self.link = link
     }
 }
 
