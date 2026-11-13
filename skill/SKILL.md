@@ -101,6 +101,10 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 - `answers` maps question text to the chosen label. Multi-select labels are joined with ", ". An "Other" answer is the user's own text.
 - `dismissed` means the user closed it without answering. Do not repeat the same request. Stop or choose the safe path.
 - `timeout` means the user did not answer in time (1 minute by default) and may be away. Read the `note`, continue another way that does not need this, and ask again later only if there is no other way.
+
+### Late answers
+
+The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"`. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
 - `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command.
 
 ## Writing a good request

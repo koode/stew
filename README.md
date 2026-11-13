@@ -68,11 +68,11 @@ Open Claude Code in this folder and paste:
 
 ### When auto mode blocks a call
 
-With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, and two for things Claude needs you to do (see below).
+With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
-3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.). If the time to answer runs out, Claude is told you did not respond in time.
+3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.). If the time to answer runs out, Claude is told you did not respond in time; you can still answer it later from History (see Late answers).
 4. On approval, stew tells Claude Code that Claude may retry. The `PreToolUse` hook lets that identical call through once. A changed call goes back to auto mode.
 
 **Allow more…** (⌘G) skips the question next time:
@@ -154,7 +154,7 @@ Answers print as one JSON line. `stew --help` lists every command and flag.
 
 ### Time to answer
 
-Permission requests and questions get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away and that it should continue another way or ask again later. `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+Permission requests and questions get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
@@ -175,6 +175,26 @@ stew history --missed --json    # print them as a JSON array, for scripts
 For a missed call that auto mode blocked, the History tab offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
 
 The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
+
+### Late answers
+
+A permission request or question that ran out of time can still be answered for 24 hours. Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, or pick the options of the question). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it.
+
+The answer goes to the Claude Code session that asked, through the hooks, at its next step:
+
+| The session is | The answer arrives with |
+|---|---|
+| Working | The next tool call (`PreToolUse`), as context next to the tool result |
+| About to finish | The end of the turn (`Stop`): Claude continues with the answer |
+| Idle | Your next message (`UserPromptSubmit`), as context next to it |
+
+- Each answer arrives once, and only in the session that asked. A subagent gets only its own answers; the main agent gets every answer of its session.
+- A late approval of a call that auto mode blocked also lets the identical retry through once. Claude is told to retry it if it still needs it.
+- Commands in what Claude reads have their secrets masked, as in the history.
+- An answer that no hook picks up within 24 hours is dropped. Requests without a Claude Code session (a `stew permit` from your own shell) cannot be answered late.
+- Delivery needs the hooks from this version: `stew hooks status` says "partly installed" for an older install, and `stew hooks install` updates it. The `Stop` delivery is a hook that runs in the foreground (only those can keep Claude going); it only reads `late-answers.json`, so it does not slow down the end of a turn.
+
+Waiting requests and late answers are in `~/Library/Application Support/stew/late-answers.json` (mode 0600).
 
 ## On your iPhone
 
