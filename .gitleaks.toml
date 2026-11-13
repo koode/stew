@@ -12,7 +12,7 @@ description = "Test fixtures, masking tests and screenshot sample data"
 paths = [
   '''^relay/test/fixtures/''',
   '''^ios/App/Tests/''',
-  '''^Tests/(Stew|Stew)CoreTests/''',
+  '''^Tests/StewCoreTests/''',
   '''^ios/App/Stew/DebugLaunch\.swift$''',
   '''^\.claude/''',
 ]
