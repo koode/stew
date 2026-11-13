@@ -10,6 +10,7 @@
 #   ~/Library/LaunchAgents/nl.koode.stew.plist    starts the daemon at login
 #   ~/.claude/skills/stew                         the Claude Code skill, if ~/.claude exists
 #   shell completion for fish and zsh             see `stew completions install`
+# Everything after the app comes from `stew setup`, run from the new app.
 #
 # Options:
 #   --with-hooks     also ask in stew when Claude Code's auto mode blocks a call
@@ -51,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --bin-dir) bin_dir="$2"; shift ;;
     --app-dir) app_dir="$2"; shift ;;
     --app) local_app="$2"; shift ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "stew: unknown option: $1" >&2; exit 64 ;;
   esac
   shift
@@ -138,12 +139,11 @@ else
 fi
 
 app="$app_dir/Stew.app"
-link="$bin_dir/stew"
-plist="$HOME/Library/LaunchAgents/$label.plist"
+tool="$app/Contents/MacOS/stew"
 domain="gui/$(id -u)"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
 
-mkdir -p "$app_dir" "$bin_dir" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+mkdir -p "$app_dir"
 
 step "Stopping the running daemon"
 launchctl_run bootout "$domain/$label" 2> /dev/null || true
@@ -162,70 +162,23 @@ if ! mv "$staging" "$app"; then
 fi
 rm -rf "$previous"
 
-# An install from before Stew.app put the binary itself here. Replace it with a
-# link, so the path that hooks and scripts call stays the same.
-if [[ -e "$link" && ! -L "$link" ]]; then
-  note "Replacing the old binary at $link with a link into Stew.app."
-  rm -f "$link"
-fi
-ln -sfn "$app/Contents/MacOS/stew" "$link"
-note "$link -> $app/Contents/MacOS/stew"
-
-step "Starting the daemon (LaunchAgent $label)"
-cat > "$plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$label</string>
-  <key>ProgramArguments</key>
-  <array><string>$app/Contents/MacOS/stew</string><string>daemon</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>ProcessType</key><string>Interactive</string>
-  <key>LimitLoadToSessionType</key><string>Aqua</string>
-  <key>StandardOutPath</key><string>$HOME/Library/Logs/stew.log</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/stew.log</string>
-</dict>
-</plist>
-PLIST
-# launchd can take a moment to let go of the job it just stopped.
-started=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if launchctl_run bootstrap "$domain" "$plist" 2> /dev/null; then started=1; break; fi
-  sleep 0.5
-done
-[[ $started -eq 1 ]] || fail "launchctl could not start $plist. Try: launchctl bootstrap $domain $plist"
-
-if [[ $with_skill -eq 1 ]]; then
-  if [[ -d "$HOME/.claude" ]]; then
-    mkdir -p "$HOME/.claude/skills/stew"
-    install -m 644 "$app/Contents/Resources/skill/SKILL.md" "$HOME/.claude/skills/stew/SKILL.md"
-    step "Installed the Claude Code skill in ~/.claude/skills/stew"
-  else
-    note "No ~/.claude folder, so the Claude Code skill was skipped."
-  fi
-fi
-
-if [[ $with_completions -eq 1 ]]; then
-  step "Installing shell completion"
-  # The installed binary writes its own scripts, so they match its commands.
-  "$link" completions install 2>&1 | sed 's/^/    /' || note "Shell completion was not installed completely; see above."
-fi
-
-if [[ $with_hooks -eq 1 ]]; then
-  step "Installing the Claude Code hooks"
-  "$link" hooks install
-fi
+# The rest is the same for every install, so the new app does it itself: the stew
+# link (replacing an old plain binary there, so the path that hooks call stays the
+# same), the LaunchAgent, the skill, shell completion and the hooks.
+setup_options=(--bin-dir "$bin_dir")
+[[ $with_hooks -eq 1 ]] && setup_options+=(--with-hooks)
+[[ $with_skill -eq 0 ]] && setup_options+=(--no-skill)
+[[ $with_completions -eq 0 ]] && setup_options+=(--no-completions)
+"$tool" setup "${setup_options[@]}" || fail "setup did not finish; see above. To try again: $tool setup ${setup_options[*]}"
 
 echo
-echo "Installed $("$link" version)."
+echo "Installed $("$tool" version)."
 command -v claude > /dev/null || note "The claude command is not on PATH. The risk check and the auto mode hooks need it."
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) note "$bin_dir is not on PATH. Add it to your shell profile, or call stew by its full path." ;;
 esac
 echo
-"$link" keys
+"$tool" keys
 echo
 echo "Try it: stew notify \"stew works\" --body \"Close this with ⌘. or ⌘↩\""

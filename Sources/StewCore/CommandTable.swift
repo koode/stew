@@ -108,9 +108,16 @@ public enum CommandTable {
         command("daemon", "Run the daemon", hidden: true),
         command("version", "Print the version and build"),
         command("update", "Install the latest version now", options: [flag("check", "Only report whether there is one")]),
+        command("setup", "Set up the daemon, skill and shell completion for this Stew.app", options: [
+            flag("with-hooks", "Also add the Claude Code hooks"),
+            flag("no-skill", "Skip the Claude Code skill"),
+            flag("no-completions", "Skip shell completion"),
+            option("bin-dir", "Where to put the stew link", value: .directory),
+        ]),
         command("uninstall", "Remove stew, keeping ~/.config/stew", options: [
             option("bin-dir", "Where the stew link is", value: .directory),
             option("app-dir", "Where Stew.app is", value: .directory),
+            flag("keep-app", "Leave Stew.app in place"),
         ]),
         command("completions", "Print or install shell completion", subcommands: [
             command("fish", "Print the fish script"),

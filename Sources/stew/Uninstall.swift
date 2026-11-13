@@ -1,4 +1,5 @@
 import Foundation
+import StewCore
 
 /// `stew uninstall`: removes everything the installers put in place, so an install
 /// from the release script can be removed without the source repository.
@@ -7,8 +8,22 @@ import Foundation
 /// Claude Code never calls a missing stew. The shell completion files the installer
 /// wrote and the iPhone pairings in the login keychain go too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
 /// .claude/settings.local.json.
+///
+/// `keepApp` leaves Stew.app itself in place, for a package manager that removes it: the
+/// Homebrew cask's `zap` runs `stew uninstall --keep-app` before it deletes the app.
 enum Uninstaller {
-    static func run(binDirectory: String, appDirectory: String) -> Int32 {
+    static func run(binDirectory: String, appDirectory: String, keepApp: Bool) -> Int32 {
+        if !keepApp, let app = AppVersion.appBundle(forExecutable: Paths.executable),
+           InstallLocation.isHomebrewCask(
+               app: app,
+               prefixes: InstallLocation.homebrewPrefixes(environment: ProcessInfo.processInfo.environment),
+               directoryExists: { FileManager.default.fileExists(atPath: $0) },
+               resolve: Setup.resolvedPath
+           ) {
+            // Going ahead would leave Homebrew's app, link and records behind.
+            print("Stew was installed with Homebrew. Remove it with: brew uninstall --cask --zap \(InstallLocation.caskToken)")
+            return 1
+        }
         var failures = 0
         do {
             try Hooks.uninstall()
@@ -17,10 +32,10 @@ enum Uninstaller {
             failures += 1
         }
 
-        launchctl(["bootout", "gui/\(getuid())/\(Paths.launchAgentLabel)"])
+        Launchctl.run(["bootout", "gui/\(getuid())/\(Paths.launchAgentLabel)"])
         remove(Paths.launchAgent, &failures)
 
-        for name in ["Stew.app", ".Stew.app.installing", ".Stew.app.previous", ".stew-update"] {
+        for name in (keepApp ? [] : ["Stew.app"]) + [".Stew.app.installing", ".Stew.app.previous", ".stew-update"] {
             remove(appDirectory + "/" + name, &failures)
         }
         remove(binDirectory + "/stew", &failures)
@@ -55,21 +70,5 @@ enum Uninstaller {
             print("could not remove \(path): \(error.localizedDescription)")
             failures += 1
         }
-    }
-
-    /// Tests set STEW_INSTALL_LAUNCHCTL_LOG, so they never stop the real daemon.
-    private static func launchctl(_ arguments: [String]) {
-        if let logPath = ProcessInfo.processInfo.environment["STEW_INSTALL_LAUNCHCTL_LOG"] {
-            let line = Data(("launchctl " + arguments.joined(separator: " ") + "\n").utf8)
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(line)
-                try? handle.close()
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line)
-            }
-            return
-        }
-        Client.run("/bin/launchctl", arguments)
     }
 }

@@ -57,9 +57,17 @@ USAGE
   stew update [--check]
       Install the latest version now (the daemon also checks daily), or with
       --check only report whether there is one.
-  stew uninstall [--bin-dir DIR] [--app-dir DIR]
+  stew setup [--with-hooks] [--no-skill] [--no-completions] [--bin-dir DIR]
+      Set up the Stew.app this stew runs from, wherever it is, for the current
+      user: the LaunchAgent that starts the daemon (restarted if it runs), the
+      Claude Code skill if ~/.claude exists, the stew link in ~/.local/bin and
+      shell completion. When Homebrew installed the app, it provides the
+      command and shell completion, so setup adds neither. Safe to run again.
+      Changes ~/.claude/settings.json only with --with-hooks.
+  stew uninstall [--bin-dir DIR] [--app-dir DIR] [--keep-app]
       Remove the hooks, daemon, Stew.app, the stew link, skill, caches and
-      stored approvals. Keeps ~/.config/stew.
+      stored approvals. Keeps ~/.config/stew. --keep-app leaves Stew.app in
+      place, for a package manager that removes it.
   stew completions fish|zsh|bash
       Print the shell completion script.
   stew completions install|uninstall
@@ -97,6 +105,8 @@ struct Arguments {
         case "history": booleanFlags.union(["missed", "json"])
         case "needs": booleanFlags.union(["json"])
         case "input": booleanFlags.union(["secret", "multiline"])
+        case "setup": booleanFlags.union(["with-hooks", "no-skill", "no-completions"])
+        case "uninstall": booleanFlags.union(["keep-app"])
         default: booleanFlags
         }
     }
@@ -430,10 +440,20 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         print(outcome.message)
         exit(outcome.exitCode)
 
+    case "setup":
+        guard arguments.positional.isEmpty else { throw UsageError("setup takes no arguments, only options") }
+        var options = Setup.Options()
+        options.withHooks = arguments.flags.contains("with-hooks")
+        options.withSkill = !arguments.flags.contains("no-skill")
+        options.withCompletions = !arguments.flags.contains("no-completions")
+        if let binDirectory = arguments.options["bin-dir"] { options.binDirectory = binDirectory }
+        exit(Setup.run(options))
+
     case "uninstall":
         exit(Uninstaller.run(
             binDirectory: arguments.options["bin-dir"] ?? Paths.home + "/.local/bin",
-            appDirectory: arguments.options["app-dir"] ?? Paths.home + "/Applications"
+            appDirectory: arguments.options["app-dir"] ?? Paths.home + "/Applications",
+            keepApp: arguments.flags.contains("keep-app")
         ))
 
     case "completions":

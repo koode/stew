@@ -6,7 +6,10 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STEW="${STEW:-$ROOT/.build/debug/stew}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/stew-install-test.XXXXXX")"
+# stew names its app by its own canonical path, so the work folder gets no doubled
+# slash from a TMPDIR that ends in one.
+TMP_ROOT="${TMPDIR:-/tmp}"
+WORK="$(mktemp -d "${TMP_ROOT%/}/stew-install-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 FAKE_HOME="$WORK/home"
 LAUNCHCTL_LOG="$WORK/launchctl.log"
@@ -190,6 +193,87 @@ expect "stew uninstall exits 0" "$code" "0"
 [[ ! -e "$app" && ! -L "$FAKE_HOME/.local/bin/stew" ]] && pass "stew uninstall removes the app and link" || fail "stew uninstall removes the app and link" "$out"
 [[ ! -e "$FISH_COMPLETION" && ! -e "$FALLBACK_COMPLETION" ]] && pass "stew uninstall removes the completion files" || fail "stew uninstall removes the completion files" "$out"
 expect "a foreign _stew is left alone" "$(cat "$SITE_FUNCTIONS/_stew" 2>&1)" "#compdef stew"
+rm -f "$SITE_FUNCTIONS/_stew"
+
+# stew setup, the way the Homebrew cask runs it: the app is already in /Applications
+# (here a temporary folder), the cask linked bin/stew in its prefix (HOMEBREW_PREFIX
+# points at a temporary one with Caskroom/stew), and the postflight runs `stew setup`.
+APPS="$WORK/Applications"
+BREW="$WORK/homebrew"
+mkdir -p "$APPS" "$BREW/bin" "$BREW/Caskroom/stew/0.2.0" "$WORK/no-homebrew"
+ditto "$WORK/release/Stew.app" "$APPS/Stew.app"
+cask_app="$APPS/Stew.app"
+cask_tool="$cask_app/Contents/MacOS/stew"
+ln -s "$cask_tool" "$BREW/bin/stew"
+as_cask() { in_home env HOMEBREW_PREFIX="$BREW" "$@"; }
+not_cask() { in_home env HOMEBREW_PREFIX="$WORK/no-homebrew" "$@"; }
+plist_program() { /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" 2>&1; }
+
+# Shell completion an earlier install from the script wrote; Homebrew links its own.
+not_cask "$cask_tool" completions install > /dev/null
+[[ -f "$FISH_COMPLETION" && -f "$FALLBACK_COMPLETION" ]] && pass "completion files from an earlier install" || fail "completion files from an earlier install" "$(cat "$WORK/completion-files" 2>&1)"
+settings_before="$(cat "$WORK/claude-settings.json")"
+: > "$LAUNCHCTL_LOG"
+
+out=$(as_cask "$cask_tool" setup 2>&1); code=$?
+expect "cask setup exits 0" "$code" "0"
+expect "cask setup knows Homebrew installed the app" "$out" "(installed by Homebrew)"
+expect "cask setup reports the version" "$out" "Stew 0.2.0 (build 6) is set up."
+expect "LaunchAgent runs the app where it is" "$(plist_program)" "$cask_tool"
+expect "LaunchAgent restarts the daemon" "$(tr '\n' ' ' < "$LAUNCHCTL_LOG")" "launchctl bootout gui/$(id -u)/nl.koode.stew launchctl bootstrap gui/$(id -u) $FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist"
+expect "LaunchAgent logs to the stew log" "$(/usr/libexec/PlistBuddy -c 'Print :StandardErrorPath' "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" 2>&1)" "$FAKE_HOME/Library/Logs/stew.log"
+[[ -f "$FAKE_HOME/.claude/skills/stew/SKILL.md" ]] && pass "cask setup installs the skill" || fail "cask setup installs the skill" "$out"
+[[ ! -e "$FAKE_HOME/.local/bin/stew" && ! -L "$FAKE_HOME/.local/bin/stew" ]] && pass "cask setup adds no stew link" || fail "cask setup adds no stew link" "$(ls -l "$FAKE_HOME/.local/bin")"
+expect "cask setup leaves completion to Homebrew" "$out" "Shell completion comes from Homebrew."
+[[ ! -e "$FISH_COMPLETION" && ! -e "$FALLBACK_COMPLETION" && ! -e "$WORK/completion-files" ]] \
+  && pass "cask setup removes the earlier completion files" || fail "cask setup removes the earlier completion files" "$out"
+[[ "$(cat "$WORK/claude-settings.json")" == "$settings_before" ]] && pass "setup leaves Claude Code settings alone" || fail "setup leaves Claude Code settings alone" "$(cat "$WORK/claude-settings.json")"
+[[ ! -e "$FAKE_HOME/Applications/Stew.app" ]] && pass "no second copy in ~/Applications" || fail "no second copy in ~/Applications" "$(ls "$FAKE_HOME/Applications")"
+
+out=$(as_cask "$cask_tool" setup --no-skill 2>&1); code=$?
+expect "setup runs again" "$code" "0"
+expect "a second run keeps the LaunchAgent" "$(plist_program)" "$cask_tool"
+[[ ! -e "$FAKE_HOME/.local/bin/stew" && ! -e "$FISH_COMPLETION" ]] && pass "a second run adds nothing" || fail "a second run adds nothing" "$out"
+
+out=$(as_cask "$cask_tool" setup --with-hooks 2>&1); code=$?
+expect "setup --with-hooks exits 0" "$code" "0"
+expect "setup --with-hooks adds the hooks for the app's tool" "$(cat "$WORK/claude-settings.json")" "Contents/MacOS/stew hook denied"
+as_cask "$cask_tool" hooks uninstall > /dev/null
+
+# Moving from the script to the cask: the old link now leads to the cask's app, so the
+# path the hooks call keeps working, and the old copy is pointed out.
+ditto "$WORK/release/Stew.app" "$FAKE_HOME/Applications/Stew.app"
+ln -s "$FAKE_HOME/Applications/Stew.app/Contents/MacOS/stew" "$FAKE_HOME/.local/bin/stew"
+out=$(as_cask "$cask_tool" setup --no-skill 2>&1); code=$?
+expect "setup after a script install exits 0" "$code" "0"
+expect "the old link leads to the cask's app" "$(readlink "$FAKE_HOME/.local/bin/stew")" "$cask_tool"
+expect "the old copy is pointed out" "$out" "is no longer used. Remove it with: rm -rf"
+rm -rf "$FAKE_HOME/Applications/Stew.app" "$FAKE_HOME/.local/bin/stew"
+
+out=$(as_cask "$cask_tool" uninstall 2>&1); code=$?
+expect "stew uninstall refuses a Homebrew install" "$out$code" "brew uninstall --cask --zap stew1"
+[[ -f "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" ]] && pass "the refusal changes nothing" || fail "the refusal changes nothing" "$out"
+out=$(as_cask "$cask_tool" uninstall --keep-app --app-dir "$APPS" 2>&1); code=$?
+expect "uninstall --keep-app exits 0" "$code" "0"
+[[ -x "$cask_tool" && ! -e "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" && ! -e "$FAKE_HOME/.claude/skills/stew" ]] \
+  && pass "uninstall --keep-app keeps only the app" || fail "uninstall --keep-app keeps only the app" "$out"
+
+# The same app without Homebrew: setup adds the link and shell completion, as the script does.
+out=$(not_cask "$cask_tool" setup --no-skill 2>&1); code=$?
+expect "setup without Homebrew exits 0" "$code" "0"
+[[ "$out" != *"Homebrew"* ]] && pass "setup without Homebrew does not claim it" || fail "setup without Homebrew does not claim it" "$out"
+expect "setup without Homebrew links the command" "$(readlink "$FAKE_HOME/.local/bin/stew")" "$cask_tool"
+[[ -f "$FISH_COMPLETION" && -f "$FALLBACK_COMPLETION" ]] && pass "setup without Homebrew installs shell completion" || fail "setup without Homebrew installs shell completion" "$out"
+out=$(not_cask "$cask_tool" setup --no-skill --no-completions --bin-dir "$WORK/other-bin" 2>&1); code=$?
+expect "setup --bin-dir links there" "$(readlink "$WORK/other-bin/stew")" "$cask_tool"
+[[ "$out" != *"shell completion"* ]] && pass "setup --no-completions skips shell completion" || fail "setup --no-completions skips shell completion" "$out"
+not_cask "$cask_tool" uninstall --app-dir "$APPS" --keep-app > /dev/null
+
+out=$(in_home "$STEW" setup 2>&1); code=$?
+expect "setup needs Stew.app" "$out$code" "this stew is not inside Stew.app"
+out=$(in_home "$cask_tool" setup extra 2>&1); code=$?
+expect "setup takes no arguments" "$code" "64"
+expect "setup --help" "$(in_home "$cask_tool" setup --help)" "stew setup [--with-hooks] [--no-skill]"
 
 echo
 if [[ $failures -eq 0 ]]; then echo "all install checks passed"; else echo "$failures install check(s) failed"; fi
