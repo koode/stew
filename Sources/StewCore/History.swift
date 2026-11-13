@@ -49,14 +49,29 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var blocked: BlockedCall?
     /// A needs item with its own answers: the label of the one the user picked.
     public var answer: String?
+    /// The answer the user gave from the history after the time ran out.
+    public var late: LateOutcome?
 
     /// Missed means the time ran out. Closing a request yourself is an answer, not a miss.
     public var missed: Bool { outcome == .timedOut }
 
+    /// The outcome as the history shows it: a late answer wins over the timeout.
+    public var outcomeLabel: String {
+        late.map { "\($0.outcome.label) late" } ?? outcome.label
+    }
+
+    /// Records a late answer on the timed-out entry. `message` is what Claude will read.
+    public mutating func recordLate(_ response: StewResponse, message: String, at answered: Date) {
+        late = LateOutcome(
+            answered: answered, outcome: Self.outcome(of: response), answers: response.answers,
+            grant: response.grant, note: response.note, message: message
+        )
+    }
+
     public init(
         id: UUID = UUID(), received: Date, ended: Date, session: String, cwd: String?, kind: String, summary: String,
         command: String?, detail: String?, outcome: Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil,
-        note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil
+        note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil, late: LateOutcome? = nil
     ) {
         self.id = id
         self.received = received
@@ -73,6 +88,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.note = note
         self.blocked = blocked
         self.answer = answer
+        self.late = late
     }
 
     /// The entry for a request that ended with `response`, or with no response when
@@ -132,6 +148,27 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             kind: "needs", summary: item.needs.title, command: item.needs.maskedCommands, detail: item.needs.historyDetail,
             outcome: outcome, note: note, answer: answer
         )
+    }
+}
+
+/// An answer given from the history after a request timed out.
+public struct LateOutcome: Codable, Equatable, Sendable {
+    public var answered: Date
+    /// Approved, denied or answered.
+    public var outcome: HistoryEntry.Outcome
+    public var answers: [String: String]?
+    public var grant: GrantChoice?
+    public var note: String?
+    /// What Claude reads at its next step, with secrets masked.
+    public var message: String
+
+    public init(answered: Date, outcome: HistoryEntry.Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil, note: String? = nil, message: String) {
+        self.answered = answered
+        self.outcome = outcome
+        self.answers = answers
+        self.grant = grant
+        self.note = note
+        self.message = message
     }
 }
 

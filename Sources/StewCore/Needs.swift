@@ -438,12 +438,15 @@ public struct TurnHookInput: Equatable, Sendable {
     public var transcriptPath: String?
     /// Stop only: the text of Claude's final response. The transcript can lag behind it.
     public var lastAssistantMessage: String?
+    /// The subagent or teammate the hook fired in; nil for the main agent.
+    public var agentID: String?
 
-    public init(sessionID: String? = nil, cwd: String? = nil, transcriptPath: String? = nil, lastAssistantMessage: String? = nil) {
+    public init(sessionID: String? = nil, cwd: String? = nil, transcriptPath: String? = nil, lastAssistantMessage: String? = nil, agentID: String? = nil) {
         self.sessionID = sessionID
         self.cwd = cwd
         self.transcriptPath = transcriptPath
         self.lastAssistantMessage = lastAssistantMessage
+        self.agentID = agentID
     }
 
     public static func parse(_ data: Data) -> TurnHookInput? {
@@ -453,7 +456,8 @@ public struct TurnHookInput: Equatable, Sendable {
             sessionID: object["session_id"] as? String,
             cwd: object["cwd"] as? String,
             transcriptPath: object["transcript_path"] as? String,
-            lastAssistantMessage: message
+            lastAssistantMessage: message,
+            agentID: (object["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 }

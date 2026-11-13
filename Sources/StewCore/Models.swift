@@ -159,17 +159,20 @@ public struct StewRequest: Codable, Equatable, Sendable {
     /// For notifications and needs items: block until the user acknowledges, or marks it
     /// done or declines it. Other kinds always wait.
     public var wait: Bool
+    /// Set by the hooks: the asking agent and the blocked call, for a late answer.
+    public var origin: RequestOrigin?
 
-    public init(session: SessionInfo, prompt: Prompt, timeout: Double? = nil, maxWait: Double? = nil, wait: Bool = true) {
+    public init(session: SessionInfo, prompt: Prompt, timeout: Double? = nil, maxWait: Double? = nil, wait: Bool = true, origin: RequestOrigin? = nil) {
         self.session = session
         self.prompt = prompt
         self.timeout = timeout
         self.maxWait = maxWait
         self.wait = wait
+        self.origin = origin
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, session, timeout, maxWait, wait, permission, notify, question, needs
+        case kind, session, timeout, maxWait, wait, origin, permission, notify, question, needs
     }
 
     /// The effective time limit, given the configured default. Nil means none.
@@ -191,11 +194,15 @@ public struct StewRequest: Codable, Equatable, Sendable {
     public func timeoutNote(after seconds: Double) -> String {
         let minutes = max(1, Int((seconds / 60).rounded()))
         let span = seconds < 60 ? "\(Int(seconds)) s" : "\(minutes) min"
+        // A late answer can reach only a request with a known session.
+        let late = LateMailbox.canAnswerLate(self)
+            ? " If they answer later, stew passes their answer on to you as a late answer, which replaces this timeout."
+            : ""
         switch prompt {
         case .question:
-            return "The user didn't answer within \(span). They may be away: continue with a safe choice that does not need this answer, or ask again later."
+            return "The user didn't answer within \(span). They may be away: continue with a safe choice that does not need this answer, or ask again later.\(late)"
         case .permission, .notify:
-            return "The user didn't respond within \(span). They may be away: treat this as denied and continue another way, or ask again later."
+            return "The user didn't respond within \(span). They may be away: treat this as denied and continue another way, or ask again later.\(late)"
         case .needs:
             return "The user has not done this within \(span). It stays open in stew: continue with work that does not need it, and run `stew needs resolve ID` once you can see it is done."
         }
@@ -207,6 +214,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
         timeout = try container.decodeIfPresent(Double.self, forKey: .timeout)
         maxWait = try container.decodeIfPresent(Double.self, forKey: .maxWait)
         wait = try container.decodeIfPresent(Bool.self, forKey: .wait) ?? true
+        origin = try container.decodeIfPresent(RequestOrigin.self, forKey: .origin)
         let kind = try container.decode(String.self, forKey: .kind)
         switch kind {
         case "permission":
@@ -229,6 +237,7 @@ public struct StewRequest: Codable, Equatable, Sendable {
         try container.encodeIfPresent(timeout, forKey: .timeout)
         try container.encodeIfPresent(maxWait, forKey: .maxWait)
         try container.encode(wait, forKey: .wait)
+        try container.encodeIfPresent(origin, forKey: .origin)
         switch prompt {
         case .permission(let permission): try container.encode(permission, forKey: .permission)
         case .notify(let notify): try container.encode(notify, forKey: .notify)

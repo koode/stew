@@ -346,7 +346,7 @@ private func item(_ id: String, title: String = "Log in", in itemSession: Sessio
     @Test func uninstallRemovesTheNeedsHooksAndKeepsOthers() throws {
         let existing = Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}"#.utf8)
         let installed = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: existing)
-        #expect((hooks(installed)["Stop"] as! [[String: Any]]).count == 2)
+        #expect((hooks(installed)["Stop"] as! [[String: Any]]).count == 3)
         let removed = try #require(try ClaudeSettings.removingHooks(executable: "/u/stew", from: installed))
         let left = hooks(removed)
         #expect((left["Stop"] as! [[String: Any]]).count == 1)

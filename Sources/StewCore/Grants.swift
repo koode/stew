@@ -194,6 +194,16 @@ public enum GrantBook {
         Grant(kind: .once, toolName: call.toolName, value: call.key, sessionID: call.sessionID, created: now, expires: now.addingTimeInterval(onceLifetime))
     }
 
+    /// A late approval of a blocked call: one identical retry may pass. It lives as long
+    /// as the late answer that tells Claude to retry, and replaces any earlier one-shot
+    /// grant or denial note for the same call, such as the "did not respond in time" note.
+    public static func approveLate(grants: inout [Grant], toolName: String, callKey: String, sessionID: String, now: Date = Date()) {
+        grants.removeAll {
+            ($0.kind == .once || $0.kind == .denyNote) && $0.toolName == toolName && $0.value == callKey && $0.sessionID == sessionID
+        }
+        grants.append(Grant(kind: .once, toolName: toolName, value: callKey, sessionID: sessionID, created: now, expires: now.addingTimeInterval(LateMailbox.lifetime)))
+    }
+
     public static func denyNote(for call: HookCall, note: String, now: Date = Date()) -> Grant {
         Grant(kind: .denyNote, toolName: call.toolName, value: call.key, sessionID: call.sessionID, note: note, created: now, expires: now.addingTimeInterval(onceLifetime))
     }
@@ -211,6 +221,8 @@ public enum GrantBook {
 public struct HookCall: Equatable, Sendable {
     public var event: String
     public var sessionID: String?
+    /// The subagent the hook fired in; nil for the main agent.
+    public var agentID: String?
     public var cwd: String
     public var transcriptPath: String?
     public var toolName: String
@@ -250,6 +262,7 @@ public struct HookCall: Equatable, Sendable {
         return HookCall(
             event: object["hook_event_name"] as? String ?? "",
             sessionID: object["session_id"] as? String,
+            agentID: (object["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             cwd: object["cwd"] as? String ?? FileManager.default.currentDirectoryPath,
             transcriptPath: object["transcript_path"] as? String,
             toolName: toolName,
@@ -261,9 +274,10 @@ public struct HookCall: Equatable, Sendable {
         )
     }
 
-    public init(event: String, sessionID: String?, cwd: String, transcriptPath: String? = nil, toolName: String, key: String, command: String?, description: String?, summary: String, reason: String?) {
+    public init(event: String, sessionID: String?, agentID: String? = nil, cwd: String, transcriptPath: String? = nil, toolName: String, key: String, command: String?, description: String?, summary: String, reason: String?) {
         self.event = event
         self.sessionID = sessionID
+        self.agentID = agentID
         self.cwd = cwd
         self.transcriptPath = transcriptPath
         self.toolName = toolName
@@ -324,21 +338,40 @@ public enum HookOutput {
     }
 
     public static func preToolUse(_ decision: GrantBook.PreToolDecision) -> String {
-        let output: [String: Any]
+        preToolUse(decision, additionalContext: nil) ?? ""
+    }
+
+    /// PreToolUse with a grant decision, late answers for Claude's context, or both.
+    /// Nil when there is neither, so the hook prints nothing.
+    public static func preToolUse(_ decision: GrantBook.PreToolDecision?, additionalContext: String?) -> String? {
+        var specific: [String: Any] = ["hookEventName": "PreToolUse"]
         switch decision {
         case .allow:
-            output = ["hookSpecificOutput": [
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": "Approved by the user in stew",
-            ]]
+            specific["permissionDecision"] = "allow"
+            specific["permissionDecisionReason"] = "Approved by the user in stew"
         case .deny(let note):
-            output = ["hookSpecificOutput": [
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": "The user denied this in stew: \(note)",
-            ]]
+            specific["permissionDecision"] = "deny"
+            specific["permissionDecisionReason"] = "The user denied this in stew: \(note)"
+        case nil:
+            break
         }
+        if let additionalContext { specific["additionalContext"] = additionalContext }
+        guard specific.count > 1 else { return nil }
+        return encode(["hookSpecificOutput": specific])
+    }
+
+    /// UserPromptSubmit: late answers go into the context of the user's new message.
+    public static func promptContext(_ additionalContext: String) -> String {
+        encode(["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": additionalContext]])
+    }
+
+    /// Stop: keeps Claude going with the late answers as the reason. Only for a session
+    /// that has answers waiting; with none the hook prints nothing and Claude stops.
+    public static func blockStop(reason: String) -> String {
+        encode(["decision": "block", "reason": reason])
+    }
+
+    private static func encode(_ output: [String: Any]) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
         return String(decoding: data, as: UTF8.self)
     }
@@ -394,14 +427,17 @@ public enum ClaudeSettings {
         var object = try object(from: data)
         var hooks = object["hooks"] as? [String: Any] ?? [:]
         // The question hook waits for the user, so it needs the long timeout; the general
-        // PreToolUse hook only reads the grant file and must stay short. Stop and
-        // UserPromptSubmit take no matcher. The Stop hook runs in the background, so it
-        // can never hold up the end of a turn.
+        // PreToolUse hook only reads the grant and late answer files and must stay short.
+        // Stop and UserPromptSubmit take no matcher. The needs Stop hook runs in the
+        // background, so it can never hold up the end of a turn. The late answer Stop
+        // hook runs in the foreground, because only a foreground hook can keep Claude
+        // going; it only reads late-answers.json, so it stays fast.
         let entries: [(event: String, matcher: String?, subcommand: String, timeout: Int, background: Bool)] = [
             ("PermissionDenied", "*", "denied", deniedTimeout, false),
             ("PreToolUse", "*", "pre", 10, false),
             ("PreToolUse", "AskUserQuestion", "question", deniedTimeout, false),
             ("Stop", nil, "stop", 15, true),
+            ("Stop", nil, "stop-late", 5, false),
             ("UserPromptSubmit", nil, "prompt", 5, false),
         ]
         for event in Set(entries.map(\.event)) {
@@ -454,7 +490,7 @@ public enum ClaudeSettings {
                 (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
             }
         }
-        let wanted = ["denied", "pre", "question", "stop", "prompt"].map { "\(executable) hook \($0)" }
+        let wanted = ["denied", "pre", "question", "stop", "stop-late", "prompt"].map { "\(executable) hook \($0)" }
         let present = wanted.filter(commands.contains)
         if present.isEmpty { return .none }
         return present.count == wanted.count ? .complete : .partial
