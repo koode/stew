@@ -16,6 +16,8 @@ stew-test-phone COMMAND [options]
   answer --state FILE --request ID --action ACTION [--text TEXT] [--note TEXT] [--force yes] [--twice yes]
       ACTION is approve, deny, moreTime, option.N, other, done, answer.N, notNow,
       reply (with --text), enterSoon or enterLater. Prints the Mac's result.
+      ACTION answers sends --answers JSON, one {"selected":[N],"other":TEXT} per
+      question, the way the app answers a question set.
       --force skips the phone's own checks, to prove the Mac refuses too. With it,
       ACTION label:TEXT sends a needs answer with any label, and reply sends --text
       to any input, also a secret one.
@@ -216,7 +218,10 @@ func answer(_ values: [String: String]) throws {
     let forced = values["force"] == "yes"
     let offered = LinkPresentation.choice(forAction: action, typedText: values["text"], request: request)
     let choice: LinkChoice
-    if let offered {
+    if action == "answers" {
+        let text = try required(values, "answers")
+        choice = .answers(try LinkJSON.decode([LinkQuestionAnswer].self, from: Data(text.utf8)))
+    } else if let offered {
         choice = offered
     } else if forced, action == LinkPresentation.approveAction {
         choice = .approve

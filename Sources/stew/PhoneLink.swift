@@ -208,6 +208,10 @@ final class PhoneLink: ObservableObject {
                     let answer = try channel.open(frame.envelope, as: LinkAnswer.self, replay: &replay)
                     guard answer.requestId == frame.envelope.requestId else { return }
                     let result = apply(answer, from: pairingId)
+                    // The phone shows the reason too; the log keeps it for when it did not.
+                    if !result.accepted {
+                        Log.write("phone: refused the answer to \(answer.requestId): \(result.message)")
+                    }
                     reply(result, to: frame.envelope, channel: channel)
                 case .unpair:
                     _ = try channel.open(frame.envelope, as: LinkUnpair.self, replay: &replay)
