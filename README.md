@@ -20,6 +20,20 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 ## Install
 
 ```bash
+brew install --cask koode/apps/stew
+```
+
+This installs `/Applications/Stew.app`, links the `stew` command and its shell completion, starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill if `~/.claude` exists (the cask runs `stew setup`). stew then updates itself; `brew upgrade` leaves it alone unless you pass `--greedy`. To also ask in stew when auto mode blocks a call:
+
+```bash
+stew hooks install
+```
+
+`brew uninstall --cask stew` stops the daemon and removes the app, but keeps the hooks, the skill and stew's data; run `stew hooks uninstall` first, or add `--zap` to remove all of it.
+
+### No Homebrew?
+
+```bash
 curl -fsSL https://releases.stewcli.com/install.sh | bash
 ```
 
@@ -38,6 +52,10 @@ The script downloads the latest release and checks it before it changes anything
 - Shell completion: `~/.config/fish/completions/stew.fish` when fish is installed, and `_stew` in a zsh folder that needs no `.zshrc` change (a writable `site-functions` folder on your fpath, such as Homebrew's; otherwise `~/.zsh/completions`, and the installer prints the one `fpath` line to add). `stew completions install` redoes it, for example after you install Homebrew.
 
 Other options: `--no-skill`, `--no-completions`, `--bin-dir DIR`, `--app-dir DIR`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place, and Claude Code hooks keep working because they call that path.
+
+Moving to Homebrew later works without uninstalling first: the cask removes the completion files the script wrote, `stew setup` points `~/.local/bin/stew` at the new app (so the hooks keep working) and names the old `~/Applications/Stew.app`, which you can then delete.
+
+`stew setup` is the per-user part of both installs, for a Stew.app that is already in place. Run it again after you move the app, or to repair the LaunchAgent: `stew setup [--with-hooks] [--no-skill] [--no-completions] [--bin-dir DIR]`.
 
 ### From source
 
@@ -258,6 +276,8 @@ stew update            # install it now
 
 A build from source (`./install.sh`) is not signed with Koode's Developer ID, so it never installs updates: `stew update --check` still reports a newer version, and Settings says to rebuild instead.
 
+stew updates the app it runs from, wherever it is: `/Applications/Stew.app` from Homebrew, `~/Applications/Stew.app` from the script. If your user cannot write to that folder (a standard account and `/Applications`), stew reports the new version and tells you to run `brew upgrade --cask stew` instead.
+
 An update is installed only when the download matches the size and SHA-256 in the release manifest, carries an Ed25519 signature from the stew release key, and the app inside is signed with Koode's Developer ID. Each step is logged to `~/Library/Logs/stew.log`.
 
 | `stew update` exit code | Meaning |
@@ -332,6 +352,16 @@ The window has six panes, picked from its toolbar:
 
 ## Uninstall
 
+With Homebrew:
+
+```bash
+brew uninstall --cask --zap stew
+```
+
+This removes everything: the hooks, the daemon, the app and its links, the skill, caches, stored approvals, the iPhone pairings in the login keychain, `~/.config/stew` and the log. Without `--zap`, Homebrew stops the daemon and removes the app and its links, and keeps the hooks, the skill and stew's data.
+
+Installed with the script:
+
 ```bash
 stew uninstall
 ```
@@ -344,7 +374,7 @@ stew uninstall
 swift test                     # unit tests
 Tests/e2e/run.sh               # end-to-end tests against a headless daemon on a private socket
 RISK_CHECK=1 Tests/e2e/run.sh  # also runs one real risk check (uses your Claude plan)
-Tests/install/run.sh           # the installers and stew uninstall, against a temporary home folder
+Tests/install/run.sh           # the installers, stew setup, stew uninstall and the cask, against a temporary home folder
 swift run stew snapshot --out snapshots   # renders sample panels to PNG, light and dark
 ```
 

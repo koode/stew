@@ -19,12 +19,25 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 
 ## 3. Install
 
+If `brew --version` works, use Homebrew:
+
+```bash
+brew install --cask koode/apps/stew
+stew hooks install    # only if the user said yes to hooks
+```
+
+The cask installs `/Applications/Stew.app`, links the `stew` command and its shell completion, and runs `stew setup`, which starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill in `~/.claude/skills/stew`. It never adds the hooks itself. stew then updates itself once a day; `brew upgrade` leaves it alone unless `--greedy` is passed. If the tap is not reachable (it is private for now), use the script below.
+
+Without Homebrew, use the install script:
+
 ```bash
 curl -fsSL https://releases.stewcli.com/install.sh | bash                    # if the user said no to hooks
 curl -fsSL https://releases.stewcli.com/install.sh | bash -s -- --with-hooks # if the user said yes
 ```
 
 The script downloads the latest release, checks its SHA-256 and its Koode Developer ID signature, installs `~/Applications/Stew.app`, links `~/.local/bin/stew` to the tool inside it, starts the daemon as the LaunchAgent `nl.koode.stew`, and installs the Claude Code skill in `~/.claude/skills/stew`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place. stew then updates itself once a day.
+
+Do not use both. If stew is already installed with the script and the user wants Homebrew, `brew install --cask koode/apps/stew` takes over: it points `~/.local/bin/stew` at the new app and names the old `~/Applications/Stew.app`; ask the user before you delete that copy.
 
 If the user works from a clone of this repository and wants to build from source, run `./install.sh` (or `./install.sh --with-hooks`) from its folder instead. That needs Swift 6 or later (`swift --version`; fix with `xcode-select --install` or an Xcode update).
 
@@ -80,8 +93,16 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 
 ## Removing stew
 
+Installed with Homebrew:
+
+```bash
+brew uninstall --cask --zap stew
+```
+
+Installed with the script:
+
 ```bash
 stew uninstall
 ```
 
-It removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to a project's `.claude/settings.local.json`; list those with `stew approvals` before uninstalling if the user wants them gone.
+`stew uninstall` refuses a Homebrew install and prints the brew command instead. It removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, caches and stored approvals. It keeps `~/.config/stew` and any allow rules stew added to a project's `.claude/settings.local.json`; list those with `stew approvals` before uninstalling if the user wants them gone.
