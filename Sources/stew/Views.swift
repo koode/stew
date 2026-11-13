@@ -21,9 +21,7 @@ struct RootView: View {
         }
         .frame(width: width)
         .environment(\.panelTextWidth, width - 32)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
+        .modifier(PanelBackground(glass: coordinator.panelLook == PanelLook.glass && PanelBackground.glassAvailable))
     }
 
     private var content: some View {
@@ -61,6 +59,39 @@ struct RootView: View {
               let flow = coordinator.current?.flow,
               flow.current.options.contains(where: { $0.preview != nil }) else { return 520 }
         return 720
+    }
+}
+
+/// Solid by default. Glass uses the regular (not clear) Liquid Glass variant with a tint
+/// of the window color, so the title, command and buttons keep their contrast over busy
+/// windows in light and dark. Older macOS has no Liquid Glass and stays solid.
+struct PanelBackground: ViewModifier {
+    let glass: Bool
+
+    static var glassAvailable: Bool {
+        if #available(macOS 26, *) { return true }
+        return false
+    }
+
+    /// How much of the window color covers the glass: enough for text, little enough
+    /// that the glass still shows.
+    static let glassTint = 0.7
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        if glass, #available(macOS 26, *) {
+            // The glass is a layer behind the content rather than an effect on it, so the
+            // text, chips and buttons keep their own colors instead of turning vibrant.
+            content
+                .background { Color.clear.glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(Self.glassTint)), in: shape) }
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(Color.primary.opacity(0.14)))
+        } else {
+            content
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(Color.primary.opacity(0.14)))
+        }
     }
 }
 

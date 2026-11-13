@@ -209,6 +209,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var autoNeeds: String
     public var sound: String?
     public var position: String
+    /// The panel's background: a `PanelLook` value. Glass needs macOS 26 or later.
+    public var panelLook: String
     /// A short burst of confetti where the panel was, after approving a permission request.
     public var confetti: Bool
     /// Check for a new version at start and once a day, and install it when no request is open.
@@ -294,6 +296,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoNeeds = QuestionRouting.unattended
         sound = "Glass"
         position = "top-right"
+        panelLook = PanelLook.solid
         confetti = false
         autoUpdate = true
         historyDays = History.defaultKeepDays
@@ -317,6 +320,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoNeeds = try container.decodeIfPresent(String.self, forKey: .autoNeeds) ?? defaults.autoNeeds
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
+        panelLook = try container.decodeIfPresent(String.self, forKey: .panelLook) ?? defaults.panelLook
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
@@ -324,6 +328,13 @@ public struct StewConfig: Codable, Equatable, Sendable {
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
     }
+}
+
+/// Values of `StewConfig.panelLook`.
+public enum PanelLook {
+    public static let solid = "solid"
+    /// macOS's Liquid Glass, tinted so text stays readable over busy windows.
+    public static let glass = "glass"
 }
 
 /// The parsed, conflict-checked shortcuts.

@@ -44,6 +44,33 @@ enum Snapshot {
         }
         // The Menu bar section while stew is paused.
         settings("settings-general-paused", in: directory, pause: PauseModel(until: Date().addingTimeInterval(42 * 60))) { _, _, _ in }
+        // The glass look over a busy backdrop, as over other windows.
+        for dark in [false, true] {
+            let coordinator = Coordinator()
+            coordinator.lookOverride = PanelLook.glass
+            coordinator.show(permission(branchCommand, risk: .done(RiskAssessment(
+                verdict: .softDeny, risk: .high, rule: "Git Destructive",
+                summary: "Deletes release/2.1 on origin, a shared release branch.",
+                severity: .high, reversibility: "Deleted remote branches can be pushed again from a local copy."
+            )), timeout: 120))
+            let path = "\(directory)/panel-glass-\(dark ? "dark" : "light").png"
+            // AppKit's cacheDisplay draws no glass and drops what is behind it; SwiftUI's
+            // ImageRenderer draws both.
+            let view = RootView(coordinator: coordinator, interactive: false)
+                .padding(24)
+                .background(BusyBackdrop())
+                .environment(\.colorScheme, dark ? .dark : .light)
+            MainActor.assumeIsolated {
+                let renderer = ImageRenderer(content: AnyView(view))
+                renderer.scale = 2
+                // The first render can come out blank; the second has the content.
+                _ = renderer.nsImage
+                if let image = renderer.nsImage, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) {
+                    try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                    print(path)
+                }
+            }
+        }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         MenuBarSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
@@ -550,5 +577,30 @@ enum Snapshot {
             hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         }
         try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+}
+
+/// Stands in for the windows behind the panel: bright colors, hard edges and text, the
+/// worst case for reading text through glass.
+private struct BusyBackdrop: View {
+    private static let colors: [Color] = [.red, .orange, .yellow, .green, .teal, .blue, .purple, .pink]
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                LinearGradient(colors: Self.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                ForEach(0..<14, id: \.self) { index in
+                    let color = Self.colors[index % Self.colors.count]
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(index.isMultiple(of: 2) ? Color.white : color)
+                        .frame(width: geometry.size.width * 0.45, height: 34)
+                        .offset(x: CGFloat(index % 3) * geometry.size.width * 0.3, y: CGFloat(index) * 44)
+                    Text("let total = invoices.filter { $0.isOpen }.map(\\.amount).reduce(0, +)  // line \(index + 1)")
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(index.isMultiple(of: 2) ? Color.black : Color.white)
+                        .offset(x: 12 + CGFloat(index % 4) * 40, y: CGFloat(index) * 44 + 22)
+                }
+            }
+        }
     }
 }

@@ -251,6 +251,15 @@ struct GeneralSettings: View {
                             ForEach(Self.positions, id: \.1) { Text($0.0).tag($0.1) }
                         }
                     }
+                    SettingRow(hint: PanelBackground.glassAvailable
+                        ? "Glass lets the windows behind the panel show through, tinted so the text stays readable."
+                        : "Glass needs macOS 26 or later. The panel stays solid.") {
+                        Picker("Look", selection: binding(\.panelLook)) {
+                            Text("Solid").tag(PanelLook.solid)
+                            Text("Glass").tag(PanelLook.glass)
+                        }
+                        .disabled(!PanelBackground.glassAvailable)
+                    }
                     SettingRow(hint: "Plays when a panel appears.") {
                         Picker("Sound", selection: Binding(
                             get: { model.config.sound ?? "" },

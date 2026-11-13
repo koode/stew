@@ -108,6 +108,9 @@ final class Coordinator: ObservableObject {
     @Published private(set) var configError: String?
     @Published private(set) var hotkeyFailures: [Shortcut] = []
     private(set) var config: StewConfig
+    /// Snapshots: the panel look to render, whatever the config file says.
+    var lookOverride: String?
+    var panelLook: String { lookOverride ?? config.panelLook }
     /// Told about every answer before its item leaves, so paired phones learn the outcome.
     var onRespond: ((Item, StewResponse) -> Void)?
     /// Gets controls this class does not know; a non-nil reply answers the caller.
