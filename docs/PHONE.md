@@ -17,11 +17,15 @@ When a request stays open while you are away from your Mac, stew sends it to you
 
 ## Pairing
 
-1. On the Mac: Settings ▸ iPhone ▸ Pair an iPhone. stew shows a QR code. The same code is a `stew://pair?code=…` link that you can copy and paste on the phone instead. The code works for 10 minutes and for one phone; a copied code leaves the clipboard after a minute.
+1. On the Mac: Settings ▸ iPhone ▸ Pair an iPhone. stew shows a QR code. The same code is a `stew://pair?code=…` link that you can copy and paste on the phone instead. The code works for 10 minutes and for one phone; Settings counts down the time it has left. A copied code leaves the clipboard after a minute.
 2. On the iPhone: in the stew app, tap Pair a Mac and scan the code, or paste it.
 3. The iPhone shows six digits. Type them on the Mac. The Mac never shows them, so they can only come from your phone. If the phone shows none (another device used the code first), reject on the Mac.
 
 ![Settings ▸ iPhone while a code waits to be scanned](images/settings-phone-pairing-light.png)
+
+![The iPhone shows six digits](images/iphone-app-pair-verify-light.png)
+
+![Settings ▸ iPhone asks for the six digits](images/settings-phone-confirm-light.png)
 
 A Mac can pair with several phones and a phone with several Macs. Each pairing has its own id, its own pairing secret and its own key. Unpairing on either side removes the pairing on both.
 

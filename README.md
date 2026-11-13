@@ -252,11 +252,12 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 ![The settings window](docs/images/settings-general-light.png)
 
-The window has five tabs:
+The window has six panes, picked from its toolbar:
 
 - **General:** time to answer, more time, arming delay, position, sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
+- **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
 - **Approvals:** the same list as `stew approvals`.
 - **History:** finished requests, with a Missed only switch (see History).
 
