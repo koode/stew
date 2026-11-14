@@ -72,7 +72,10 @@ embedded_public_key() {
 
 r2() {
   [ -n "$account_id" ] || fail "set CLOUDFLARE_ACCOUNT_ID to the Cloudflare account that holds the stew-releases bucket"
-  CLOUDFLARE_ACCOUNT_ID="$account_id" pnpm dlx wrangler r2 object "$@" --remote
+  # stdin from /dev/null: run from a terminal, a tool in the pnpm dlx chain otherwise
+  # tries to ask a question, and fails with "not a terminal" because the output is
+  # captured.
+  CLOUDFLARE_ACCOUNT_ID="$account_id" pnpm dlx wrangler r2 object "$@" --remote < /dev/null
 }
 
 # Exits 0 when the object exists, 1 when R2 says it does not. Anything else (no login,
