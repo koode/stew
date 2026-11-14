@@ -275,6 +275,12 @@ struct GeneralSettings: View {
                     SettingRow(hint: "Shows what waits for you, with History, Settings and Pause. When off, it still appears while something needs you, and stew settings or opening Stew.app brings you here.") {
                         Toggle("Show in menu bar", isOn: binding(\.menuBar))
                     }
+                    SettingRow(hint: "Monochrome takes the menu bar's color, like the system icons.") {
+                        Picker("Icon", selection: binding(\.menuBarIcon)) {
+                            Text("Color").tag(MenuBarIconStyle.color)
+                            Text("Monochrome").tag(MenuBarIconStyle.monochrome)
+                        }
+                    }
                 }
                 Section("Timing") {
                     SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {

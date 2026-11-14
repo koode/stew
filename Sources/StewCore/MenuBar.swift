@@ -24,10 +24,12 @@ public struct MenuBarState: Equatable, Sendable {
     public var showsAlways: Bool
     /// The hour the morning choice, Until 08:00, ends at.
     public var morningHour: Int
+    /// The "Icon" setting: the pot without its tile, tinted by macOS.
+    public var monochromeIcon: Bool
 
     public init(
         openNeeds: [NeedsItem] = [], missedCount: Int = 0, pause: PauseDisplay? = nil, update: Update? = nil, showsAlways: Bool = true,
-        morningHour: Int = PauseChoice.defaultMorningHour
+        morningHour: Int = PauseChoice.defaultMorningHour, monochromeIcon: Bool = false
     ) {
         self.openNeeds = openNeeds
         self.missedCount = missedCount
@@ -35,6 +37,7 @@ public struct MenuBarState: Equatable, Sendable {
         self.update = update
         self.showsAlways = showsAlways
         self.morningHour = morningHour
+        self.monochromeIcon = monochromeIcon
     }
 
     /// The ways to pause stew, in the order the Pause stew submenu lists them. Each gets
@@ -48,7 +51,7 @@ public struct MenuBarState: Equatable, Sendable {
     public var badgeCount: Int { openNeeds.count + missedCount }
 
     public var icon: MenuBarIcon {
-        MenuBarIcon(count: badgeCount, updateDot: update != nil, paused: pause?.isPaused ?? false)
+        MenuBarIcon(count: badgeCount, updateDot: update != nil, paused: pause?.isPaused ?? false, monochrome: monochromeIcon)
     }
 
     /// The menu at `now`, top to bottom. `timeText` formats the end of a pause ("15:40",
@@ -152,11 +155,14 @@ public struct MenuBarIcon: Equatable, Sendable {
     public var count: Int
     public var updateDot: Bool
     public var paused: Bool
+    /// A template image macOS tints, in place of the app icon's colors.
+    public var monochrome: Bool
 
-    public init(count: Int = 0, updateDot: Bool = false, paused: Bool = false) {
+    public init(count: Int = 0, updateDot: Bool = false, paused: Bool = false, monochrome: Bool = false) {
         self.count = count
         self.updateDot = updateDot
         self.paused = paused
+        self.monochrome = monochrome
     }
 
     /// The count as shown: nothing at zero, "99+" past 99.

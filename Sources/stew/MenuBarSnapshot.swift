@@ -20,12 +20,14 @@ enum MenuBarSnapshot {
     private static let zoom = 8
 
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
-        for dark in [false, true] {
-            for scale in [1, 2] {
-                let strip = iconStrip(dark: dark, scale: scale)
-                let name = "\(directory)/menubar-icons-\(dark ? "dark" : "light")@\(scale)x"
-                save(strip, to: name + ".png")
-                save(enlarged(strip, by: zoom / scale), to: name + "-zoom.png")
+        for monochrome in [false, true] {
+            for dark in [false, true] {
+                for scale in [1, 2] {
+                    let strip = iconStrip(dark: dark, scale: scale, monochrome: monochrome)
+                    let name = "\(directory)/menubar-icons-\(monochrome ? "monochrome-" : "")\(dark ? "dark" : "light")@\(scale)x"
+                    save(strip, to: name + ".png")
+                    save(enlarged(strip, by: zoom / scale), to: name + "-zoom.png")
+                }
             }
         }
         let needs = [
@@ -66,11 +68,15 @@ enum MenuBarSnapshot {
 
     /// A strip of menu bar per state: the item plain, then highlighted as when its menu is
     /// open, with the state's name under it. Drawn at `scale` pixels per point.
-    private static func iconStrip(dark: Bool, scale: Int) -> NSBitmapImageRep {
+    private static func iconStrip(dark: Bool, scale: Int, monochrome: Bool) -> NSBitmapImageRep {
         let barHeight: CGFloat = 24
         let labelHeight: CGFloat = 14
         let cellPadding: CGFloat = 10
-        let cells = states.flatMap { name, icon in [(name, icon, false), (name + ", open", icon, true)] }
+        let cells = states.flatMap { name, state -> [(String, MenuBarIcon, Bool)] in
+            var icon = state
+            icon.monochrome = monochrome
+            return [(name, icon, false), (name + ", open", icon, true)]
+        }
         let widths = cells.map { StatusIcon.size(for: $0.1).width + 2 * cellPadding }
         let labelFont = NSFont.systemFont(ofSize: 8)
         let labelWidths = cells.map { ($0.0 as NSString).size(withAttributes: [.font: labelFont]).width + 8 }
@@ -103,8 +109,18 @@ enum MenuBarSnapshot {
                 NSBezierPath(roundedRect: NSRect(x: iconX - 5, y: 2, width: iconSize.width + 10, height: barHeight - 4), xRadius: 5, yRadius: 5).fill()
             }
             let image = StatusIcon.image(for: icon)
-            image.draw(in: NSRect(x: iconX, y: ((barHeight - iconSize.height) / 2).rounded(.down), width: iconSize.width, height: iconSize.height),
-                       from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            let iconRect = NSRect(x: iconX, y: ((barHeight - iconSize.height) / 2).rounded(.down), width: iconSize.width, height: iconSize.height)
+            // A template takes the menu bar's text color, as macOS draws it, also on the
+            // highlight: only its alpha is kept.
+            if image.isTemplate { context.beginTransparencyLayer(auxiliaryInfo: nil) }
+            image.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            if image.isTemplate {
+                context.setBlendMode(.sourceIn)
+                (dark ? NSColor.white : NSColor(white: 0, alpha: 0.85)).setFill()
+                iconRect.fill(using: .sourceIn)
+                context.endTransparencyLayer()
+                context.setBlendMode(.normal)
+            }
             let attributes: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: dark ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.35, alpha: 1)]
             let labelSize = (name as NSString).size(withAttributes: attributes)
             (name as NSString).draw(at: NSPoint(x: left + (cellWidth - labelSize.width) / 2, y: barHeight + 2), withAttributes: attributes)

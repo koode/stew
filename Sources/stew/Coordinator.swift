@@ -1057,7 +1057,8 @@ final class Coordinator: ObservableObject {
             pause: chosenPause?.display(now: Date()),
             update: updateEntry,
             showsAlways: config.menuBar,
-            morningHour: config.pauseMorningHour
+            morningHour: config.pauseMorningHour,
+            monochromeIcon: config.menuBarIcon == MenuBarIconStyle.monochrome
         )
     }
 

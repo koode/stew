@@ -284,7 +284,7 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 ## Menu bar and pause
 
-The stew icon in the menu bar is the app icon. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey while stew is paused.
+The stew icon in the menu bar is the app icon, or with Settings → General → Icon set to Monochrome, the pot alone in the menu bar's color. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey (monochrome: faded) while stew is paused.
 
 A click opens a popover: the pause (with Resume, or Cancel pause while Until I'm back counts down) and a waiting update at the top, then the open needs items, then your recent requests with All and Missed, and History, Settings and Pause stew at the bottom. Pause stew offers the same choices as the menu. Click a needs item to open it in the panel, or a request to open History with it selected, where you can still answer it late. The popover does not take the keyboard from the app you are in, and a click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
 
@@ -387,6 +387,7 @@ The window has six panes, picked from its toolbar:
 - `autoUpdate` installs new versions by itself (see Updates).
 - `historyDays` is how many days of request history to keep.
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
+- `menuBarIcon` is `"color"` (the app icon, the default) or `"monochrome"` (the pot alone, in the menu bar's color like the system icons).
 - `pauseMorningHour` is the hour, 0 to 23, that Pause stew → Until 08:00 ends at (8 by default).
 - `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
 - `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.

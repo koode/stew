@@ -191,6 +191,19 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
         #expect(try !JSONDecoder().decode(StewConfig.self, from: Data(#"{"menuBar":false}"#.utf8)).menuBar)
     }
 
+    @Test func iconStyleDefaultsToColorAndDecodes() throws {
+        func style(_ json: String) throws -> String {
+            try JSONDecoder().decode(StewConfig.self, from: Data(json.utf8)).menuBarIcon
+        }
+        #expect(StewConfig().menuBarIcon == MenuBarIconStyle.color)
+        #expect(try style("{}") == "color")
+        #expect(try style(#"{"menuBarIcon":"color"}"#) == "color")
+        #expect(try style(#"{"menuBarIcon":"monochrome"}"#) == "monochrome")
+        #expect(try style(#"{"menuBarIcon":"neon"}"#) == "color")
+        #expect(!MenuBarState().icon.monochrome)
+        #expect(MenuBarState(missedCount: 2, monochromeIcon: true).icon == MenuBarIcon(count: 2, monochrome: true))
+    }
+
     @Test func roundTripsAndToleratesDamage() throws {
         let state = DaemonState(
             pause: PauseState.starting(at: start, minutes: 30), historySeenAt: start, lastRunVersion: "0.1.0",

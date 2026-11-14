@@ -158,10 +158,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
 /// The menu bar icon: the app icon (the cream pot on a paprika tile) redrawn for 16 pt,
 /// on whole pixels at 1x and 2x. The site's dark edge and hard shadow are left out, and
-/// the steam and handles are thicker, so it stays a pot at this size. It is drawn in
-/// colour, not as a template, so it looks the same on light and dark menu bars and when
-/// highlighted. Grey while paused; a blue dot at the corner for an update; a paprika
-/// pill beside it with what waits on the user.
+/// the steam and handles are thicker, so it stays a pot at this size. In color it is not
+/// a template, so it looks the same on light and dark menu bars and when highlighted:
+/// grey while paused, a blue dot at the corner for an update, and a paprika pill beside
+/// it with what waits on the user. Monochrome is the pot alone as a template that macOS
+/// tints: faded while paused, a plain dot, and a pill with the digits cut out.
 enum StatusIcon {
     static let tile: CGFloat = 16
     static let height: CGFloat = 18
@@ -175,6 +176,8 @@ enum StatusIcon {
     private static let pausedTile = NSColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
     private static let pausedPot = NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF2 / 255, alpha: 1)
     private static let updateBlue = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1)
+    /// The monochrome pot while paused: faded, as macOS shows an inactive item.
+    private static let pausedInkAlpha: CGFloat = 0.4
 
     private static var pillFont: NSFont {
         NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
@@ -186,7 +189,7 @@ enum StatusIcon {
         for scale in [1, 2] {
             image.addRepresentation(bitmap(for: icon, scale: scale))
         }
-        image.isTemplate = false
+        image.isTemplate = icon.monochrome
         image.accessibilityDescription = "stew"
         return image
     }
@@ -242,20 +245,31 @@ enum StatusIcon {
     private static func draw(_ icon: MenuBarIcon, scale: CGFloat, canvas: NSSize) {
         let tileTop = (height - tile) / 2
         let tileRect = NSRect(x: 0, y: tileTop, width: tile, height: tile)
-        (icon.paused ? pausedTile : paprika).setFill()
-        let radius: CGFloat = 3.5
-        NSBezierPath(roundedRect: tileRect, xRadius: radius, yRadius: radius).fill()
-        drawPot(origin: tileRect.origin, scale: scale, color: icon.paused ? pausedPot : cream)
+        // Monochrome is a template: only the alpha counts, and macOS picks the color.
+        let ink = NSColor.black.withAlphaComponent(icon.paused ? pausedInkAlpha : 1)
+        if icon.monochrome {
+            drawPot(origin: tileRect.origin, scale: scale, color: ink)
+        } else {
+            (icon.paused ? pausedTile : paprika).setFill()
+            let radius: CGFloat = 3.5
+            NSBezierPath(roundedRect: tileRect, xRadius: radius, yRadius: radius).fill()
+            drawPot(origin: tileRect.origin, scale: scale, color: icon.paused ? pausedPot : cream)
+        }
 
         if let text = icon.countText {
             let width = pillWidth(text)
             let pill = NSRect(x: tile + pillGap, y: ((height - pillHeight) / 2).rounded(), width: width, height: pillHeight)
-            (icon.paused ? pausedTile : paprika).setFill()
+            (icon.monochrome ? ink : icon.paused ? pausedTile : paprika).setFill()
             NSBezierPath(roundedRect: pill, xRadius: pillHeight / 2, yRadius: pillHeight / 2).fill()
             let attributes: [NSAttributedString.Key: Any] = [.font: pillFont, .foregroundColor: NSColor.white]
             let textSize = (text as NSString).size(withAttributes: attributes)
             let origin = NSPoint(x: pill.midX - textSize.width / 2, y: pill.midY - textSize.height / 2)
+            let context = NSGraphicsContext.current
+            context?.saveGraphicsState()
+            // In a template the digits are cut out of the pill.
+            if icon.monochrome { context?.cgContext.setBlendMode(.clear) }
             (text as NSString).draw(at: origin, withAttributes: attributes)
+            context?.restoreGraphicsState()
         }
 
         if icon.updateDot {
@@ -266,7 +280,7 @@ enum StatusIcon {
             context?.compositingOperation = .clear
             circle(center, radius: dotRadius + dotRing).fill()
             context?.restoreGraphicsState()
-            updateBlue.setFill()
+            (icon.monochrome ? NSColor.black : updateBlue).setFill()
             circle(center, radius: dotRadius).fill()
         }
     }

@@ -219,6 +219,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var historyDays: Int
     /// The stew item in the menu bar. Off, it still shows while a needs item is open.
     public var menuBar: Bool
+    /// The look of the menu bar icon: a `MenuBarIconStyle` value.
+    public var menuBarIcon: String
     /// The hour, 0 to 23 local time, that Pause stew ▸ Until 08:00 ends at, today while it is still ahead, else tomorrow.
     public var pauseMorningHour: Int
     public var classifier: ClassifierConfig
@@ -303,6 +305,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = true
         historyDays = History.defaultKeepDays
         menuBar = true
+        menuBarIcon = MenuBarIconStyle.color
         pauseMorningHour = PauseChoice.defaultMorningHour
         classifier = ClassifierConfig()
         phone = PhoneConfig()
@@ -328,11 +331,22 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
         menuBar = try container.decodeIfPresent(Bool.self, forKey: .menuBar) ?? defaults.menuBar
+        let iconStyle = try container.decodeIfPresent(String.self, forKey: .menuBarIcon) ?? defaults.menuBarIcon
+        menuBarIcon = MenuBarIconStyle.all.contains(iconStyle) ? iconStyle : defaults.menuBarIcon
         let morningHour = try container.decodeIfPresent(Int.self, forKey: .pauseMorningHour) ?? defaults.pauseMorningHour
         pauseMorningHour = (0...23).contains(morningHour) ? morningHour : defaults.pauseMorningHour
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
     }
+}
+
+/// Values of `StewConfig.menuBarIcon`.
+public enum MenuBarIconStyle {
+    /// The app icon: the cream pot on a paprika tile.
+    public static let color = "color"
+    /// The pot alone as a template image, which macOS tints like its own icons.
+    public static let monochrome = "monochrome"
+    public static let all = [color, monochrome]
 }
 
 /// Values of `StewConfig.panelLook`.
