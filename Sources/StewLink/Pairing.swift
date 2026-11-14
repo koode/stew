@@ -87,7 +87,8 @@ public struct PairingCode: Codable, Equatable, Sendable {
 
 /// Signed strings for relay calls that carry no envelope. The relay checks them against
 /// the key stored for that side of the pairing, and refuses a timestamp more than five
-/// minutes off its own clock.
+/// minutes off its own clock. v1 signs these texts and sends them in the body or query; v2
+/// signs one text per call in the `authorization` header (RelayProtocol.swift).
 public enum RelayAuth {
     public static let allowedSkew: TimeInterval = 300
 
@@ -164,7 +165,8 @@ public struct RelayDeviceUpdate: Codable, Equatable, Sendable {
     }
 }
 
-/// One frame from the relay on the Mac's WebSocket.
+/// One frame from the relay on the Mac's WebSocket: v1 names its type `type`, v2 names it
+/// `t` and adds the pairing id and the frame's `seq`.
 public struct RelayFrame: Codable, Equatable, Sendable {
     public enum FrameType: String, Codable, Sendable {
         /// An envelope from the phone: an answer or an unpair.
@@ -176,11 +178,44 @@ public struct RelayFrame: Codable, Equatable, Sendable {
     public var type: FrameType
     public var envelope: LinkEnvelope
     public var phoneKeys: LinkPublicKeys?
+    /// v2 only: the frame's place in the pairing's queue, which the Mac acks.
+    public var seq: Int?
+    /// v2 only.
+    public var pairingId: String?
 
-    public init(type: FrameType, envelope: LinkEnvelope, phoneKeys: LinkPublicKeys? = nil) {
+    public init(type: FrameType, envelope: LinkEnvelope, phoneKeys: LinkPublicKeys? = nil, seq: Int? = nil, pairingId: String? = nil) {
         self.type = type
         self.envelope = envelope
         self.phoneKeys = phoneKeys
+        self.seq = seq
+        self.pairingId = pairingId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, t, envelope, phoneKeys, seq, pairingId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let type = try container.decodeIfPresent(FrameType.self, forKey: .t) {
+            self.type = type
+        } else {
+            type = try container.decode(FrameType.self, forKey: .type)
+        }
+        envelope = try container.decode(LinkEnvelope.self, forKey: .envelope)
+        phoneKeys = try container.decodeIfPresent(LinkPublicKeys.self, forKey: .phoneKeys)
+        seq = try container.decodeIfPresent(Int.self, forKey: .seq)
+        pairingId = try container.decodeIfPresent(String.self, forKey: .pairingId)
+    }
+
+    /// Encodes as v2 when the frame has a seq, else as v1.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: seq == nil ? .type : .t)
+        try container.encode(envelope, forKey: .envelope)
+        try container.encodeIfPresent(phoneKeys, forKey: .phoneKeys)
+        try container.encodeIfPresent(seq, forKey: .seq)
+        try container.encodeIfPresent(pairingId, forKey: .pairingId)
     }
 }
 
