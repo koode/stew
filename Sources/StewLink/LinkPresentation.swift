@@ -237,7 +237,10 @@ public enum LinkPresentation {
     public static let viewingPaused = "No rush: the clock is paused while you answer."
 
     /// The Mac panel's header while a phone has the request open, in place of the clock.
-    public static func viewingOn(_ phoneName: String) -> String { "Viewing on \(phoneName)" }
+    /// Short, after `viewingSymbol`, so the session name beside it keeps its room.
+    public static func viewingOn(_ phoneName: String) -> String { "On \(phoneName)" }
+    /// The SF Symbol in front of `viewingOn`.
+    public static let viewingSymbol = "iphone"
 
     public static func moreTimeTitle(_ seconds: Double) -> String {
         seconds >= 60 && seconds.truncatingRemainder(dividingBy: 60) == 0 ? "More time (+\(Int(seconds / 60)) min)" : "More time (+\(Int(seconds)) s)"

@@ -71,7 +71,8 @@ private let domain = Prompt.input(InputRequest(question: "Which domain?"))
 
     @Test func texts() {
         #expect(LinkPresentation.viewingPaused == "No rush: the clock is paused while you answer.")
-        #expect(LinkPresentation.viewingOn("Abby's iPhone") == "Viewing on Abby's iPhone")
+        #expect(LinkPresentation.viewingOn("Abby's iPhone") == "On Abby's iPhone")
+        #expect(LinkPresentation.viewingSymbol == "iphone")
     }
 
     @Test func viewingTravelsAndOlderMacsLeaveItOut() throws {

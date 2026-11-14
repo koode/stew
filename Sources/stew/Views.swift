@@ -232,7 +232,11 @@ struct TimeLimit: View {
         HStack(spacing: 6) {
             Group {
                 if coordinator.isViewing(item), let pause = item.viewing {
-                    Text(LinkPresentation.viewingOn(pause.phoneName)).foregroundStyle(.secondary)
+                    HStack(spacing: 3) {
+                        Image(systemName: LinkPresentation.viewingSymbol)
+                        Text(LinkPresentation.viewingOn(pause.phoneName))
+                    }
+                    .foregroundStyle(.secondary)
                 } else if let deadline = item.deadline {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = deadline.timeIntervalSince(context.date)
