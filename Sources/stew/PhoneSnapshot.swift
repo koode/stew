@@ -56,6 +56,12 @@ enum PhoneSnapshot {
                 )
                 write(AnyView(view.frame(width: Snapshot.settingsSize.width, height: Snapshot.settingsSize.height)), dark, path)
                 print(path)
+                // Also in the window as wide as History makes it.
+                if scenario.name == "paired" {
+                    let widePath = "\(directory)/settings-phone-\(scenario.name)-wide-\(dark ? "dark" : "light").png"
+                    write(AnyView(view.frame(width: SettingsWindowController.historyWidth, height: Snapshot.settingsSize.height)), dark, widePath)
+                    print(widePath)
+                }
             }
         }
     }

@@ -219,7 +219,8 @@ struct HistoryView: View {
     var body: some View {
         SettingsPane(
             tab: .history,
-            subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered, or are secrets you chose to enter later."
+            subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered, or are secrets you chose to enter later.",
+            fullWidth: true
         ) {
             HSplitView {
                 sidebar

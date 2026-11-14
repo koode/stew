@@ -29,6 +29,14 @@ enum Snapshot {
                 history.showSample(historySample.entries, mailbox: historySample.mailbox, unseen: historySample.unseen)
             }
         }
+        // Every pane in the window as wide as History makes it: the header and the
+        // content keep one column on the left.
+        for tab in SettingsTab.order where tab != .phone && tab != .history {
+            settings("settings-\(tab.rawValue)-wide", in: directory, width: SettingsWindowController.historyWidth) { model, approvals, _ in
+                model.tab = tab
+                approvals.showSample(sampleGrants)
+            }
+        }
         // History with each kind of request selected, and the Missed filter.
         for pick in HistorySample.Pick.allCases {
             settings("settings-history-\(pick.rawValue)", in: directory, width: SettingsWindowController.historyWidth) { model, _, history in

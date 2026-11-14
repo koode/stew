@@ -107,14 +107,23 @@ struct BrandTile: View {
 }
 
 /// A pane: its header (tile, title, one line about it, an optional control on the
-/// right) above the pane's content.
+/// right) above the pane's content. Header and content share one column on the left of
+/// the window, so in a wide window they still start at the same x; a full-width pane,
+/// such as History's list beside its preview, takes the whole window instead.
 struct SettingsPane<Accessory: View, Content: View>: View {
     let tab: SettingsTab
     var subtitle: String?
+    var fullWidth = false
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
 
     var body: some View {
+        column
+            .frame(maxWidth: fullWidth ? .infinity : SettingsMetrics.columnWidth, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 BrandTile(symbol: tab.symbol)
@@ -139,14 +148,17 @@ struct SettingsPane<Accessory: View, Content: View>: View {
 }
 
 extension SettingsPane where Accessory == EmptyView {
-    init(tab: SettingsTab, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
-        self.init(tab: tab, subtitle: subtitle, accessory: { EmptyView() }, content: content)
+    init(tab: SettingsTab, subtitle: String? = nil, fullWidth: Bool = false, @ViewBuilder content: () -> Content) {
+        self.init(tab: tab, subtitle: subtitle, fullWidth: fullWidth, accessory: { EmptyView() }, content: content)
     }
 }
 
 enum SettingsMetrics {
     /// The left edge of headers, cards and tables, the same as a grouped Form's sections.
     static let inset: CGFloat = 28
+    /// The widest a pane's column gets: the width the window opens at, so a wider window
+    /// adds room on the right instead of moving the content away from its header.
+    static let columnWidth: CGFloat = 760
 }
 
 /// A form of settings: the grouped macOS form on the window's background, so the
