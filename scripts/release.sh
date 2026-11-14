@@ -17,7 +17,7 @@
 #   STEW_SIGNING_KEY_REF   [op://Private/stew release signing key/private key]
 #   STEW_SIGNING_VAULT     [Private] the vault keygen writes to
 #   STEW_R2_BUCKET         [stew-releases]
-#   CLOUDFLARE_ACCOUNT_ID  [the Koode account]
+#   CLOUDFLARE_ACCOUNT_ID  the account that holds the stew-releases bucket; needed to upload
 #
 # Published objects under v<version>/ never change: the script stops when that folder
 # already exists. Only latest.json moves, and it is uploaded last, so a failed run
@@ -36,7 +36,7 @@ readonly signing_key_ref="${STEW_SIGNING_KEY_REF:-op://Private/stew release sign
 readonly signing_vault="${STEW_SIGNING_VAULT:-Private}"
 readonly signing_key_title="stew release signing key"
 readonly bucket="${STEW_R2_BUCKET:-stew-releases}"
-readonly account_id="${CLOUDFLARE_ACCOUNT_ID:-YOUR_ACCOUNT_ID}"
+readonly account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
 readonly team_id="PXD36584ME"
 readonly public_base="https://releases.stewcli.com"
 
@@ -71,6 +71,7 @@ embedded_public_key() {
 }
 
 r2() {
+  [ -n "$account_id" ] || fail "set CLOUDFLARE_ACCOUNT_ID to the Cloudflare account that holds the stew-releases bucket"
   CLOUDFLARE_ACCOUNT_ID="$account_id" pnpm dlx wrangler r2 object "$@" --remote
 }
 

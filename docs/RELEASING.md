@@ -8,7 +8,7 @@ Releases are served from the R2 bucket `stew-releases` at `https://releases.stew
 | `latest.json` | `no-store` | Every release. It is the only object that moves. |
 | `install.sh` | `public, max-age=300` | When `scripts/install-release.sh` changes. |
 
-`scripts/release.sh` builds, signs, notarizes, signs the zip for the updater and uploads. It needs Xcode, the 1Password CLI (`op`), pnpm and a wrangler login for the Koode Cloudflare account.
+`scripts/release.sh` builds, signs, notarizes, signs the zip for the updater and uploads. It needs Xcode, the 1Password CLI (`op`), pnpm, a wrangler login, and `CLOUDFLARE_ACCOUNT_ID` set to the Cloudflare account that holds the `stew-releases` bucket.
 
 ## Once: the update signing key
 
@@ -84,7 +84,7 @@ Version folders never change, so the previous zip is still published. Point `lat
 2. Copies that already installed the bad version do not go back on their own, because the updater only moves forward. To move them on, release a fixed version with a higher version number (or the same version with a higher build).
 3. To stop new installs and pending updates from getting the bad version right away, upload the previous manifest:
    ```bash
-   CLOUDFLARE_ACCOUNT_ID=YOUR_ACCOUNT_ID pnpm dlx wrangler r2 object put \
+   pnpm dlx wrangler r2 object put \
      stew-releases/latest.json --file previous-latest.json \
      --content-type application/json --cache-control no-store --remote
    ```
