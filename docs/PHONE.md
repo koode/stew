@@ -47,20 +47,11 @@ The `phone` object in `~/.config/stew/config.json`. Every field is optional.
 - `push`: `away`, `always` or `never`. An unknown value counts as `away`.
 - `after`: seconds a request must be open before it is sent. `0` sends it at once (stew checks every second). Settings offers Instantly, 3, 5, 10 and 30 seconds, 1 and 2 minutes.
 - `idleAfter`: seconds without keyboard or mouse input before the Mac counts as away.
-- `relay`: the relay for new pairings. Each pairing keeps the relay it was made with, so change this before pairing. [relay/README.md](../relay/README.md) explains self-hosting.
-
-## Testing
-
-```bash
-swift test              # StewLink: encryption, signatures, replays, expiry, notification text, history
-Tests/phone/run.sh      # a local relay in MOCK_APNS mode, a headless daemon and a test phone (RELAY_PORT picks its port)
-```
-
-`Tests/phone/run.sh` needs the relay's dependencies (`pnpm install` in `relay/`) and runs everything on this Mac: the relay records pushes instead of sending them to Apple, and `stew-test-phone` decrypts them with the same code as the iOS app and answers.
+- `relay`: the relay for new pairings, `https://relay.stewcli.com` by default. Each pairing keeps the relay it was made with, so change this before pairing.
 
 ## iPhone app
 
-The app is in `ios/App`: the app (`nl.koode.stew.ios`), its notification service extension, unit tests and a UI test target that takes screenshots. It uses the `StewLink` package from the repository root for every message, key and sentence, so the phone and the Mac say the same thing.
+The stew app for the iPhone (`nl.koode.stew.ios`) and its notification service extension use the same `StewLink` code as the Mac for every message, key and sentence, so the phone and the Mac say the same thing. The app is not in this repository; it is distributed through TestFlight while stew is in beta.
 
 ![A permission request on the iPhone, with its actions](images/iphone-notification-expanded-permission-light.png)
 
@@ -81,37 +72,6 @@ Inputs show the question, Why and an Answer field; Send stays off until the answ
 ![A secret input on the iPhone, with its masked field, Give me 5 min and I'll enter it later](images/iphone-app-secret-light.png)
 
 An iPhone app from before inputs cannot read an input request: its notification keeps the relay's generic text ("A request is waiting on your Mac."), and its Requests list skips it. Answer it on the Mac, or update the app.
-
-### Building
-
-The Xcode project is generated from `ios/App/project.yml` and is not committed.
-
-```bash
-brew install xcodegen
-cd ios/App && xcodegen generate
-xcodebuild build -project Stew.xcodeproj -scheme Stew -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
-```
-
-`ios/tools/testflight.sh` archives a release build and uploads it to TestFlight with the App Store Connect API key. Debug builds register with the relay as `sandbox`, release builds as `production`.
-
-### Testing
-
-```bash
-cd ios/App
-xcodebuild test -project Stew.xcodeproj -scheme Stew -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:StewTests
-```
-
-The unit tests seal real envelopes with a fake Mac's keys and answer through a stubbed relay. `StewUITests` is a screenshot harness, not a gate.
-
-On the simulator, debug builds take three launch arguments. None of them exist in release builds.
-
-- `-StewSeed <base64>` installs the phone state that `stew-test-phone sample-push --out DIR` writes to `DIR/seed.txt`, without a relay.
-- `-StewDeliver <base64>` runs a push payload (`base64 -i DIR/push-permission.json`) through the notification extension's code in the app and shows the result 15 seconds later. `xcrun simctl push` delivers payloads, but the simulator does not start notification service extensions for them, so this is how to see a decrypted notification there. Several payloads separated by commas go through in order under their request id, like an APNs collapse id, so `push-permission.json` followed by one of the `push-closed-*.json` files leaves only the closed notification.
-- `-StewDemo [requests|request|question|questions|questions-offline|late|needs|input|secret|history|macs]` shows sample requests and history on that screen, for screenshots. `questions` is a set of two questions, `questions-offline` the same set with the Mac offline, and `late` that set after its time ran out. A demo never contacts a relay: a stand-in answers for the Mac.
-
-### Screenshots
-
-`StewUITests/ScreenShots/testAnswerFeedback` taps through the question demos and captures Submit with a question left open, sending, a failed send, and a late answer; run it once more with the simulator dark and `TEST_RUNNER_STEW_APPEARANCE=dark` for the dark versions. `StewUITests/ScreenShots/testNotification` launches the app with `TEST_RUNNER_STEW_SEED` and `TEST_RUNNER_STEW_PUSH`, goes to the Home Screen, and captures the banner and the expanded notification. `testClosedNotification` does the same for a request and its closed push (two payloads in `TEST_RUNNER_STEW_PUSH`), and captures the passive closed notification in Notification Center; uninstall the app first, because the request is closed for good once the phone saw its outcome. Export them with `xcrun xcresulttool export attachments`. The app screens come from `-StewDemo` and `xcrun simctl io <device> screenshot`. A headless simulator applies `xcrun simctl ui <device> appearance dark` only after a reboot.
 
 ## Security
 
@@ -149,64 +109,21 @@ This section is the contract between the Mac, the relay and the phone. Swift typ
 - Header: the lines `stew-link/1`, pairingId, kind, sender, requestId, messageId, replyTo, expiresAt, joined with `\n`.
 - `signature`: Ed25519 over the header, `\n`, and the ciphertext as the same base64 text the JSON carries.
 
-### Relay endpoints
+### Relay
 
-All paths start with `/v1/pairings/{pairingId}`. The relay keeps one Durable Object per pairing id. Signed GET requests carry `?ts=<unix seconds>&sig=<base64url>`; the relay refuses a timestamp more than 300 seconds from its clock.
+The relay forwards envelopes between the two devices and sends Apple push notifications to the phone. It cannot read or forge them (see Security). It keeps one Durable Object per pairing id, and all its paths start with `/v1/pairings/{pairingId}`:
 
-| Method and path | Caller | Body or auth | Result |
-|---|---|---|---|
-| `POST /claim` | Mac | `{macSigningKey, registrationTokenHash, timestamp, signature}`, signed text `stew-link/1 claim\n{id}\n{hash}\n{ts}` | 201 claimed, 200 already this Mac's, 409 another key holds it |
-| `POST /device` | phone, first time | `{registrationToken, deviceToken, environment, phoneKeys, hello}` | 201; 403 wrong token; 409 already used |
-| `POST /device` | phone, later | `{deviceToken, environment, timestamp, signature}`, signed text `stew-link/1 device\n{id}\n{deviceToken}\n{environment}\n{ts}` | 200 |
-| `GET /socket` | Mac | WebSocket; signed text `stew-link/1 socket\n{id}\n{ts}` | frames to the Mac |
-| `POST /messages` | either | an envelope | see below |
-| `GET /pending` | phone | signed text `stew-link/1 pending\n{id}\n{ts}` | `{requests: [envelope], resolved: [envelope]}` |
-| `GET /v1/test/pushes/{pairingId}` | tests | only with `MOCK_APNS=1` | `{pushes: [{at, host, path, headers, payload}]}` |
+| Method and path | Caller | What it does |
+|---|---|---|
+| `POST /claim` | Mac | Claims a new pairing id with the Mac's signing key and the SHA-256 of a registration token derived from the pairing secret |
+| `POST /device` | phone | Registers the phone's push token and keys with that token (once), later updates the push token with a signed call |
+| `GET /socket` | Mac | The Mac's WebSocket, on which the relay passes on the phone's hello, answers and unpair |
+| `POST /messages` | either | Takes an envelope. A Mac request is stored until it is resolved and pushed to the phone; a phone answer goes to the Mac's socket and waits up to 10 seconds for the Mac's result |
+| `GET /pending` | phone | Returns the open and recently resolved requests |
 
-- `registrationTokenHash` is the lowercase hex SHA-256 of the registration token's UTF-8 text. The token is base64url of HKDF-SHA256 over the pairing secret with info `stew-link/1 registration`. The relay deletes the hash once a phone has registered, so a code pairs one phone.
-- `environment` is `production` or `sandbox` and picks the APNs host.
-- The hello envelope must be signed by `phoneKeys.signing`. The relay passes it on to the Mac as `{"type":"hello","envelope":…,"phoneKeys":…}`.
-- The relay stores the hello frame and a phone's `unpair` frame until the Mac acknowledges them with `{"type":"ack","messageId":"<the envelope's messageId>"}` on its socket, or until the envelope expires. It sends every unacknowledged frame, oldest first, each time the Mac connects, so the Mac can receive one more than once. Acks count only on the Mac's socket; an ack for an unknown id is ignored. Answers need no ack, because their result comes back in the same exchange.
+- Signed calls without an envelope carry a timestamp within 300 seconds of the relay's clock and an Ed25519 signature over a fixed text, such as `stew-link/1 claim\n{id}\n{hash}\n{ts}`. A signed GET is accepted once.
+- The relay checks every envelope's fields, its expiry (at most 7 days ahead), its signature against the sender's stored key and that its message id is new, and limits the rate per pairing and per client address.
+- The relay keeps the hello and a phone's unpair until the Mac acknowledges them on its socket with `{"type":"ack","messageId":…}`, and sends them again each time the Mac connects.
+- A push carries the envelope when it fits in 4 KB; otherwise the notification extension fetches it from `GET /pending`. When a request ends, a closed push replaces its notification without a sound and without actions.
 
-`POST /messages` checks the envelope's fields, that its pairing id matches the path, its expiry (not past, at most 7 days ahead), its signature against the stored key of the sender, that its message id is new, and the pairing's rate limit (429 with Retry-After). Then:
-
-| Sender and kind | What the relay does |
-|---|---|
-| mac `request` | Stores it as pending, sends an alert push. 202, or 409 `no_device` |
-| mac `update` | Replaces the pending copy, sends a background push. 202. For a request already resolved: neither stored nor pushed, 202, because `resolved` is terminal |
-| mac `resolved` | Drops the pending copy, keeps the envelope for an hour. Sends a closed alert push when the request was pending (so its alert went out), else a background push. 202 |
-| mac `result` | Hands it to the phone's waiting answer with that `replyTo`. 202 |
-| mac `unpair` | Sends a background push, then deletes the pairing. 202 |
-| phone `answer` | Sends `{"type":"envelope","envelope":…}` on the Mac's socket and waits up to 10 seconds for the result. 200 `{result: envelope}`, 503 `mac_offline`, 504 `mac_timeout` |
-| phone `unpair` | Passes it on to the Mac (queued if it is offline), then deletes the phone's data. 202 |
-
-### Pushes
-
-The relay signs an ES256 JWT with the APNs key (`APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`) and posts to `https://api.push.apple.com/3/device/{token}` (`api.sandbox.push.apple.com` for sandbox tokens) with topic `APNS_TOPIC`.
-
-Alert push, for `request`:
-
-```json
-{ "aps": { "alert": { "title": "stew", "body": "A request is waiting on your Mac." },
-           "mutable-content": 1, "sound": "default", "thread-id": "<pairingId>" },
-  "stew": { "pairingId": "…", "requestId": "…", "kind": "request", "envelope": { … } } }
-```
-
-Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: <expiresAt>`, `apns-collapse-id: <requestId>`. When the payload would exceed 4 KB, `envelope` is left out and the notification extension fetches it from `GET /pending`.
-
-Closed alert push, for `resolved` of a request that was pending:
-
-```json
-{ "aps": { "alert": { "title": "stew", "body": "This request is closed." },
-           "mutable-content": 1, "interruption-level": "passive", "category": "stew.closed",
-           "thread-id": "<pairingId>" },
-  "stew": { "pairingId": "…", "requestId": "…", "kind": "resolved", "envelope": { … } } }
-```
-
-Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: <expiresAt>`, `apns-collapse-id: <requestId>`. The collapse id is the request's, so iOS replaces the request's notification with this one: no sound, no screen wake, and a category without actions, so a stale Approve cannot remain. The notification extension fills in the outcome ("Answered on Mac", "Timed out", "Approved on Sam's iPhone"). A `resolved` for a request that is no longer pending (a second one, or one past its expiry) gets a background push instead, so a Mac cannot make more alerts than its requests.
-
-Background push, for `update`, `unpair` and a `resolved` without a pending request: `{"aps":{"content-available":1},"stew":{…}}` with `apns-push-type: background` and `apns-priority: 5`.
-
-Background pushes are not reliable: iOS throttles them, may hold them for hours, and never delivers them to an app the user force-quit. The phone therefore does not depend on them to clear a notification. Besides the closed alert push, the notification extension removes, on every push it handles, delivered notifications of requests it knows are resolved or past their deadline, and the app does the same when it opens or comes to the foreground, after it asked the relay which requests are still open.
-
-The notification extension decrypts the envelope and replaces the generic text with the request itself. If it cannot, the generic text stays.
+The Mac's side is in `Sources/StewLink` and `Sources/stew/PhoneLink.swift`.

@@ -256,7 +256,7 @@ Waiting requests and late answers are in `~/Library/Application Support/stew/lat
 
 ## On your iPhone
 
-When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input is typed on the Mac or in the stew app's masked field, never in a notification; the notification offers Enter in app, Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol; [relay/README.md](relay/README.md) explains how to run your own relay.
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input is typed on the Mac or in the stew app's masked field, never in a notification; the notification offers Enter in app, Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. It needs the stew iPhone app, which is distributed through TestFlight while stew is in beta. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol.
 
 ## Keys
 
