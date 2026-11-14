@@ -99,6 +99,16 @@ final class HistoryModel: ObservableObject {
         if let selection { unseen.remove(selection) }
     }
 
+    /// Removes every request from the history, in the daemon, then shows the empty list.
+    var onClear: (() -> Void)?
+
+    func clear() {
+        onClear?()
+        unseen = []
+        message = nil
+        reload()
+    }
+
     /// Selects `entryID`, showing every request if the filter hides it. Nil selects the
     /// newest request in the filter.
     func select(_ entryID: UUID?) {
@@ -264,9 +274,9 @@ struct HistoryView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HistoryFilterPicker(missedOnly: $model.missedOnly, missedCount: model.missedCount)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
+            HistoryListHeader(model: model)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             Divider()
             if model.visible.isEmpty {
                 emptyList

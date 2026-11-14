@@ -128,6 +128,23 @@ private func question(session: SessionInfo = session) -> StewRequest {
         #expect(LateMailbox.decode(try LateMailbox.encode(mailbox)) == mailbox)
         #expect(LateMailbox.decode(Data("not json".utf8)) == LateMailbox())
     }
+
+    @Test func clearingTheHistoryKeepsOnlyUndeliveredAnswers() {
+        var mailbox = LateMailbox(answers: [
+            LateAnswer(entryID: UUID(), sessionID: "s1", agentID: nil, message: "pending", answered: start),
+            LateAnswer(entryID: UUID(), sessionID: "s1", agentID: nil, message: "done", answered: start, delivered: start),
+        ])
+        mailbox.addWaiting(cliPermission(), entryID: UUID(), now: start)
+        #expect(mailbox.waiting.count == 1)
+        mailbox.forgetHistory()
+        #expect(mailbox.waiting.isEmpty)
+        #expect(mailbox.answers.map(\.message) == ["pending"])
+    }
+
+    @Test func clearAsksWithTheCount() {
+        #expect(History.clearQuestion(count: 1) == "Clear 1 request?")
+        #expect(History.clearQuestion(count: 3) == "Clear all 3 requests?")
+    }
 }
 
 @Suite struct LateWordingTests {

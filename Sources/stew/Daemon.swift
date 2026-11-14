@@ -151,6 +151,11 @@ enum Daemon {
                 coordinator.answerLate(entryID: entryID, with: response, answeredOn: Coordinator.macName)
             }
             settings.onLateAnswer = answerLate
+            settings.onClearHistory = {
+                coordinator.clearHistory()
+                // Reloads the history in Settings and in the popover.
+                coordinator.onLateAnswer?()
+            }
             settings.onHistoryShown = { coordinator.historySeen() }
             settings.onPreviewKeys = { owns in coordinator.previewKeys(taken: owns, by: "settings") }
             coordinator.pauseModel.onPause = { choice in coordinator.pause(choice) }
@@ -183,6 +188,7 @@ enum Daemon {
             }
             let popover = menuBar.popover.model
             popover.history.onLateAnswer = answerLate
+            popover.history.onClear = settings.onClearHistory
             popover.history.onPreviewKeys = { owns in coordinator.previewKeys(taken: owns, by: "popover") }
             popover.onOpenNeeds = menuBar.onOpenNeeds
             popover.onSettings = menuBar.onSettings

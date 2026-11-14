@@ -97,6 +97,14 @@ public struct LateMailbox: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool { waiting.isEmpty && answers.isEmpty }
 
+    /// After the history is cleared: requests that wait for a late answer have no row
+    /// left to answer them from, and delivered answers have no row to show in. Answers
+    /// not yet delivered stay, because Claude still has to get them.
+    public mutating func forgetHistory() {
+        waiting.removeAll()
+        answers.removeAll { $0.delivered != nil }
+    }
+
     public mutating func prune(now: Date) {
         waiting.removeAll { now.timeIntervalSince($0.missed) >= Self.lifetime }
         answers.removeAll { now.timeIntervalSince($0.answered) >= Self.lifetime }

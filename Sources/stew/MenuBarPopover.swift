@@ -56,8 +56,8 @@ final class MenuBarPopoverModel: ObservableObject {
 }
 
 /// Left-click on the menu bar item: what waits on the user and every finished request
-/// on the left, the selected request on the right as the panel showed it, and Settings
-/// and the pause at the bottom. Right-click opens the menu.
+/// on the left, the selected request on the right as the panel showed it, and the pause
+/// and Settings in the header. Right-click opens the menu.
 struct MenuBarPopoverView: View {
     @ObservedObject var model: MenuBarPopoverModel
     @ObservedObject private var history: HistoryModel
@@ -89,7 +89,7 @@ struct MenuBarPopoverView: View {
                         if !content.needs.isEmpty {
                             needsSection(content.needs)
                         }
-                        requestsHeader
+                        HistoryListHeader(model: history)
                     }
                     .padding(.horizontal, 4)
                     .padding(.top, 4)
@@ -105,10 +105,11 @@ struct MenuBarPopoverView: View {
                     .frame(width: Self.previewWidth)
             }
             .frame(height: Self.bodyHeight)
-            Divider()
-            footer
         }
         .frame(width: Self.width)
+        // Opaque, so the desktop behind the popover never shows through and the text
+        // keeps the contrast it was checked for.
+        .background(Color(nsColor: .windowBackgroundColor))
         .tint(Brand.paprika)
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in history.reload() }
     }
@@ -125,29 +126,44 @@ struct MenuBarPopoverView: View {
                             Text(pause.title(now: context.date, timeText: Coordinator.clockText))
                                 .font(.system(size: 11))
                                 .monospacedDigit()
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Ink.secondary)
                         }
                     }
                 }
                 Spacer(minLength: 8)
                 if let pause = model.state.pause {
                     Button(pause.isPaused ? "Resume" : "Cancel pause") { model.onResume() }
-                        .controlSize(.small)
+                } else {
+                    // The same choices as the menu's Pause stew submenu.
+                    Menu("Pause stew") {
+                        ForEach(model.state.pauseChoices, id: \.self) { choice in
+                            Button(choice.title(now: Date(), calendar: .current, timeText: Coordinator.clockText)) {
+                                model.onPause(choice)
+                            }
+                        }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                }
+                Button("Settings") {
+                    dismiss()
+                    model.onSettings()
                 }
             }
+            .controlSize(.small)
             if let title = model.updateTitle {
                 Button {
                     dismiss()
                     model.onUpdate()
                 } label: {
                     HStack(spacing: 7) {
-                        Circle().fill(Color.blue).frame(width: 7, height: 7)
+                        Circle().fill(Tone.blue.color).frame(width: 7, height: 7)
                         Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.blue.opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Tone.blue.color.opacity(0.12)))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -177,7 +193,7 @@ struct MenuBarPopoverView: View {
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.needs.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                            Text(item.session.name).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(item.session.name).font(.system(size: 11)).foregroundStyle(Ink.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
@@ -194,14 +210,6 @@ struct MenuBarPopoverView: View {
         .padding(.horizontal, -4)
     }
 
-    private var requestsHeader: some View {
-        HStack {
-            SectionLabel(text: "Requests")
-            Spacer()
-            HistoryFilterPicker(missedOnly: $history.missedOnly, missedCount: history.missedCount)
-        }
-    }
-
     private var emptyList: some View {
         EmptyState(
             symbol: history.missedOnly ? "clock.badge.exclamationmark" : "clock",
@@ -211,31 +219,6 @@ struct MenuBarPopoverView: View {
                 : "Permission requests, questions and notifications show here once they finish."
         )
         .padding(.horizontal, 12)
-    }
-
-    private var footer: some View {
-        HStack(spacing: 8) {
-            Button("Settings") {
-                dismiss()
-                model.onSettings()
-            }
-            Spacer()
-            if model.state.pause == nil {
-                // The same choices as the menu's Pause stew submenu.
-                Menu("Pause stew") {
-                    ForEach(model.state.pauseChoices, id: \.self) { choice in
-                        Button(choice.title(now: Date(), calendar: .current, timeText: Coordinator.clockText)) {
-                            model.onPause(choice)
-                        }
-                    }
-                }
-                .menuStyle(.button)
-                .fixedSize()
-            }
-        }
-        .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
     }
 
     private func hover(_ id: String, _ inside: Bool) {

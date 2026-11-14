@@ -118,6 +118,11 @@ final class SettingsWindowController {
     }
 
     /// A late answer from History's preview. False when it is too late.
+    var onClearHistory: (() -> Void)? {
+        get { history.onClear }
+        set { history.onClear = newValue }
+    }
+
     var onLateAnswer: ((UUID, StewResponse) -> Bool)? {
         get { history.onLateAnswer }
         set { history.onLateAnswer = newValue }
@@ -252,7 +257,7 @@ struct GeneralSettings: View {
                                 if let display = pause.display {
                                     // Each second, for the countdown before Until I'm back begins.
                                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                                        StatusPill(text: display.title(now: context.date, timeText: Coordinator.clockText), tone: .orange)
+                                        StatusPill(text: display.title(now: context.date, timeText: Coordinator.clockText), tone: Tone.orange.color)
                                     }
                                     Button(display.isPaused ? "Resume" : "Cancel") { pause.onResume() }
                                         .buttonStyle(.borderedProminent)
@@ -337,9 +342,9 @@ struct GeneralSettings: View {
                     SettingRow(hint: updateHint) {
                         LabeledContent("Version") {
                             HStack(spacing: 8) {
-                                Text(AppVersion.running.description).foregroundStyle(.secondary)
+                                Text(AppVersion.running.description).foregroundStyle(Ink.secondary)
                                 if let available = updater.availableVersion, updater.isReleaseBuild {
-                                    StatusPill(text: "\(available) available", tone: Brand.paprika)
+                                    StatusPill(text: "\(available) available", tone: Tone.paprika.color)
                                 }
                             }
                         }
@@ -527,14 +532,14 @@ struct ClaudeSettingsTab: View {
                             HStack(spacing: 8) {
                                 switch model.hookState {
                                 case .complete:
-                                    StatusPill(text: "Installed", tone: .green)
+                                    StatusPill(text: "Installed", tone: Tone.green.color)
                                     Button("Uninstall") { model.setHooks(installed: false) }
                                 case .partial:
-                                    StatusPill(text: "Needs an update", tone: .orange)
+                                    StatusPill(text: "Needs an update", tone: Tone.orange.color)
                                     Button("Update") { model.setHooks(installed: true) }
                                         .buttonStyle(.borderedProminent)
                                 case .none:
-                                    StatusPill(text: "Not installed", tone: .secondary)
+                                    StatusPill(text: "Not installed", tone: Ink.secondary)
                                     Button("Install") { model.setHooks(installed: true) }
                                         .buttonStyle(.borderedProminent)
                                 }

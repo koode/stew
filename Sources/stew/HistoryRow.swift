@@ -29,7 +29,7 @@ struct HistoryRow: View {
                 }
                 .font(.system(size: 11))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .help(entry.cwd ?? entry.session)
                 HStack(spacing: 5) {
                     OutcomePill(entry: entry)
@@ -55,7 +55,7 @@ struct ListRowSelection: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(selected ? (focused ? Brand.paprika.opacity(0.16) : Color.primary.opacity(0.07)) : Color.clear)
+            .fill(selected ? (focused ? Brand.paprika.opacity(Surface.selectedAlpha) : Color.primary.opacity(Surface.neutralSelectedAlpha)) : Color.clear)
     }
 }
 
@@ -103,12 +103,12 @@ struct HistoryFilterPicker: View {
             HStack(spacing: 5) {
                 Text(title)
                     .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .foregroundStyle(selected ? Color.primary : Ink.secondary)
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .semibold))
                         .monospacedDigit()
-                        .foregroundStyle(selected ? Brand.paprika : Color.secondary)
+                        .foregroundStyle(selected ? Tone.paprika.color : Ink.secondary)
                 }
             }
             .padding(.horizontal, 12)
@@ -138,6 +138,53 @@ struct HistoryFilterPicker: View {
     }
 }
 
+/// Above the list of requests, in the popover and in Settings alike: the title, the
+/// All/Missed filter and Clear. Clear asks in the row itself, not in a dialog, so the
+/// popover never opens a window over the user's work.
+struct HistoryListHeader: View {
+    @ObservedObject var model: HistoryModel
+    @State private var confirming = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if confirming {
+                Text(History.clearQuestion(count: model.entries.count))
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button("Cancel") { confirming = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Clear", role: .destructive) {
+                    confirming = false
+                    model.clear()
+                }
+                .tint(.red)
+                .buttonStyle(.borderedProminent)
+            } else {
+                SectionLabel(text: "Requests")
+                Spacer(minLength: 4)
+                HistoryFilterPicker(missedOnly: $model.missedOnly, missedCount: model.missedCount)
+                Button {
+                    confirming = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Ink.secondary)
+                .disabled(model.entries.isEmpty)
+                .help("Clear history")
+                .accessibilityLabel("Clear history")
+            }
+        }
+        .controlSize(.small)
+        .frame(height: 24)
+        .onChange(of: model.entries.isEmpty) { _, empty in if empty { confirming = false } }
+    }
+}
+
 /// One form for every outcome: a tinted capsule, the same size in every row. A late
 /// answer shows as its own outcome, such as "Approved late", in that outcome's tone.
 struct OutcomePill: View {
@@ -161,12 +208,12 @@ extension HistoryEntry {
 extension HistoryEntry.Outcome {
     var tone: Color {
         switch self {
-        case .approved, .done: .green
-        case .denied: .red
-        case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: .blue
-        case .movedOn: .secondary
-        case .timedOut, .later: .orange
-        case .dismissed, .callerGone: .secondary
+        case .approved, .done: Tone.green.color
+        case .denied: Tone.red.color
+        case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: Tone.blue.color
+        case .movedOn: Ink.secondary
+        case .timedOut, .later: Tone.orange.color
+        case .dismissed, .callerGone: Ink.secondary
         }
     }
 

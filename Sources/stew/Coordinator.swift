@@ -1091,6 +1091,15 @@ final class Coordinator: ObservableObject {
         historySeen()
     }
 
+    /// The user cleared the history: every entry goes, and with it the requests that
+    /// could still be answered late. Answers given but not yet delivered still reach Claude.
+    func clearHistory() {
+        history?.clear()
+        LateAnswerFile.update { $0.forgetHistory() }
+        Log.write("history: cleared by the user")
+        refreshMissed()
+    }
+
     /// The history showed, in the popover or the History pane: missed requests so far
     /// count as seen. Returns when it showed before.
     @discardableResult

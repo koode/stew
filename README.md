@@ -232,7 +232,7 @@ stew history --missed --json    # print them as a JSON array, for scripts
 
 For a missed call that auto mode blocked, the preview offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
 
-The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
+The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600). To empty it, click the trash button above the list, in the popover or in Settings, then Clear. Missed requests can then no longer be answered late, but late answers you already gave still reach Claude.
 
 ### Late answers
 
@@ -286,7 +286,7 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 The stew icon in the menu bar is the app icon, or with Settings → General → Icon set to Monochrome, the pot alone in the menu bar's color. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey (monochrome: faded) while stew is paused.
 
-A click opens a popover: the pause (with Resume, or Cancel pause while Until I'm back counts down) and a waiting update at the top; on the left the open needs items, then your requests with All and Missed; on the right the selected request as the panel showed it (see History); and Settings and Pause stew at the bottom. Pause stew offers the same choices as the menu. Click a needs item to open it in the panel, or a request to see it on the right, where you can still answer it late. Opening the popover does not take the keyboard from the app you are in; a click in it does, and closing it gives the keyboard back. A click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
+A click opens a popover. At the top: Pause stew (or Resume, or Cancel pause while Until I'm back counts down), Settings, and a waiting update. On the left: the open needs items, then your requests with All, Missed and Clear. On the right: the selected request as the panel showed it (see History). Pause stew offers the same choices as the menu. Clear asks first, then removes every request from the history; answers you already gave late still reach Claude. Click a needs item to open it in the panel, or a request to see it on the right, where you can still answer it late. Opening the popover does not take the keyboard from the app you are in; a click in it does, and closing it gives the keyboard back. A click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
 
 A right-click or Control-click opens the menu. It lists the open needs items, then History…, Settings…, Pause stew (or Resume stew), an update entry when there is one, and Hide menu bar icon.
 

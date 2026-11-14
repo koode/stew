@@ -333,6 +333,11 @@ public enum History {
     }
 
     /// The return summary's title.
+    /// The question Clear asks before it removes the history.
+    public static func clearQuestion(count: Int) -> String {
+        count == 1 ? "Clear 1 request?" : "Clear all \(count) requests?"
+    }
+
     public static func returnSummary(missedCount: Int) -> String {
         missedCount == 1 ? "1 request timed out while you were away" : "\(missedCount) requests timed out while you were away"
     }

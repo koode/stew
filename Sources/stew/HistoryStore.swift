@@ -49,6 +49,15 @@ final class HistoryStore {
         }
     }
 
+    /// Removes every entry. Waits for the write, so the list reads it right after.
+    func clear() {
+        queue.sync {
+            if unlink(Self.path) != 0, errno != ENOENT {
+                Log.write("history: cannot remove \(Self.path): \(String(cString: strerror(errno)))")
+            }
+        }
+    }
+
     /// Everything written so far, including writes still queued.
     func read() -> [HistoryEntry] {
         queue.sync { Self.readFile() }
