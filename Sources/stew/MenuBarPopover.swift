@@ -132,23 +132,36 @@ struct MenuBarPopoverView: View {
                 }
                 Spacer(minLength: 8)
                 if let pause = model.state.pause {
-                    Button(pause.isPaused ? "Resume" : "Cancel pause") { model.onResume() }
+                    Button { model.onResume() } label: {
+                        HeaderControl(title: pause.isPaused ? "Resume" : "Cancel pause")
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                 } else {
                     // The same choices as the menu's Pause stew submenu.
-                    Menu("Pause stew") {
+                    Menu {
                         ForEach(model.state.pauseChoices, id: \.self) { choice in
                             Button(choice.title(now: Date(), calendar: .current, timeText: Coordinator.clockText)) {
                                 model.onPause(choice)
                             }
                         }
+                    } label: {
+                        HeaderControl(title: "Pause stew", menu: true)
                     }
                     .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .focusEffectDisabled()
                     .fixedSize()
                 }
-                Button("Settings") {
+                Button {
                     dismiss()
                     model.onSettings()
+                } label: {
+                    HeaderControl(title: "Settings")
                 }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
             }
             .controlSize(.small)
             if let title = model.updateTitle {
@@ -287,6 +300,9 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         window.makeKey()
+        // Becoming key would focus the first control (Pause stew) and draw its focus ring;
+        // the click itself still focuses whatever it lands on.
+        window.makeFirstResponder(nil)
     }
 
     func close() {
@@ -316,5 +332,27 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         outsideClicks = nil
         insideClicks = nil
         model.history.stopKeys()
+    }
+}
+
+/// A button in the popover header: a label on the raised capsule of the history filter,
+/// with a chevron when it opens a menu. No focus ring: the first control would otherwise
+/// get one as soon as the popover opens.
+private struct HeaderControl: View {
+    let title: String
+    var menu = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).font(.system(size: 12, weight: .medium))
+            if menu {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+        }
+        .foregroundStyle(Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(GlassCapsule())
+        .contentShape(Capsule())
     }
 }

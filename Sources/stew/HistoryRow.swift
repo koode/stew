@@ -119,10 +119,19 @@ struct HistoryFilterPicker: View {
         .buttonStyle(.plain)
     }
 
-    /// The selected half: glass over a faint fill, so it still reads where the glass has
-    /// little behind it to bend.
-    @ViewBuilder
+    /// The selected half.
     private var selectionCapsule: some View {
+        GlassCapsule(glass: glass)
+    }
+}
+
+/// A raised capsule: glass over a faint fill where the system has glass, so it still
+/// reads where the glass has little behind it to bend, and a plain raised capsule before
+/// macOS 26. The selected half of the history filter, and the popover header's buttons.
+struct GlassCapsule: View {
+    var glass = PanelBackground.glassAvailable
+
+    var body: some View {
         let shape = Capsule()
         if glass, #available(macOS 26, *) {
             shape
