@@ -8,7 +8,7 @@ cask "stew" do
   homepage "https://stewcli.com"
 
   auto_updates true
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Stew.app"
   binary "#{appdir}/Stew.app/Contents/MacOS/stew"

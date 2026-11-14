@@ -21,10 +21,10 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 ## Install
 
 ```bash
-brew install --cask koode/apps/stew
+brew trust --cask koode/apps/stew && brew install --cask koode/apps/stew
 ```
 
-This installs `/Applications/Stew.app`, links the `stew` command and its shell completion, starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill if `~/.claude` exists (the cask runs `stew setup`). stew then updates itself; `brew upgrade` leaves it alone unless you pass `--greedy`. To also ask in stew when auto mode blocks a call:
+Homebrew loads casks from a tap other than its own only after you trust them, hence `brew trust` first. This installs `/Applications/Stew.app`, links the `stew` command and its shell completion, starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill if `~/.claude` exists (the cask runs `stew setup`). stew then updates itself; `brew upgrade` leaves it alone unless you pass `--greedy`. To also ask in stew when auto mode blocks a call:
 
 ```bash
 stew hooks install

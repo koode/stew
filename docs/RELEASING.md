@@ -50,7 +50,7 @@ Replacing the key later breaks updates for every installed copy that trusts the 
 
 ## The Homebrew tap
 
-The cask lives in the tap `koode/apps`, the repository `github.com/koode/homebrew-apps` (private for now), as `Casks/stew.rb` with the token `stew`. Users install with `brew install --cask koode/apps/stew`; while the tap is private, that needs a GitHub login with access to it (`brew tap koode/apps git@github.com:koode/homebrew-apps.git` first). Never edit `Casks/stew.rb` by hand: change `packaging/homebrew/stew.rb.template` here and let the next release write it.
+The cask lives in the tap `koode/apps`, the public repository `github.com/koode/homebrew-apps`, as `Casks/stew.rb` with the token `stew`. Users install with `brew trust --cask koode/apps/stew && brew install --cask koode/apps/stew`: Homebrew 7 loads a cask from a tap other than its own only once it is trusted. Never edit `Casks/stew.rb` by hand: change `packaging/homebrew/stew.rb.template` here and let the next release write it.
 
 What the cask does:
 
@@ -58,7 +58,7 @@ What the cask does:
 |---|---|
 | `app`, `binary`, `*_completion` | Moves Stew.app to `/Applications` (the user's `--appdir`), links `stew` into Homebrew's `bin`, and links the completion scripts the app carries (see below) |
 | `auto_updates true` | stew updates itself, so `brew upgrade` skips it unless `--greedy`, and `brew outdated` still lists it |
-| `depends_on macos: ">= :sonoma"` | macOS 14, the same minimum as `LSMinimumSystemVersion` |
+| `depends_on macos: :sonoma` | macOS 14, the same minimum as `LSMinimumSystemVersion` |
 | `preflight` | Runs the new app's `stew completions uninstall`: completion files an earlier install from the script wrote can stand where Homebrew links its own, and Homebrew refuses to overwrite them |
 | `postflight` | Runs `stew setup`: the LaunchAgent, the daemon and the skill. No hooks, no `~/.local/bin` link, no completion files |
 | `uninstall launchctl:` | Stops the daemon and removes the LaunchAgent. Homebrew runs this on `brew upgrade` too; the new version's `postflight` sets it up again |
