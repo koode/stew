@@ -88,7 +88,7 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 | "Risk check unavailable: not logged in with a Claude subscription" | `claude` uses an API key or is logged out | `claude auth login` with a Claude account, or set `"classifier": {"enabled": false}` |
 | A blocked call never shows in stew | Hooks not installed, or the denial had no verdict | `stew hooks status`; denials such as "Classifier unavailable" cannot be retried, so stew skips them |
 | `stew hooks status` says "partly installed" | The hooks come from an older stew, without the needs hooks or the late answer hook | Tell the user to run `stew hooks install`; it adds what is missing and keeps the rest. Do not edit `~/.claude/settings.json` yourself |
-| An answer given with Answer now in History never reaches Claude | The session ended or was not in Claude Code, or the late answer hook is missing | `stew hooks status`; answers wait 24 hours for the session's next tool call, end of turn or message, then go |
+| An answer given late from History never reaches Claude | The session ended or was not in Claude Code, or the late answer hook is missing | `stew hooks status`; answers wait 24 hours for the session's next tool call, end of turn or message, then go |
 | A `needs input:` line never shows in stew | The session is attended (someone at the terminal), or `autoNeeds` is `never` | Expected for attended sessions; set `"autoNeeds": "always"` in `~/.config/stew/config.json` if the user wants them too |
 
 ## Removing stew

@@ -177,8 +177,8 @@ public enum LinkPresentation {
     }
 
     /// Whether the phone may still answer the request after its time ran out: the Mac
-    /// then passes the answer to the Claude session as a late answer, as History's Answer
-    /// now does. It needs the session's id. A secret only from a Mac that takes it typed
+    /// then passes the answer to the Claude session as a late answer, as History's
+    /// preview does. It needs the session's id. A secret only from a Mac that takes it typed
     /// in the app; the notification never has a field for it.
     public static func canAnswerLate(_ request: LinkRequest) -> Bool {
         if case .input(let input) = request.request.prompt, input.secret, !takesSecretInApp(request) { return false }

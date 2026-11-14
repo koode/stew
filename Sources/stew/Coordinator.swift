@@ -525,7 +525,7 @@ final class Coordinator: ObservableObject {
             // A click on a needs item in the menu bar.
             openNeeds(id: argument)
         case "late":
-            // "Answer now" on a missed request in the History tab.
+            // A missed request shown in the panel again, to answer it late there.
             guard let entryID = UUID(uuidString: argument), answerLate(entryID: entryID) else { return "not waiting" }
         case "menu":
             // What the menu bar item shows, which a headless daemon does not create.
@@ -689,9 +689,9 @@ final class Coordinator: ObservableObject {
         return (try? Wire.encode(response)) ?? Data()
     }
 
-    /// "Answer now" in the History tab: shows a timed-out request in the panel again,
-    /// without a time limit. False when it can no longer be answered (answered already,
-    /// or more than a day old). Shown once: a second click brings the same item forward.
+    /// Shows a timed-out request in the panel again, without a time limit, to answer it
+    /// late there. False when it can no longer be answered (answered already, or more
+    /// than a day old). Shown once: a second call brings the same item forward.
     @discardableResult
     func answerLate(entryID: UUID) -> Bool {
         if items.contains(where: { $0.lateEntryID == entryID }) { return true }
@@ -708,9 +708,9 @@ final class Coordinator: ObservableObject {
         LateAnswerFile.read().waiting(entryID, now: Date())?.request
     }
 
-    /// A late answer given somewhere else than the panel, such as on the iPhone: stored
-    /// exactly like an answer after Answer now. When Answer now has the request in the
-    /// panel, the panel closes with it. False when it can no longer be answered.
+    /// A late answer given somewhere else than the panel, such as in History's preview or
+    /// on the iPhone: stored exactly like a late answer in the panel. When the panel has
+    /// the request, it closes with it. False when it can no longer be answered.
     func answerLate(entryID: UUID, with response: StewResponse, answeredOn device: String) -> Bool {
         if let item = items.first(where: { $0.lateEntryID == entryID }) {
             lateDevice = device

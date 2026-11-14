@@ -445,7 +445,7 @@ final class PhoneLink: ObservableObject {
     }
 
     /// An answer from the phone to a request that timed out: it goes to the Claude session
-    /// as a late answer, exactly like Answer now in History. Nil when the request is not
+    /// as a late answer, exactly like one from History's preview. Nil when the request is not
     /// one the phone may answer late, so the usual refusal applies.
     private func applyLate(_ answer: LinkAnswer, from pairingId: String) -> LinkResult? {
         let requestId = answer.requestId

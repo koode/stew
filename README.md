@@ -10,7 +10,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
 - **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
-- **In the menu bar.** The stew icon counts what waits for you, opens History and Settings, and pauses stew for an hour while you are away.
+- **In the menu bar.** The stew icon counts what waits for you. A click shows the open needs items and your recent requests; a right-click opens the menu with History, Settings and the pause.
 
 ## Requirements
 
@@ -132,7 +132,7 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 ![Claude needs you to sign in, with Signed in and two other answers](docs/images/needs-answers-light.png)
 - **Not now** (⌘.) keeps it open for later. It has no time limit.
 - Permission requests and questions always go first. A needs item shows when nothing else is waiting.
-- The menu bar icon counts open items. Its menu lists each item (session · title) and opens it in the panel.
+- The menu bar icon counts open items. Its popover and its menu list each item and open it in the panel.
 - When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
 - Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
 
@@ -149,7 +149,7 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 - With `--pattern`, ⌘↩ and Send stay off until the whole answer matches, and a line under the field says what form it needs: the `--format` text ("Expected: 6 digits") when Claude gave one, else the pattern itself. `--format` without `--pattern` is refused.
 - ⌘. dismisses it without an answer. A plain input that timed out can be answered later from the History, like a question.
 
-**Secrets.** With `--secret` the field shows dots (always 8 until you focus it, so they never tell the length), and stew never writes the answer anywhere: not to the history (the row says a secret was entered), not to its logs or files. You can also type it in the stew app on a paired iPhone (never in a notification), and the Mac treats it the same way. Two more choices show, also on your iPhone: **Give me 5 min** (⌘5) adds 5 minutes, and **I'll enter it later** (⌘L) lets Claude go on now with `"status":"later"`. You then enter it from the History tab (Answer now; Missed only lists it, and the notice when you come back counts it), and it reaches the session as a late answer. A secret that timed out can be entered late the same way. Once entered, the daemon keeps the secret in memory only; if stew stops or restarts before the session picks it up, the secret is gone and Claude is told to ask again.
+**Secrets.** With `--secret` the field shows dots (always 8 until you focus it, so they never tell the length), and stew never writes the answer anywhere: not to the history (the row says a secret was entered), not to its logs or files. You can also type it in the stew app on a paired iPhone (never in a notification), and the Mac treats it the same way. Two more choices show, also on your iPhone: **Give me 5 min** (⌘5) adds 5 minutes, and **I'll enter it later** (⌘L) lets Claude go on now with `"status":"later"`. You then enter it in the History tab (select it; Missed only lists it, and the notice when you come back counts it), and it reaches the session as a late answer. A secret that timed out can be entered late the same way. Once entered, the daemon keeps the secret in memory only; if stew stops or restarts before the session picks it up, the secret is gone and Claude is told to ask again.
 
 ![A secret input with Give me 5 min and I'll enter it later](docs/images/input-secret-light.png)
 
@@ -218,7 +218,7 @@ The panel shows the level as a chip in the risk banner, with the reversibility l
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended and what Claude was told. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended, where you answered it (the Mac or an iPhone) and what Claude was told. The History tab lists them on the left, newest first, with the title, the session and time, and the outcome and risk. Up and down move through the list. On the right, the selected request shows the way the panel showed it, with how it ended in place of the buttons, and below it when it was asked and ended and what Claude was told. A secret shows as dots: stew never keeps it. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
 
 When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts secrets you chose to enter later ("1 secret to enter") and open needs items ("2 things need you"), and shows on its own when only those are open.
 
@@ -228,7 +228,7 @@ stew history --missed           # the same, showing only missed requests
 stew history --missed --json    # print them as a JSON array, for scripts
 ```
 
-Until you open History, the menu bar icon counts missed requests too, and its History… entry shows how many.
+Until you open History or the menu bar popover, the menu bar icon counts missed requests too, and its History… entry shows how many. The ones that were new keep a dot in the list until you select them.
 
 For a missed call that auto mode blocked, the History tab offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
 
@@ -236,7 +236,7 @@ The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600)
 
 ### Late answers
 
-A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab and click **Answer now**: it shows in the panel again, without a time limit, and you answer it as usual (approve or deny with a note, pick the options of the question, or type the answer). The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it. A paired iPhone can answer such a request late too, for as long as the Mac runs: the answer goes the same way, and the phone shows "Sent as a late answer" (see [docs/PHONE.md](docs/PHONE.md)).
+A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab: the preview keeps the panel's buttons, without a time limit, and you answer it there as usual (approve or deny with a note, Allow more…, pick the options of the question, or type the answer). After a click in the preview, the panel's keys work there too, while the History window is in front; the list's keys only move the selection. The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it. A paired iPhone can answer such a request late too, for as long as the Mac runs: the answer goes the same way, and the phone shows "Sent as a late answer" (see [docs/PHONE.md](docs/PHONE.md)).
 
 The answer goes to the Claude Code session that asked, through the hooks, at its next step:
 
@@ -284,7 +284,11 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 ## Menu bar and pause
 
-The stew icon in the menu bar is the app icon. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey while stew is paused. Its menu lists the open needs items, then History…, Settings…, Pause stew for 1 hour (or Resume stew), an update entry when there is one, and Hide menu bar icon.
+The stew icon in the menu bar is the app icon. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey while stew is paused.
+
+A click opens a popover: the pause (with Resume) and a waiting update at the top, then the open needs items, then your recent requests with All and Missed, and History, Settings and the pause at the bottom. Click a needs item to open it in the panel, or a request to open History with it selected, where you can still answer it late. The popover does not take the keyboard from the app you are in, and a click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
+
+A right-click or Control-click opens the menu. It lists the open needs items, then History…, Settings…, Pause stew for 1 hour (or Resume stew), an update entry when there is one, and Hide menu bar icon.
 
 **Pause** when you step away: permission requests, questions and inputs then time out at once, and Claude is told you paused stew and are away, so it can go another way. They are recorded as missed, so you can still answer them late from History. Notifications still show, and needs items wait in the menu bar until the pause ends. A pause ends by itself; Resume ends it early and shows what timed out meanwhile. Settings → General shows the pause too.
 
