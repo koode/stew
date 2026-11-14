@@ -133,4 +133,42 @@ public struct QuestionFlow: Equatable, Sendable {
         }
         return result
     }
+
+    /// The flow as it stood when these answers were sent, for showing them again: each
+    /// answer is `answers()`'s labels joined by ", ", and what matches no option is the
+    /// text typed under Other.
+    public static func restoring(questions: [Question], answers: [String: String]) -> QuestionFlow {
+        var flow = QuestionFlow(questions: questions)
+        for (questionIndex, question) in questions.enumerated() {
+            guard let answer = answers[question.question], !answer.isEmpty else { continue }
+            var unmatched = answer
+            // Longest labels first, so "Yes, ship it" wins over "Yes".
+            let byLength = question.options.indices.sorted { question.options[$0].label.count > question.options[$1].label.count }
+            for optionIndex in byLength {
+                guard let range = labelRange(question.options[optionIndex].label, in: unmatched) else { continue }
+                flow.selections[questionIndex].insert(optionIndex)
+                unmatched.removeSubrange(range)
+                if !question.multiSelect { break }
+            }
+            let other = unmatched.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: ", ")
+            if !other.isEmpty { flow.otherText[questionIndex] = other }
+        }
+        return flow
+    }
+
+    /// Where `label` stands as a whole part of a ", "-joined answer.
+    private static func labelRange(_ label: String, in answer: String) -> Range<String.Index>? {
+        guard !label.isEmpty else { return nil }
+        var searchStart = answer.startIndex
+        while let range = answer.range(of: label, range: searchStart..<answer.endIndex) {
+            let startsPart = range.lowerBound == answer.startIndex || answer[..<range.lowerBound].hasSuffix(", ")
+            let endsPart = range.upperBound == answer.endIndex || answer[range.upperBound...].hasPrefix(",")
+            if startsPart && endsPart { return range }
+            searchStart = range.upperBound
+        }
+        return nil
+    }
 }

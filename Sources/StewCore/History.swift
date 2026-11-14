@@ -63,6 +63,12 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var severity: Severity?
     /// The risk check's line on whether the action can be undone.
     public var reversibility: String?
+    /// The request as it was asked, masked like `command`, so History can show it the way
+    /// the panel did. Nil in entries written before stew kept it.
+    public var request: StewRequest?
+    /// Where the user answered: the Mac's name or the iPhone's. Nil for a timeout, a
+    /// caller that left, and entries written before stew kept it.
+    public var answeredOn: String?
 
     /// Missed means the time ran out. Closing a request yourself is an answer, not a miss.
     public var missed: Bool { outcome == .timedOut }
@@ -83,11 +89,11 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
 
     /// Records a late answer on the timed-out entry. `message` is what Claude will read.
     /// The text of a secret input is left out.
-    public mutating func recordLate(_ response: StewResponse, message: String, at answered: Date) {
+    public mutating func recordLate(_ response: StewResponse, message: String, at answered: Date, on device: String? = nil) {
         late = LateOutcome(
             answered: answered, outcome: Self.outcome(of: response), answers: response.answers,
             grant: response.grant, note: response.note, message: message,
-            text: secret == true ? nil : response.text
+            text: secret == true ? nil : response.text, answeredOn: device
         )
     }
 
@@ -95,7 +101,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         id: UUID = UUID(), received: Date, ended: Date, session: String, cwd: String?, kind: String, summary: String,
         command: String?, detail: String?, outcome: Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil,
         note: String? = nil, blocked: BlockedCall? = nil, answer: String? = nil, late: LateOutcome? = nil,
-        text: String? = nil, secret: Bool? = nil, severity: Severity? = nil, reversibility: String? = nil
+        text: String? = nil, secret: Bool? = nil, severity: Severity? = nil, reversibility: String? = nil,
+        request: StewRequest? = nil, answeredOn: String? = nil
     ) {
         self.id = id
         self.received = received
@@ -117,11 +124,15 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.secret = secret
         self.severity = severity
         self.reversibility = reversibility
+        self.request = request
+        self.answeredOn = answeredOn
     }
 
     /// The entry for a request that ended with `response`, or with no response when
     /// the caller went away first.
-    public static func record(_ request: StewRequest, received: Date, response: StewResponse?, ended: Date, id: UUID = UUID()) -> HistoryEntry {
+    public static func record(
+        _ request: StewRequest, received: Date, response: StewResponse?, ended: Date, id: UUID = UUID(), answeredOn: String? = nil
+    ) -> HistoryEntry {
         var summary: String
         var command: String?
         var detail: String?
@@ -158,7 +169,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             kind: request.prompt.kind, summary: summary, command: command, detail: detail,
             outcome: outcome(of: response), answers: response?.answers, grant: response?.grant,
             note: response?.note, blocked: blocked, text: text, secret: secret,
-            severity: response?.risk?.severity, reversibility: response?.risk?.reversibilityLine
+            severity: response?.risk?.severity, reversibility: response?.risk?.reversibilityLine,
+            request: request.forHistory, answeredOn: response.flatMap { $0.status == .timeout ? nil : answeredOn }
         )
     }
 
@@ -179,11 +191,15 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
 
     /// The entry for a needs item that ended. Only final outcomes are recorded: "Not now"
     /// keeps the item open, so it is not one.
-    public static func record(_ item: NeedsItem, outcome: Outcome, note: String?, answer: String? = nil, ended: Date, id: UUID = UUID()) -> HistoryEntry {
+    public static func record(
+        _ item: NeedsItem, outcome: Outcome, note: String?, answer: String? = nil, ended: Date, id: UUID = UUID(), answeredOn: String? = nil
+    ) -> HistoryEntry {
         HistoryEntry(
             id: id, received: item.created, ended: ended, session: item.session.name, cwd: item.session.cwd,
             kind: "needs", summary: item.needs.title, command: item.needs.maskedCommands, detail: item.needs.historyDetail,
-            outcome: outcome, note: note, answer: answer
+            outcome: outcome, note: note, answer: answer,
+            request: StewRequest(session: item.session, prompt: .needs(item.needs), wait: false).forHistory,
+            answeredOn: answeredOn
         )
     }
 }
@@ -200,8 +216,13 @@ public struct LateOutcome: Codable, Equatable, Sendable {
     public var message: String
     /// What the user typed into an input. Never set for a secret.
     public var text: String?
+    /// Where the user answered: the Mac's name or the iPhone's.
+    public var answeredOn: String?
 
-    public init(answered: Date, outcome: HistoryEntry.Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil, note: String? = nil, message: String, text: String? = nil) {
+    public init(
+        answered: Date, outcome: HistoryEntry.Outcome, answers: [String: String]? = nil, grant: GrantChoice? = nil, note: String? = nil,
+        message: String, text: String? = nil, answeredOn: String? = nil
+    ) {
         self.answered = answered
         self.outcome = outcome
         self.answers = answers
@@ -209,6 +230,7 @@ public struct LateOutcome: Codable, Equatable, Sendable {
         self.note = note
         self.message = message
         self.text = text
+        self.answeredOn = answeredOn
     }
 }
 

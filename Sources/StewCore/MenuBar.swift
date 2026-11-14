@@ -209,10 +209,7 @@ public enum MenuBarBadge {
     /// and have no late answer yet. With no `seenAt`, every one counts. The history keeps
     /// whole seconds, so one that ended in the second History opened counts as seen.
     public static func unseenMissed(_ entries: [HistoryEntry], seenAt: Date?) -> Int {
-        let cutoff = seenAt.map(History.wholeSecond)
-        return entries.filter { entry in
-            entry.answerableLater && entry.late == nil && (cutoff.map { entry.ended > $0 } ?? true)
-        }.count
+        History.unseenMissedIDs(entries, seenAt: seenAt).count
     }
 }
 
