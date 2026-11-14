@@ -5,7 +5,7 @@ import StewCore
 /// One look for needs items, in the panel header and the menu bar.
 enum NeedsStyle {
     static let symbol = "hand.point.up.left.fill"
-    static let tint = Color.teal
+    static let tint = Tone.teal.color
 }
 
 /// What Claude needs the user to do: the steps, commands to copy, links to open, the
@@ -136,7 +136,7 @@ struct StepList: View {
                     Text("\(index + 1).")
                         .font(.system(size: 13, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                         .frame(width: numberWidth, alignment: .trailing)
                     Text(step)
                         .font(.system(size: 13))
@@ -159,7 +159,7 @@ struct NeedsCommandRow: View {
             if let label = command.label, !label.isEmpty {
                 Text(label)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
             HStack(alignment: .top, spacing: 6) {
                 CommandBox(command: command.command)
@@ -181,7 +181,7 @@ struct CopyButton: View {
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(copied ? Color.green : Color.secondary)
+                .foregroundStyle(copied ? Tone.green.color : Ink.secondary)
                 .frame(width: 28, height: 28)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.06)))
                 .contentShape(Rectangle())

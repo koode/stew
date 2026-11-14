@@ -66,14 +66,14 @@ struct InputBody: View {
         if check == .mismatch, let expected = input.expectedText {
             (Text(InputRequest.mismatchMessage + " Expected: ")
                 + Text(expected).font(.system(size: 11, design: input.expectsRawPattern ? .monospaced : .default)))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Tone.orange.color)
         } else if coordinator.textMode {
             let returnText = input.multiline ? "Return adds a line. " : ""
             Text("\(returnText)\(keymap[.submit].text) sends. Esc leaves the field.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
         } else {
             Text("Click the field or press \(keymap[.other].text) to type. \(keymap[.submit].text) sends.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
         }
     }
 }
@@ -123,7 +123,7 @@ struct InputPreview: View {
                 .padding(.leading, input.multiline ? 5 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: input.multiline ? .topLeading : .leading)
                 Keycap(shortcut: shortcut)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
             .frame(height: InputFieldMetrics.height(input))
             .padding(InputFieldMetrics.padding)

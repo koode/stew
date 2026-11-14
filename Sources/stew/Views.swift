@@ -43,7 +43,7 @@ struct RootView: View {
                 Divider()
                 Label { warning } icon: { Image(systemName: "exclamationmark.triangle") }
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Tone.orange.color)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }
@@ -132,7 +132,7 @@ private struct KindStyle {
     init(_ prompt: Prompt) {
         switch prompt {
         case .permission:
-            self.init(title: "Permission request", symbol: "hand.raised.fill", tint: .orange)
+            self.init(title: "Permission request", symbol: "hand.raised.fill", tint: Tone.orange.color)
         case .question:
             self.init(title: "Question", symbol: "questionmark.bubble.fill", tint: .purple)
         case .needs:
@@ -141,10 +141,10 @@ private struct KindStyle {
             self.init(title: input.secret ? "Secret" : "Input", symbol: input.secret ? "key.fill" : "character.cursor.ibeam", tint: .purple)
         case .notify(let notify):
             switch notify.level {
-            case .info: self.init(title: "Notification", symbol: "bell.fill", tint: .blue)
-            case .success: self.init(title: "Done", symbol: "checkmark", tint: .green)
-            case .warning: self.init(title: "Warning", symbol: "exclamationmark.triangle.fill", tint: .orange)
-            case .error: self.init(title: "Error", symbol: "xmark.octagon.fill", tint: .red)
+            case .info: self.init(title: "Notification", symbol: "bell.fill", tint: Tone.blue.color)
+            case .success: self.init(title: "Done", symbol: "checkmark", tint: Tone.green.color)
+            case .warning: self.init(title: "Warning", symbol: "exclamationmark.triangle.fill", tint: Tone.orange.color)
+            case .error: self.init(title: "Error", symbol: "xmark.octagon.fill", tint: Tone.red.color)
             }
         }
     }
@@ -191,7 +191,7 @@ struct Header: View {
                     }
                 }
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .help([session.cwd, session.id.map { "Session \($0)" }].compactMap { $0 }.joined(separator: "\n"))
             }
         }
@@ -204,7 +204,7 @@ struct Header: View {
                 .fixedSize()
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
         case .ended:
             EmptyView()
         case nil:
@@ -218,7 +218,7 @@ struct Header: View {
                 .fixedSize()
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(Color.primary.opacity(0.07)))
@@ -232,7 +232,7 @@ struct Header: View {
                 Keycap(shortcut: coordinator.keymap[.dismiss])
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Ink.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
@@ -255,15 +255,15 @@ struct TimeLimit: View {
                         Image(systemName: LinkPresentation.viewingSymbol)
                         Text(LinkPresentation.viewingOn(pause.phoneName))
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
                 } else if let deadline = item.deadline {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = deadline.timeIntervalSince(context.date)
                         Text(Self.format(remaining))
-                            .foregroundStyle(remaining <= 30 ? Color.orange : Color.secondary)
+                            .foregroundStyle(remaining <= 30 ? Tone.orange.color : Ink.secondary)
                     }
                 } else if let remaining = item.pausedRemaining {
-                    Text("Paused \(Self.format(remaining))").foregroundStyle(.secondary)
+                    Text("Paused \(Self.format(remaining))").foregroundStyle(Ink.secondary)
                 }
             }
             .font(.system(size: 11, weight: .medium))
@@ -275,7 +275,7 @@ struct TimeLimit: View {
                     Text(Self.extendLabel(coordinator.config.extendBy)).font(.system(size: 11, weight: .medium))
                     Keycap(shortcut: coordinator.keymap[.extend])
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
@@ -344,7 +344,7 @@ struct SectionLabel: View {
         Text(text.uppercased())
             .font(.system(size: 10, weight: .semibold))
             .tracking(0.6)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Ink.secondary)
     }
 }
 
@@ -362,7 +362,7 @@ struct CommandBox: View {
                 Button(revealed ? "Hide secrets" : "Show secrets") { revealed.toggle() }
                     .buttonStyle(.plain)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
         }
     }
@@ -393,12 +393,12 @@ struct RiskBanner: View {
         case .off:
             EmptyView()
         case .checking:
-            banner(tint: .secondary, symbol: nil, title: "Checking against your auto mode rules…", detail: nil)
+            banner(tint: Ink.secondary, symbol: nil, title: "Checking against your auto mode rules…", detail: nil)
         case .failed(let reason):
-            banner(tint: .secondary, symbol: "questionmark.diamond", title: "Risk check unavailable", detail: reason)
+            banner(tint: Ink.secondary, symbol: "questionmark.diamond", title: "Risk check unavailable", detail: reason)
         case .blocked(let blocked):
             banner(
-                tint: blocked.hardDeny ? .red : .orange,
+                tint: blocked.hardDeny ? Tone.red.color : Tone.orange.color,
                 symbol: blocked.hardDeny ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
                 title: ["Auto mode blocked this", blocked.category].compactMap { $0 }.joined(separator: " · "),
                 detail: blocked.hardDeny
@@ -425,13 +425,13 @@ struct RiskBanner: View {
             case .hardDeny: title = "Auto mode never allows this"
             }
             if assessment.verdict == .hardDeny || assessment.severity == .critical {
-                tint = .red
+                tint = Tone.red.color
                 symbol = "xmark.octagon.fill"
             } else if assessment.verdict == .softDeny || SeverityRules.warns(assessment.severity) {
-                tint = .orange
+                tint = Tone.orange.color
                 symbol = "exclamationmark.triangle.fill"
             } else {
-                tint = .green
+                tint = Tone.green.color
                 symbol = "checkmark"
             }
         }
@@ -469,7 +469,7 @@ struct RiskBanner: View {
                 if let reversibility {
                     Text(reversibility)
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineLimit(2)
                 }
@@ -514,7 +514,7 @@ struct ReplyEditor: View {
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.accentColor.opacity(0.6)))
             hint
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
         }
         .onAppear { if interactive { focused = true } }
     }
@@ -572,7 +572,7 @@ struct PermissionBody: View {
                     title: strongApprove ? "Approve anyway" : "Approve",
                     shortcut: approveShortcut,
                     prominent: true,
-                    tint: strongApprove ? .red : .accentColor
+                    tint: strongApprove ? Tone.red.color : .accentColor
                 ) { coordinator.perform(.approve) }
             }
             }
@@ -596,13 +596,13 @@ struct GrantPicker: View {
                     SectionLabel(text: "Allow without asking")
                     Text("In \(URL(fileURLWithPath: blocked.projectRoot).lastPathComponent). This call runs too.")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
                 Spacer()
                 Button("Manage approvals…") { coordinator.openApprovals() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
             VStack(spacing: 6) {
                 ForEach(Array(scopes.enumerated()), id: \.offset) { index, scope in
@@ -614,7 +614,7 @@ struct GrantPicker: View {
             if let selected {
                 Text(alwaysHint(selected))
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
@@ -656,12 +656,12 @@ struct ScopeRow: View {
                             .truncationMode(.middle)
                         Text(scope.kind == .exact ? "This command" : "Commands that start like this")
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                     case .category:
                         Text(scope.value).font(.system(size: 13, weight: .medium))
                         Text("Anything auto mode blocks as this, any tool")
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                     }
                 }
                 Spacer(minLength: 0)
@@ -744,7 +744,7 @@ struct QuestionBody: View {
                     if question.multiSelect, coordinator.showsButtons {
                         Text("Choose any, then \(keymap[.submit].text) to confirm.")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                     }
                 }
                 HStack(alignment: .top, spacing: 12) {
@@ -860,7 +860,7 @@ struct OptionRow: View {
                     if !option.description.isEmpty {
                         Text(option.description)
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                             .help(option.description)
@@ -870,7 +870,7 @@ struct OptionRow: View {
                 if multiSelect {
                     Image(systemName: selected ? "checkmark.square.fill" : "square")
                         .font(.system(size: 14))
-                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(selected ? Color.accentColor : Ink.secondary)
                 }
             }
             .padding(.horizontal, 10)
@@ -900,7 +900,7 @@ struct OtherRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Other…").font(.system(size: 13, weight: .medium))
                     if let text, !text.isEmpty {
-                        Text(text).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+                        Text(text).font(.system(size: 12)).foregroundStyle(Ink.secondary).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 0)
@@ -969,7 +969,7 @@ struct LongText: View {
     var body: some View {
         let label = Text(text)
             .font(.system(size: size, weight: weight))
-            .foregroundStyle(secondary ? Color.secondary : Color.primary)
+            .foregroundStyle(secondary ? Ink.secondary : Color.primary)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         if Self.estimatedLines(text, perLine: charactersPerLine) > maxLines {
@@ -1013,7 +1013,7 @@ struct WaitingList: View {
                         Text("Dismiss all").font(.system(size: 11))
                         Keycap(shortcut: dismissAll)
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -1029,7 +1029,7 @@ struct WaitingList: View {
                         .lineLimit(1)
                     Text(summary(item.request.prompt))
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -1037,7 +1037,7 @@ struct WaitingList: View {
             if items.count > 3 {
                 Text("and \(items.count - 3) more")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
         }
     }

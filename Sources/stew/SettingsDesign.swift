@@ -64,11 +64,11 @@ struct SettingsTabBar: View {
                     VStack(spacing: 3) {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(selected ? Brand.paprika : Color.secondary)
+                            .foregroundStyle(selected ? Brand.paprika : Ink.secondary)
                             .frame(height: 22)
                         Text(tab.title)
                             .font(.system(size: 11, weight: selected ? .medium : .regular))
-                            .foregroundStyle(selected ? Color.primary : Color.secondary)
+                            .foregroundStyle(selected ? Color.primary : Ink.secondary)
                     }
                     .frame(width: 78, height: 48)
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(selected ? Color.primary.opacity(0.07) : .clear))
@@ -131,7 +131,7 @@ struct SettingsPane<Accessory: View, Content: View>: View {
                     Text(tab.title).font(.system(size: 17, weight: .semibold))
                     Text(subtitle ?? tab.subtitle)
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -195,7 +195,7 @@ struct Hint: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Ink.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -212,7 +212,7 @@ struct StatusPill: View {
             .lineLimit(1)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(Capsule().fill(tone.opacity(0.15)))
+            .background(Capsule().fill(tone.opacity(Tone.fillAlpha)))
             .fixedSize()
     }
 }
@@ -223,7 +223,7 @@ struct Notice: View {
     enum Tone {
         case error, success
 
-        var color: Color { self == .error ? .orange : .green }
+        var color: Color { self == .error ? StewCore.Tone.orange.color : StewCore.Tone.green.color }
         var symbol: String { self == .error ? "exclamationmark.triangle.fill" : "checkmark" }
     }
 
@@ -269,7 +269,7 @@ struct EmptyState<Actions: View>: View {
             Text(title).font(.system(size: 13, weight: .semibold))
             Text(message)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
                 .fixedSize(horizontal: false, vertical: true)

@@ -98,7 +98,7 @@ struct PhoneSettingsTab: View {
                     }
                     SettingRow(hint: "Used for new pairings. To run your own relay, set phone.relay in config.json.") {
                         LabeledContent("Relay") {
-                            Text(model.config.phone.relay).textSelection(.enabled).foregroundStyle(.secondary)
+                            Text(model.config.phone.relay).textSelection(.enabled).foregroundStyle(Ink.secondary)
                         }
                     }
                 }
@@ -138,14 +138,14 @@ struct PairedPhoneRow: View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "iphone")
                 .font(.system(size: 15))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.06)))
             VStack(alignment: .leading, spacing: 2) {
                 Text(pairing.phoneName ?? "iPhone").font(.system(size: 13, weight: .medium))
                 Text("Paired \(SettingsDate.text(pairing.pairedAt ?? pairing.createdAt))")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
                     .monospacedDigit()
             }
             Spacer()
@@ -158,12 +158,12 @@ struct PairedPhoneRow: View {
     @ViewBuilder
     private var connection: some View {
         switch status {
-        case .connected: StatusPill(text: "Connected", tone: .green)
-        case .failed: StatusPill(text: "Relay unreachable", tone: .orange).help("stew keeps retrying.")
-        case .refused: StatusPill(text: "Relay refused this Mac", tone: .orange).help("Check that this Mac's clock is right. stew keeps retrying.")
-        case .stopped(.unsupportedProtocol): StatusPill(text: "Update stew", tone: .orange).help("The relay needs a newer stew.")
-        case .stopped: StatusPill(text: "Pairing gone", tone: .orange).help("The relay no longer knows this pairing. Unpair, then pair again.")
-        case .connecting, nil: StatusPill(text: "Connecting…", tone: .secondary)
+        case .connected: StatusPill(text: "Connected", tone: Tone.green.color)
+        case .failed: StatusPill(text: "Relay unreachable", tone: Tone.orange.color).help("stew keeps retrying.")
+        case .refused: StatusPill(text: "Relay refused this Mac", tone: Tone.orange.color).help("Check that this Mac's clock is right. stew keeps retrying.")
+        case .stopped(.unsupportedProtocol): StatusPill(text: "Update stew", tone: Tone.orange.color).help("The relay needs a newer stew.")
+        case .stopped: StatusPill(text: "Pairing gone", tone: Tone.orange.color).help("The relay no longer knows this pairing. Unpair, then pair again.")
+        case .connecting, nil: StatusPill(text: "Connecting…", tone: Ink.secondary)
         }
     }
 }
@@ -208,7 +208,7 @@ struct PairingStep<Content: View>: View {
             VStack(alignment: .leading, spacing: 7) {
                 Text(title)
                     .font(.system(size: 13, weight: progress == .active ? .semibold : .regular))
-                    .foregroundStyle(progress == .upcoming ? Color.secondary : Color.primary)
+                    .foregroundStyle(progress == .upcoming ? Ink.secondary : Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
                 content
             }
@@ -231,9 +231,9 @@ struct PairingStep<Content: View>: View {
         case .upcoming:
             Text("\(number)")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .frame(width: 20, height: 20)
-                .overlay(Circle().strokeBorder(Color.secondary.opacity(0.5)))
+                .overlay(Circle().strokeBorder(Ink.secondary.opacity(0.5)))
         }
     }
 }
@@ -327,7 +327,7 @@ struct PairingCountdown: View {
                     .monospacedDigit()
             }
             .font(.system(size: 12))
-            .foregroundStyle(left < 60 ? Color.orange : Color.secondary)
+            .foregroundStyle(left < 60 ? Tone.orange.color : Ink.secondary)
         }
     }
 }
@@ -364,7 +364,7 @@ struct ConfirmPairing: View {
                     .multilineTextAlignment(.center)
                 Text("wants to pair")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -414,7 +414,7 @@ struct DigitsField: View {
             ForEach(0..<6, id: \.self) { index in
                 box(index)
                 if index == 2 {
-                    Text("–").font(.system(size: 15)).foregroundStyle(.tertiary).frame(width: 10)
+                    Text("–").font(.system(size: 15)).foregroundStyle(Ink.secondary).frame(width: 10)
                 }
             }
         }
@@ -438,7 +438,7 @@ struct DigitsField: View {
     private func box(_ index: Int) -> some View {
         let characters = Array(digits)
         let current = focused && index == min(characters.count, 5)
-        let stroke: Color = mismatch ? .orange : current ? Brand.paprika : Color.primary.opacity(0.18)
+        let stroke: Color = mismatch ? Tone.orange.color : current ? Brand.paprika : Color.primary.opacity(0.18)
         return Text(index < characters.count ? String(characters[index]) : " ")
             .font(.system(size: 20, weight: .semibold, design: .rounded))
             .monospacedDigit()

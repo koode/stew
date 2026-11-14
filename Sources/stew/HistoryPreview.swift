@@ -284,7 +284,7 @@ struct HistoryDetails: View {
         GridRow {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .gridColumnAlignment(.trailing)
             Text(value)
                 .font(.system(size: 12))

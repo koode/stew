@@ -412,15 +412,15 @@ struct MenuPreview: View {
                     HStack(spacing: 8) {
                         Text(entry.title)
                             .fixedSize()
-                            .foregroundStyle(entry.isEnabled ? .primary : .secondary)
+                            .foregroundStyle(entry.isEnabled ? Color.primary : Ink.secondary)
                         Spacer(minLength: 16)
                         if let badge = entry.badge {
-                            Text("\(badge)").monospacedDigit().foregroundStyle(.secondary)
+                            Text("\(badge)").monospacedDigit().foregroundStyle(Ink.secondary)
                         }
                         if entry.hasSubmenu {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Ink.secondary)
                         }
                     }
                     .font(.system(size: 13))
