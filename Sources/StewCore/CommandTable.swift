@@ -88,7 +88,7 @@ public enum CommandTable {
         command("keys", "Show the shortcuts in effect"),
         command("settings", "Open the settings window"),
         command("approvals", "Open the list of standing approvals"),
-        command("history", "Open the history of finished requests", options: [
+        command("history", "Open the history of finished requests in the menu bar", options: [
             flag("missed", "Only timeouts and secrets to enter later"),
             flag("json", "Print them as a JSON array"),
         ]),

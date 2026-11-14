@@ -43,9 +43,9 @@ USAGE
   stew settings      Open the settings window (time limit, keys, hooks, risk check).
   stew approvals     Open the settings window on the list of standing approvals.
   stew history [--missed] [--json]
-      Open the settings window on the history of finished requests. --missed
-      shows only those that timed out, and secrets the user chose to enter later.
-      --json prints them as a JSON array instead.
+      Open the menu bar popover on the history of finished requests, with the
+      newest selected. --missed shows only those that timed out, and secrets the
+      user chose to enter later. --json prints them as a JSON array instead.
   stew pause [MINUTES] | --until HH:MM | --until-back
       Pause stew while the user is away: permission requests, questions and
       inputs time out at once, and Claude is told the user paused stew.

@@ -10,7 +10,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
 - **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
-- **In the menu bar.** The stew icon counts what waits for you. A click shows the open needs items and your recent requests; a right-click opens the menu with History and Settings. Both pause stew while you are away: for an hour or two, until the morning, or until you are back at the Mac.
+- **In the menu bar.** The stew icon counts what waits for you. A click shows the open needs items and your requests, with the selected one beside them as the panel showed it, so you can still answer one that timed out; a right-click opens the menu with History and Settings. Both pause stew while you are away: for an hour or two, until the morning, or until you are back at the Mac.
 
 ## Requirements
 
@@ -218,25 +218,25 @@ The panel shows the level as a chip in the risk banner, with the reversibility l
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended, where you answered it (the Mac or an iPhone) and what Claude was told. The History tab lists them on the left, newest first, with the title, the session and time, and the outcome and risk. Up and down move through the list. On the right, the selected request shows the way the panel showed it, with how it ended in place of the buttons, and below it when it was asked and ended and what Claude was told. A secret shows as dots: stew never keeps it. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended, where you answered it (the Mac or an iPhone) and what Claude was told. The menu bar popover lists them on the left, newest first, with the title, the session and time, and the outcome and risk; the History tab in Settings shows the same. The newest request is selected when it opens and when you switch between All and Missed, and the count on Missed says how many it lists. Click a request, or after a click in the list use up and down, to select another. On the right, the selected request shows the way the panel showed it, with how it ended in place of the buttons, and below it when it was asked and ended and what Claude was told. A secret shows as dots: stew never keeps it. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
 
 When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts secrets you chose to enter later ("1 secret to enter") and open needs items ("2 things need you"), and shows on its own when only those are open.
 
 ```bash
-stew history                    # open the History tab
+stew history                    # open the menu bar popover on the requests
 stew history --missed           # the same, showing only missed requests
 stew history --missed --json    # print them as a JSON array, for scripts
 ```
 
-Until you open History or the menu bar popover, the menu bar icon counts missed requests too, and its History… entry shows how many. The ones that were new keep a dot in the list until you select them.
+`stew history`, the menu's History… and Open history on the notice open the popover, also with the menu bar icon hidden: the icon then shows until the popover closes. Until you open the popover or History, the menu bar icon counts missed requests too, and its History… entry shows how many. The ones that were new keep a dot in the list until you select them.
 
-For a missed call that auto mode blocked, the History tab offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
+For a missed call that auto mode blocked, the preview offers **Allow next time…**: the same choices as Allow more… (this command, a prefix or the category, for 1 hour or always) for that project.
 
 The history is in `~/Library/Application Support/stew/history.jsonl` (mode 0600).
 
 ### Late answers
 
-A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the History tab: the preview keeps the panel's buttons, without a time limit, and you answer it there as usual (approve or deny with a note, Allow more…, pick the options of the question, or type the answer). After a click in the preview, the panel's keys work there too, while the History window is in front; the list's keys only move the selection. Meanwhile the floating panel's keys pause, so they never answer a request you are not looking at; its buttons still work. The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it. A paired iPhone can answer such a request late too, for as long as the Mac runs: the answer goes the same way, and the phone shows "Sent as a late answer" (see [docs/PHONE.md](docs/PHONE.md)).
+A permission request, question or input that ran out of time can still be answered for 24 hours, and so can a secret you chose to enter later (Enter later in the history). Select it in the menu bar popover (or the History tab): the preview keeps the panel's buttons, without a time limit, and you answer it there as usual (approve or deny with a note, Allow more…, pick the options of the question, or type the answer). Selecting a request never answers it. After a click in the preview, the panel's keys work there too, while the popover (or the History window) has the keyboard; the list's keys only move the selection. Meanwhile the floating panel's keys pause, so they never answer a request you are not looking at; its buttons still work. The row then shows the late outcome, such as "Approved late", what Claude is told, and whether Claude has received it. A paired iPhone can answer such a request late too, for as long as the Mac runs: the answer goes the same way, and the phone shows "Sent as a late answer" (see [docs/PHONE.md](docs/PHONE.md)).
 
 The answer goes to the Claude Code session that asked, through the hooks, at its next step:
 
@@ -286,7 +286,7 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 The stew icon in the menu bar is the app icon, or with Settings → General → Icon set to Monochrome, the pot alone in the menu bar's color. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey (monochrome: faded) while stew is paused.
 
-A click opens a popover: the pause (with Resume, or Cancel pause while Until I'm back counts down) and a waiting update at the top, then the open needs items, then your recent requests with All and Missed, and History, Settings and Pause stew at the bottom. Pause stew offers the same choices as the menu. Click a needs item to open it in the panel, or a request to open History with it selected, where you can still answer it late. The popover does not take the keyboard from the app you are in, and a click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
+A click opens a popover: the pause (with Resume, or Cancel pause while Until I'm back counts down) and a waiting update at the top; on the left the open needs items, then your requests with All and Missed; on the right the selected request as the panel showed it (see History); and Settings and Pause stew at the bottom. Pause stew offers the same choices as the menu. Click a needs item to open it in the panel, or a request to see it on the right, where you can still answer it late. Opening the popover does not take the keyboard from the app you are in; a click in it does, and closing it gives the keyboard back. A click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
 
 A right-click or Control-click opens the menu. It lists the open needs items, then History…, Settings…, Pause stew (or Resume stew), an update entry when there is one, and Hide menu bar icon.
 
@@ -347,7 +347,7 @@ The window has six panes, picked from its toolbar:
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
 - **Approvals:** the same list as `stew approvals`.
-- **History:** finished requests, with a Missed only switch (see History).
+- **History:** the same list and preview as the menu bar popover, in a bigger window (see History).
 
 ```json
 {
