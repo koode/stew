@@ -775,7 +775,7 @@ struct QuestionBody: View {
                     }
                     .frame(width: hasPreview ? 300 : nil)
                     if hasPreview {
-                        PreviewBox(text: previewText(flow))
+                        PreviewBox(content: previewContent(flow))
                     }
                 }
                 if coordinator.textMode {
@@ -807,10 +807,13 @@ struct QuestionBody: View {
         }
     }
 
-    private func previewText(_ flow: QuestionFlow) -> String {
+    private func previewContent(_ flow: QuestionFlow) -> PreviewBox.Content {
         let options = flow.current.options
         let index = item.hoveredOption ?? flow.selections[flow.index].sorted().first ?? options.firstIndex { $0.preview != nil } ?? 0
-        return options.indices.contains(index) ? (options[index].preview ?? "No preview for this option.") : ""
+        guard options.indices.contains(index) else { return .preview("") }
+        let option = options[index]
+        if let preview = option.preview { return .preview(preview) }
+        return .option(label: option.label, description: option.description)
     }
 }
 
@@ -926,22 +929,62 @@ struct OtherRow: View {
 /// Previews are mockups: lines never wrap, and the box scrolls both ways when they
 /// are wider or longer than it.
 struct PreviewBox: View {
-    let text: String
+    /// What the box shows: an option's preview, monospaced and unwrapped, or for an
+    /// option without one, its label and whole description, which its card cuts short.
+    enum Content: Equatable {
+        case preview(String)
+        case option(label: String, description: String)
+    }
+
+    let content: Content
 
     var body: some View {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-        ScrollView([.vertical, .horizontal]) {
-            Text(text)
+        // At least as large as the box, so short text sits at the top left; longer text
+        // makes it larger and scrolls from its first character. With maxWidth: .infinity
+        // instead, a line wider than the box was centered in it, cutting off both ends.
+        GeometryReader { viewport in
+            ScrollView(axes) {
+                text
+                    .padding(10)
+                    .frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+
+    private var axes: Axis.Set {
+        if case .preview = content { return [.vertical, .horizontal] }
+        return .vertical
+    }
+
+    @ViewBuilder
+    private var text: some View {
+        switch content {
+        case .preview(let preview):
+            Text(preview)
                 .font(.system(size: 11.5, design: .monospaced))
                 .textSelection(.enabled)
                 .fixedSize()
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+        case .option(let label, let description):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.system(size: 12, weight: .semibold))
+                if !description.isEmpty {
+                    Text(description).font(.system(size: 12)).foregroundStyle(Ink.secondary)
+                }
+                Text("No preview for this option.").font(.system(size: 11)).foregroundStyle(Ink.secondary).padding(.top, 4)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
         }
-        .scrollIndicators(.visible)
-        .frame(height: min(max(CGFloat(lines) * 15 + 20, 120), 280))
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+
+    private var height: CGFloat {
+        guard case .preview(let preview) = content else { return 120 }
+        let lines = preview.split(separator: "\n", omittingEmptySubsequences: false).count
+        return min(max(CGFloat(lines) * 15 + 20, 120), 280)
     }
 }
 
