@@ -159,6 +159,8 @@ struct InputEditor: View {
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(nsColor: .textBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.accentColor.opacity(0.6)))
             .onAppear { if interactive { focused = true } }
+            // Typing stops the clock and keeps the request off the phone.
+            .onChange(of: item.inputText) { if interactive { coordinator.typed(item) } }
     }
 
     private var placeholder: Text { Text(input.placeholder ?? "Type your answer") }

@@ -242,7 +242,8 @@ struct Header: View {
     }
 }
 
-/// Time left to answer, and the "more time" button. Paused while typing a note.
+/// Time left to answer, and the "more time" button. Paused while typing a note, and
+/// gone once the user typed into the request: it then waits for them.
 struct TimeLimit: View {
     @ObservedObject var item: Item
     @ObservedObject var coordinator: Coordinator
@@ -250,7 +251,9 @@ struct TimeLimit: View {
     var body: some View {
         HStack(spacing: 6) {
             Group {
-                if coordinator.isViewing(item), let pause = item.viewing {
+                if item.typedOnMac && item.deadline == nil {
+                    Text("No time limit").foregroundStyle(Ink.secondary)
+                } else if coordinator.isViewing(item), let pause = item.viewing {
                     HStack(spacing: 3) {
                         Image(systemName: LinkPresentation.viewingSymbol)
                         Text(LinkPresentation.viewingOn(pause.phoneName))
@@ -269,20 +272,22 @@ struct TimeLimit: View {
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .fixedSize()
-            .help("When this runs out, Claude is told you did not respond in time")
-            Button { coordinator.perform(.extend) } label: {
-                HStack(spacing: 4) {
-                    Text(Self.extendLabel(coordinator.config.extendBy)).font(.system(size: 11, weight: .medium))
-                    Keycap(shortcut: coordinator.keymap[.extend])
+            .help(item.typedOnMac ? "You started typing, so this waits for you" : "When this runs out, Claude is told you did not respond in time")
+            if !item.typedOnMac {
+                Button { coordinator.perform(.extend) } label: {
+                    HStack(spacing: 4) {
+                        Text(Self.extendLabel(coordinator.config.extendBy)).font(.system(size: 11, weight: .medium))
+                        Keycap(shortcut: coordinator.keymap[.extend])
+                    }
+                    .foregroundStyle(Ink.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+                    .fixedSize()
                 }
-                .foregroundStyle(Ink.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
-                .fixedSize()
+                .buttonStyle(.plain)
+                .help("More time")
             }
-            .buttonStyle(.plain)
-            .help("More time")
         }
     }
 

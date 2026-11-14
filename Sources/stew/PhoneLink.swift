@@ -643,7 +643,10 @@ final class PhoneLink: ObservableObject {
             }
             let current = presence ?? Self.samplePresence()
             presence = current
-            guard PushPolicy.shouldPush(source: item.source, config: coordinator.config.phone, openFor: now.timeIntervalSince(item.received), presence: current) else { continue }
+            guard PushPolicy.shouldPush(
+                source: item.source, config: coordinator.config.phone, openFor: now.timeIntervalSince(item.received), presence: current,
+                typedOnMac: item.typedOnMac
+            ) else { continue }
             let request = linkRequest(for: item, previous: nil)
             send(request, kind: .request, item: item, to: targets)
             pushed[item.id] = Pushed(pairingIds: targets, sent: request)

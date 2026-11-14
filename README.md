@@ -195,7 +195,7 @@ Answers print as one JSON line. `stew --help` lists every command and flag.
 
 ### Time to answer
 
-Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. Once you type into a request (a note, an answer, an input's value), its clock stops for good and the panel shows "No time limit": it waits for you, and it is not sent to your iPhone. A caller's hard limit (`maxWait`) still applies. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 

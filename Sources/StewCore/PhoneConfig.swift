@@ -68,8 +68,12 @@ public enum PushPolicy {
     /// Someone at the Mac answers in the panel; a push would only be noise. stew's own
     /// notices never go: they are about this Mac, such as an update to install here or
     /// requests that timed out in its panel, and the phone has nothing to do with them.
-    public static func shouldPush(source: ItemSource, config: PhoneConfig, openFor: TimeInterval, presence: MacPresence) -> Bool {
-        guard source == .caller else { return false }
+    /// A request the user started typing into on the Mac never goes, in any mode: they
+    /// are answering it there.
+    public static func shouldPush(
+        source: ItemSource, config: PhoneConfig, openFor: TimeInterval, presence: MacPresence, typedOnMac: Bool = false
+    ) -> Bool {
+        guard source == .caller, !typedOnMac else { return false }
         switch config.mode {
         case .never:
             return false

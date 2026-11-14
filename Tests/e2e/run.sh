@@ -319,6 +319,14 @@ wait $client
 expect "clock resumes after the note closes" "$(cat "$WORK/out")" '"status":"timeout"'
 "$STEW" permit --action "x" --reason "y" --timeout 2 > "$WORK/out" & client=$!
 wait_items 1
+control press other > /dev/null; control type "checking the branch first" > /dev/null
+expect "typing stops the clock" "$(control state)" "clock=none"
+control press other > /dev/null
+sleep 3
+expect "a typed request waits after the note closes" "$(control state)" "items=1"
+control press dismiss > /dev/null; wait $client
+"$STEW" permit --action "x" --reason "y" --timeout 2 > "$WORK/out" & client=$!
+wait_items 1
 expect "more time key is live" "$(control state)" "⌘E"
 control press extend > /dev/null
 clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)

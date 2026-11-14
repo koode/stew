@@ -60,6 +60,10 @@ final class Item: ObservableObject, Identifiable {
 
     /// What the user typed into an input, starting with its default.
     @Published var inputText = ""
+    /// The user started typing an answer, a note or a value for this request on the Mac.
+    /// From then on its clock is stopped (only the caller's hard limit, `maxWait`, still
+    /// applies) and it is never sent to a phone: someone is at the Mac, answering it.
+    @Published var typedOnMac = false
 
     var isNeeds: Bool {
         if case .needs = request.prompt { return true }
@@ -126,7 +130,11 @@ final class Coordinator: ObservableObject {
     /// The "Allow more…" view of a blocked call, with the scope picked in it.
     @Published private(set) var grantMode = false
     @Published private(set) var grantSelection = 0
-    @Published var draft = ""
+    @Published var draft = "" {
+        didSet {
+            if !draft.isEmpty, draft != oldValue, let current { typed(current) }
+        }
+    }
     @Published private(set) var keymap: Keymap
     @Published private(set) var configError: String?
     @Published private(set) var hotkeyFailures: [Shortcut] = []
@@ -537,6 +545,7 @@ final class Coordinator: ObservableObject {
         case "type":
             if let item = current, item.input != nil {
                 item.inputText = argument
+                typed(item)
                 changed()
             } else {
                 draft = argument
@@ -1116,21 +1125,36 @@ final class Coordinator: ObservableObject {
         if isIdle { onIdle?() }
     }
 
+    /// The user typed into the request on screen: its clock stops and it stays off the
+    /// phone. Called on the first change and every one after it; only the first acts.
+    func typed(_ item: Item) {
+        guard !item.typedOnMac, !item.isNeeds, item === current else { return }
+        item.typedOnMac = true
+        Log.write("request \(item.id.uuidString.prefix(8)): typed on the Mac, clock stopped")
+        changed()
+    }
+
     /// The clock runs only for the request on screen, and pauses while the user types
-    /// a note or picks a grant, so taking care over an answer never times it out.
+    /// a note or picks a grant, so taking care over an answer never times it out. Once
+    /// the user has typed into it, it stops for good, up to the caller's hard limit.
     private func syncTimer() {
         guard let item = current, let limit = item.timeLimit else { return }
-        if item.deadline == nil && item.pausedRemaining == nil {
-            item.grantedSeconds = limit
-            item.deadline = item.capped(Date().addingTimeInterval(limit))
-        }
-        let shouldPause = textMode || grantMode || isViewing(item)
-        if shouldPause, let deadline = item.deadline {
-            item.pausedRemaining = max(0, deadline.timeIntervalSinceNow)
-            item.deadline = nil
-        } else if !shouldPause, let remaining = item.pausedRemaining {
+        if item.typedOnMac {
             item.pausedRemaining = nil
-            item.deadline = item.capped(Date().addingTimeInterval(remaining))
+            item.deadline = item.latestDeadline
+        } else {
+            if item.deadline == nil && item.pausedRemaining == nil {
+                item.grantedSeconds = limit
+                item.deadline = item.capped(Date().addingTimeInterval(limit))
+            }
+            let shouldPause = textMode || grantMode || isViewing(item)
+            if shouldPause, let deadline = item.deadline {
+                item.pausedRemaining = max(0, deadline.timeIntervalSinceNow)
+                item.deadline = nil
+            } else if !shouldPause, let remaining = item.pausedRemaining {
+                item.pausedRemaining = nil
+                item.deadline = item.capped(Date().addingTimeInterval(remaining))
+            }
         }
         item.timer?.cancel()
         item.timer = nil
@@ -1436,7 +1460,7 @@ final class Coordinator: ObservableObject {
         if items.count > 1 { bindings.append((keymap[.dismissAll], .action(.dismissAll))) }
         switch item.request.prompt {
         case .permission:
-            if item.timeLimit != nil { bindings.append((keymap[.extend], .action(.extend))) }
+            if item.timeLimit != nil, !item.typedOnMac { bindings.append((keymap[.extend], .action(.extend))) }
             if grantMode, let scopes = item.blocked?.grantScopes {
                 for index in scopes.indices {
                     bindings.append((keymap.options[index], .option(index)))
@@ -1466,7 +1490,7 @@ final class Coordinator: ObservableObject {
                 bindings.append((keymap.options[index], .option(index)))
             }
             bindings += [(keymap[.other], .action(.other)), (keymap[.submit], .action(.submit))]
-            if item.timeLimit != nil { bindings.append((keymap[.extend], .action(.extend))) }
+            if item.timeLimit != nil, !item.typedOnMac { bindings.append((keymap[.extend], .action(.extend))) }
             if flow.questions.count > 1 {
                 bindings += [(keymap[.next], .action(.next)), (keymap[.previous], .action(.previous))]
             }
