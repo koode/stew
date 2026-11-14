@@ -19,18 +19,11 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutes: Double) -> HistoryE
         let content = MenuBarPopoverContent(state: MenuBarState(openNeeds: needs), entries: entries, missedOnly: false)
         #expect(content.needs.map(\.id) == ["n1"])
         #expect(content.history.map(\.summary) == ["denied 4", "later 3", "timedOut 2", "approved 1"])
-        #expect(content.historyTotal == 4)
     }
 
     @Test func missedOnlyKeepsWhatCanStillBeAnswered() {
         let content = MenuBarPopoverContent(state: MenuBarState(), entries: entries, missedOnly: true)
         #expect(content.history.map(\.summary) == ["later 3", "timedOut 2"])
-    }
-
-    @Test func stopsAtTheLimit() {
-        let content = MenuBarPopoverContent(state: MenuBarState(), entries: entries, missedOnly: false, limit: 2)
-        #expect(content.history.count == 2)
-        #expect(content.historyTotal == 4)
     }
 
     @Test func marksMissedSeenOnlyWhenTheListShows() {

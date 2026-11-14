@@ -310,6 +310,13 @@ public enum History {
         entries.filter { !missedOnly || $0.answerableLater }.sorted { $0.ended > $1.ended }
     }
 
+    /// The request a list of `visible` requests, newest first, keeps selected: the
+    /// user's pick while it is listed, else the newest. Nil only for an empty list.
+    public static func keptSelection(_ current: UUID?, in visible: [HistoryEntry]) -> UUID? {
+        if let current, visible.contains(where: { $0.id == current }) { return current }
+        return visible.first?.id
+    }
+
     /// `date` without its fraction of a second, as the history stores it.
     public static func wholeSecond(_ date: Date) -> Date {
         Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))

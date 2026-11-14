@@ -149,6 +149,15 @@ final class Coordinator: ObservableObject {
     var panelKeysSuspended = false {
         didSet { if panelKeysSuspended != oldValue { onChange?() } }
     }
+    /// The previews that have the keyboard: History's and the menu bar popover's.
+    private var previewKeyOwners: Set<String> = []
+
+    /// A preview, named by `owner`, takes the panel's keys or lets go of them. The
+    /// floating panel gets them back once no preview has them.
+    func previewKeys(taken: Bool, by owner: String) {
+        if taken { previewKeyOwners.insert(owner) } else { previewKeyOwners.remove(owner) }
+        panelKeysSuspended = !previewKeyOwners.isEmpty
+    }
     /// False in History's preview of an ended request: its buttons give way to the outcome.
     var showsButtons: Bool { historyPreview != .ended }
     /// History's preview: a late answer goes to the daemon's coordinator, which stores it
@@ -170,8 +179,8 @@ final class Coordinator: ObservableObject {
     var onIdle: (() -> Void)?
     /// Where finished requests are recorded. Nil when rendering snapshots.
     var history: HistoryStore?
-    /// Opens the settings window on History; true shows only missed requests. The id
-    /// selects that request.
+    /// Opens the menu bar popover on its requests; true shows only missed requests. The
+    /// id selects that request.
     var onOpenHistory: ((Bool, UUID?) -> Void)?
     /// Called after a late answer is stored, so the History tab shows it.
     var onLateAnswer: (() -> Void)?
@@ -1075,14 +1084,15 @@ final class Coordinator: ObservableObject {
         menuBarChanged()
     }
 
-    /// Opens the History pane, which counts as seeing the missed requests in it.
+    /// Opens the history in the menu bar popover, which counts as seeing the missed
+    /// requests in it.
     func openHistory(missedOnly: Bool, select entryID: UUID? = nil) {
         onOpenHistory?(missedOnly, entryID)
         historySeen()
     }
 
-    /// The History pane showed: missed requests so far count as seen. Returns when it
-    /// showed before.
+    /// The history showed, in the popover or the History pane: missed requests so far
+    /// count as seen. Returns when it showed before.
     @discardableResult
     func historySeen() -> Date? {
         let previous = stateStore.state.historySeenAt

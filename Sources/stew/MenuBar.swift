@@ -14,9 +14,9 @@ final class PauseModel: ObservableObject {
 }
 
 /// The stew item in the menu bar: the app icon with what waits on the user. A click
-/// opens the popover with the open needs items and the recent requests; a right-click or
-/// control-click opens the menu for the open needs items, History, Settings, the pause
-/// and a waiting update.
+/// opens the popover with the open needs items, the requests and the selected one; a
+/// right-click or control-click opens the menu for the open needs items, History,
+/// Settings, the pause and a waiting update.
 final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var state = MenuBarState()
@@ -26,8 +26,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Counts down "Pausing in 0:45…" while the menu is open.
     private var countdown: Timer?
     let popover = MenuBarPopoverController()
-    /// The history for the popover, read when it opens.
-    var historyEntries: () -> [HistoryEntry] = { [] }
+    /// True while the item shows only to anchor the popover, with the icon hidden in
+    /// Settings: it goes again when the popover closes.
+    private var anchorOnly = false
     var onOpenNeeds: (String) -> Void = { _ in }
     var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
@@ -36,15 +37,51 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     var onUpdate: () -> Void = {}
     var onHide: () -> Void = {}
 
+    override init() {
+        super.init()
+        popover.onClose = { [weak self] in self?.dropAnchor() }
+    }
+
     func update(_ state: MenuBarState) {
         self.state = state
         popover.model.state = state
-        guard state.isVisible else {
+        if state.isVisible { anchorOnly = false }
+        guard state.isVisible || anchorOnly else {
             popover.close()
-            if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
-            statusItem = nil
+            removeItem()
             return
         }
+        showItem()
+    }
+
+    /// The popover on the requests, for `stew history`, the menu's History and the
+    /// notice about missed requests. With the icon hidden, the item shows until the
+    /// popover closes, to anchor it.
+    func showHistory(missedOnly: Bool, select entryID: UUID? = nil) {
+        if statusItem == nil {
+            anchorOnly = true
+            showItem()
+        }
+        // A new item, or one whose menu just closed, gets its place in the menu bar in
+        // the next pass of the run loop.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let button = self.statusItem?.button else { return }
+            self.popover.show(from: button, missedOnly: missedOnly, select: entryID)
+        }
+    }
+
+    private func dropAnchor() {
+        guard anchorOnly else { return }
+        anchorOnly = false
+        if !state.isVisible { removeItem() }
+    }
+
+    private func removeItem() {
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        statusItem = nil
+    }
+
+    private func showItem() {
         let item = statusItem ?? NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         if let button = item.button {
@@ -67,7 +104,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             popover.close()
             showMenu()
         } else {
-            popover.toggle(from: sender, entries: historyEntries())
+            popover.toggle(from: sender)
         }
     }
 

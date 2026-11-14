@@ -2,7 +2,9 @@ import AppKit
 import SwiftUI
 import StewCore
 
-/// The menu bar popover for `stew snapshot`, drawn offscreen like the menu.
+/// The menu bar popover for `stew snapshot`, drawn offscreen like the menu: the list
+/// with the newest request selected, then each kind of request selected, and the filter
+/// on its own with its glass.
 enum PopoverSnapshot {
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
         let sample = HistorySample.make()
@@ -11,23 +13,53 @@ enum PopoverSnapshot {
             NeedsItem(id: "3f9a1c2e", created: Date(), session: SessionInfo(name: "release", cwd: "~/code/web-app"), needs: NeedsRequest(title: "Log in to npm so I can publish 2.4.0")),
             NeedsItem(id: "7b2d4e9f", created: Date(), session: SessionInfo(name: "mobile-app", cwd: "~/code/mobile-app"), needs: NeedsRequest(title: "Approve the build in App Store Connect")),
         ]
-        let states: [(String, MenuBarState, [HistoryEntry], Bool, Set<UUID>)] = [
-            ("menubar-popover", MenuBarState(), seen, false, []),
-            ("menubar-popover-missed", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, false, sample.unseen),
-            ("menubar-popover-missed-only", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, true, sample.unseen),
-            ("menubar-popover-paused", MenuBarState(missedCount: 2, pause: .until(Date().addingTimeInterval(42 * 60))), sample.entries, false, sample.unseen),
-            ("menubar-popover-pausing", MenuBarState(pause: .startsAt(Date().addingTimeInterval(45))), seen, false, []),
-            ("menubar-popover-until-back", MenuBarState(pause: .untilBack), seen, false, []),
-            ("menubar-popover-update", MenuBarState(update: .ready("0.2.0")), seen, false, []),
-            ("menubar-popover-empty", MenuBarState(), [], false, []),
+        let missed = MenuBarState(openNeeds: needs, missedCount: 2)
+        var states: [(String, MenuBarState, [HistoryEntry], Bool, UUID?, Set<UUID>)] = [
+            ("menubar-popover", MenuBarState(), seen, false, nil, []),
+            ("menubar-popover-missed", missed, sample.entries, false, nil, sample.unseen),
+            ("menubar-popover-missed-only", missed, sample.entries, true, nil, sample.unseen),
+            ("menubar-popover-paused", MenuBarState(missedCount: 2, pause: .until(Date().addingTimeInterval(42 * 60))), sample.entries, false, nil, sample.unseen),
+            ("menubar-popover-pausing", MenuBarState(pause: .startsAt(Date().addingTimeInterval(45))), seen, false, nil, []),
+            ("menubar-popover-until-back", MenuBarState(pause: .untilBack), seen, false, nil, []),
+            ("menubar-popover-update", MenuBarState(update: .ready("0.2.0")), seen, false, nil, []),
+            ("menubar-popover-empty", MenuBarState(), [], false, nil, []),
         ]
-        for (name, state, entries, missedOnly, unseen) in states {
+        for pick in [HistorySample.Pick.question, .secretLater, .secretEntered, .lateApproved, .needs, .blockedMissed] {
+            let entryID = HistorySample.ids[pick]!
+            states.append(("menubar-popover-\(pick.rawValue)", missed, sample.entries, false, entryID, sample.unseen.subtracting([entryID])))
+        }
+        for (name, state, entries, missedOnly, selection, unseen) in states {
             for dark in [false, true] {
                 let model = MenuBarPopoverModel()
-                model.showSample(state: state, entries: entries, missedOnly: missedOnly, unseen: unseen)
+                model.showSample(state: state, entries: entries, mailbox: sample.mailbox, missedOnly: missedOnly, selection: selection, unseen: unseen)
                 let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
                 write(AnyView(MenuBarPopoverView(model: model).background(Color(nsColor: .windowBackgroundColor))), dark, path)
                 print(path)
+            }
+        }
+        renderFilter(to: directory)
+    }
+
+    /// The All and Missed filter in both states, through SwiftUI's renderer, which draws
+    /// the glass that an offscreen window leaves out.
+    private static func renderFilter(to directory: String) {
+        for missedOnly in [false, true] {
+            for dark in [false, true] {
+                let path = "\(directory)/history-filter-\(missedOnly ? "missed" : "all")-\(dark ? "dark" : "light").png"
+                let view = HistoryFilterPicker(missedOnly: .constant(missedOnly), missedCount: 3)
+                    .padding(16)
+                    .background(dark ? Color(white: 0.17) : Color(white: 0.93))
+                    .environment(\.colorScheme, dark ? .dark : .light)
+                MainActor.assumeIsolated {
+                    let renderer = ImageRenderer(content: AnyView(view))
+                    renderer.scale = 3
+                    // The first render can come out blank; the second has the content.
+                    _ = renderer.nsImage
+                    if let image = renderer.nsImage, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) {
+                        try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                        print(path)
+                    }
+                }
             }
         }
     }

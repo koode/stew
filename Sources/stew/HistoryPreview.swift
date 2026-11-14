@@ -294,17 +294,18 @@ struct HistoryDetails: View {
     }
 }
 
-/// Hands the window a view lives in to `found`, so key events can be checked against it.
-struct WindowReader: NSViewRepresentable {
-    let found: (NSWindow?) -> Void
+/// An AppKit view behind an area of SwiftUI, handed to `found`, so a click or a key can
+/// be checked against the area and the window it is in.
+struct AreaReader: NSViewRepresentable {
+    let found: (NSView) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { found(view.window) }
+        DispatchQueue.main.async { found(view) }
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { found(view.window) }
+        DispatchQueue.main.async { found(view) }
     }
 }

@@ -147,17 +147,23 @@ enum Daemon {
             }
             let settings = SettingsWindowController(updater: updater, pause: coordinator.pauseModel) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
-            coordinator.onOpenHistory = { missedOnly, entryID in settings.showHistory(missedOnly: missedOnly, select: entryID) }
-            settings.onLateAnswer = { entryID, response in
+            let answerLate: (UUID, StewResponse) -> Bool = { entryID, response in
                 coordinator.answerLate(entryID: entryID, with: response, answeredOn: Coordinator.macName)
             }
+            settings.onLateAnswer = answerLate
             settings.onHistoryShown = { coordinator.historySeen() }
-            settings.onPreviewKeys = { owns in coordinator.panelKeysSuspended = owns }
-            coordinator.onLateAnswer = { settings.reloadHistory() }
+            settings.onPreviewKeys = { owns in coordinator.previewKeys(taken: owns, by: "settings") }
             coordinator.pauseModel.onPause = { choice in coordinator.pause(choice) }
             coordinator.pauseModel.onResume = { coordinator.resume() }
             // Only the real daemon has a menu bar item; a headless one answers `menu`.
             let menuBar = MenuBarController()
+            // The menu bar is the home of the history: `stew history`, the menu's History
+            // and the notice about missed requests open its popover, never Settings.
+            coordinator.onOpenHistory = { missedOnly, entryID in menuBar.showHistory(missedOnly: missedOnly, select: entryID) }
+            coordinator.onLateAnswer = {
+                settings.reloadHistory()
+                menuBar.popover.model.history.reload()
+            }
             menuBar.onOpenNeeds = { id in coordinator.openNeeds(id: id) }
             menuBar.onHistory = { coordinator.openHistory(missedOnly: false) }
             menuBar.onSettings = { settings.show(.general) }
@@ -175,11 +181,10 @@ enum Daemon {
                     coordinator.onInstallUpdate?()
                 }
             }
-            menuBar.historyEntries = { coordinator.history?.read() ?? [] }
             let popover = menuBar.popover.model
+            popover.history.onLateAnswer = answerLate
+            popover.history.onPreviewKeys = { owns in coordinator.previewKeys(taken: owns, by: "popover") }
             popover.onOpenNeeds = menuBar.onOpenNeeds
-            popover.onOpenEntry = { entryID in coordinator.openHistory(missedOnly: false, select: entryID) }
-            popover.onHistory = menuBar.onHistory
             popover.onSettings = menuBar.onSettings
             popover.onPause = menuBar.onPause
             popover.onResume = menuBar.onResume

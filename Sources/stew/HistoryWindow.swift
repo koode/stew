@@ -2,12 +2,15 @@ import AppKit
 import SwiftUI
 import StewCore
 
-/// The History tab: every finished request, newest first, in a list on the left, and
-/// the selected one on the right as the panel showed it.
+/// Every finished request, newest first, in a list, and the selected one beside it as
+/// the panel showed it: the History tab and the menu bar popover each have one. The
+/// newest request in the filter is selected unless the user picks another; selecting
+/// one never answers it.
 final class HistoryModel: ObservableObject {
     @Published private(set) var entries: [HistoryEntry] = []
+    /// Switching the filter selects the newest request it shows.
     @Published var missedOnly = false {
-        didSet { if missedOnly != oldValue { keepSelectionVisible() } }
+        didSet { if missedOnly != oldValue { selection = visible.first?.id } }
     }
     @Published var selection: HistoryEntry.ID? {
         didSet {
@@ -40,11 +43,11 @@ final class HistoryModel: ObservableObject {
     private var keyWindowObservers: [NSObjectProtocol] = []
     /// Counts clicks in the preview, so the list gives up the keyboard.
     @Published private(set) var previewClicks = 0
-    /// Where the list and the preview are, in the window's content view.
-    var listFrame: CGRect = .zero
-    var previewFrame: CGRect = .zero
-    /// The window History is in. Keys typed in another window never reach the preview.
-    weak var window: NSWindow?
+    /// The list and the preview on screen, to tell which one a click landed in.
+    weak var listArea: NSView?
+    weak var previewArea: NSView?
+    /// The window the list is in. Keys typed in another window never reach the preview.
+    var window: NSWindow? { listArea?.window ?? previewArea?.window }
     private var keyMonitor: Any?
     private var clickMonitor: Any?
     private var keyLayout: [Character: UInt16] = [:]
@@ -56,13 +59,16 @@ final class HistoryModel: ObservableObject {
         self.entries = entries
         self.mailbox = mailbox
         self.missedOnly = missedOnly
-        self.selection = selection
-        self.unseen = unseen
+        self.selection = selection ?? visible.first?.id
+        // The selected request is seen, as when the user opens it.
+        self.unseen = unseen.filter { $0 != self.selection }
         rebuildPreview()
     }
 
     var visible: [HistoryEntry] { History.filtered(entries, missedOnly: missedOnly) }
     var selected: HistoryEntry? { entries.first { $0.id == selection } }
+    /// How many requests the Missed filter shows.
+    var missedCount: Int { History.filtered(entries, missedOnly: true).count }
 
     func reload() {
         guard !isSample else { return }
@@ -74,6 +80,17 @@ final class HistoryModel: ObservableObject {
         rebuildPreview()
     }
 
+    /// The list shows again, as History's tab or the popover opens: fresh entries, the
+    /// filter asked for, and `entryID` or else the newest request selected. The keyboard
+    /// starts in the list, so no key answers the preview before a click in it.
+    func open(missedOnly: Bool, select entryID: UUID? = nil) {
+        reload()
+        keysInPreview = false
+        message = nil
+        self.missedOnly = missedOnly
+        select(entryID)
+    }
+
     /// History showed. `seenBefore` is when it last showed: missed requests since then
     /// get the unseen dot, until selected.
     func markUnseen(since seenBefore: Date?) {
@@ -82,9 +99,14 @@ final class HistoryModel: ObservableObject {
         if let selection { unseen.remove(selection) }
     }
 
-    /// Selects `entryID`, showing every request if the filter hides it.
+    /// Selects `entryID`, showing every request if the filter hides it. Nil selects the
+    /// newest request in the filter.
     func select(_ entryID: UUID?) {
-        if let entryID, !visible.contains(where: { $0.id == entryID }) { missedOnly = false }
+        guard let entryID else {
+            selection = visible.first?.id
+            return
+        }
+        if !visible.contains(where: { $0.id == entryID }) { missedOnly = false }
         selection = entryID
     }
 
@@ -99,8 +121,10 @@ final class HistoryModel: ObservableObject {
         selection = ids[min(max(index + offset, 0), ids.count - 1)]
     }
 
+    /// The user's pick stays while it is in the list; when it leaves, or nothing is
+    /// selected, the newest request is.
     private func keepSelectionVisible() {
-        if let selection, !visible.contains(where: { $0.id == selection }) { self.selection = nil }
+        selection = History.keptSelection(selection, in: visible)
     }
 
     private func rebuildPreview() {
@@ -163,12 +187,11 @@ final class HistoryModel: ObservableObject {
             return nil
         }
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self, let window = self.window, event.window === window,
-                  let point = window.contentView?.convert(event.locationInWindow, from: nil) else { return event }
-            if self.previewFrame.contains(point) {
+            guard let self, let window = self.window, event.window === window else { return event }
+            if Self.area(self.previewArea, contains: event) {
                 self.keysInPreview = true
                 self.previewClicks += 1
-            } else if self.listFrame.contains(point) {
+            } else if Self.area(self.listArea, contains: event) {
                 self.keysInPreview = false
             }
             return event
@@ -176,6 +199,11 @@ final class HistoryModel: ObservableObject {
         keyWindowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.updateKeyOwnership() }
         }
+    }
+
+    private static func area(_ area: NSView?, contains event: NSEvent) -> Bool {
+        guard let area, area.window === event.window else { return false }
+        return area.bounds.contains(area.convert(event.locationInWindow, from: nil))
     }
 
     /// The preview has the panel's keys while it was clicked last, shows a request, and
@@ -210,11 +238,6 @@ struct HistoryMessage: Equatable {
 
 struct HistoryView: View {
     @ObservedObject var model: HistoryModel
-    @FocusState private var focus: HistoryFocus?
-
-    private enum HistoryFocus: Hashable {
-        case list
-    }
 
     var body: some View {
         SettingsPane(
@@ -225,77 +248,33 @@ struct HistoryView: View {
             HSplitView {
                 sidebar
                     .frame(minWidth: 250, idealWidth: 300, maxWidth: 420)
-                detail
+                HistoryDetail(model: model)
                     .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
             }
             .overlay(alignment: .top) { Divider() }
             .padding(.top, 12)
         }
-        .background(WindowReader { window in model.window = window })
         .onAppear {
             model.reload()
             model.startKeys()
         }
         .onDisappear { model.stopKeys() }
-        .onChange(of: focus) { _, newFocus in
-            if newFocus == .list { model.keysInPreview = false }
-        }
-        .onChange(of: model.previewClicks) {
-            // A click in the preview takes the keyboard from the list, so its
-            // selection dims, as in Mail.
-            if focus == .list { focus = nil }
-        }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.reload() }
     }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HistoryFilterPicker(missedOnly: $model.missedOnly)
+            HistoryFilterPicker(missedOnly: $model.missedOnly, missedCount: model.missedCount)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
             Divider()
             if model.visible.isEmpty {
                 emptyList
             } else {
-                list
+                HistoryList(model: model)
             }
         }
         .background(Color.primary.opacity(0.035))
-    }
-
-    private var list: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(model.visible) { entry in
-                        HistoryRow(entry: entry, unseen: model.unseen.contains(entry.id))
-                            .background(ListRowSelection(selected: entry.id == model.selection, focused: focus == .list))
-                            .id(entry.id)
-                            .onTapGesture {
-                                focus = .list
-                                model.selection = entry.id
-                            }
-                    }
-                }
-                .padding(6)
-            }
-            .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in model.listFrame = frame }
-            .focusable()
-            .focused($focus, equals: .list)
-            .focusEffectDisabled()
-            // Plain keys only move the selection; they never answer anything.
-            .onMoveCommand { direction in
-                switch direction {
-                case .up: model.moveSelection(by: -1)
-                case .down: model.moveSelection(by: 1)
-                default: break
-                }
-            }
-            .onChange(of: model.selection) { _, selection in
-                guard let selection else { return }
-                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(selection) }
-            }
-        }
     }
 
     private var emptyList: some View {
@@ -309,13 +288,81 @@ struct HistoryView: View {
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
     }
+}
 
-    @ViewBuilder
-    private var detail: some View {
+/// The list of requests, in History and in the menu bar popover: a click or up and down
+/// select one. Plain keys only move the selection; they never answer anything. What
+/// `header` holds scrolls with the rows, above them.
+struct HistoryList<Header: View>: View {
+    @ObservedObject var model: HistoryModel
+    @ViewBuilder var header: Header
+    @FocusState private var listFocused: Bool
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    LazyVStack(spacing: 2) {
+                        ForEach(model.visible) { entry in
+                            HistoryRow(entry: entry, unseen: model.unseen.contains(entry.id))
+                                .background(ListRowSelection(selected: entry.id == model.selection, focused: listFocused))
+                                .id(entry.id)
+                                .onTapGesture {
+                                    listFocused = true
+                                    model.selection = entry.id
+                                }
+                        }
+                    }
+                }
+                .padding(6)
+            }
+            .background(AreaReader { area in model.listArea = area })
+            .focusable()
+            .focused($listFocused)
+            .focusEffectDisabled()
+            .onMoveCommand { direction in
+                switch direction {
+                case .up: model.moveSelection(by: -1)
+                case .down: model.moveSelection(by: 1)
+                default: break
+                }
+            }
+            .onChange(of: model.selection) { _, selection in
+                guard let selection else { return }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(selection) }
+            }
+            .onAppear {
+                // Opened on a request further down, such as one asked for by id.
+                if let selection = model.selection { proxy.scrollTo(selection) }
+            }
+            .onChange(of: listFocused) { _, focused in
+                if focused { model.keysInPreview = false }
+            }
+            .onChange(of: model.previewClicks) {
+                // A click in the preview takes the keyboard from the list, so its
+                // selection dims, as in Mail.
+                listFocused = false
+            }
+        }
+    }
+}
+
+extension HistoryList where Header == EmptyView {
+    init(model: HistoryModel) {
+        self.init(model: model, header: { EmptyView() })
+    }
+}
+
+/// The selected request beside the list, as the panel showed it.
+struct HistoryDetail: View {
+    @ObservedObject var model: HistoryModel
+
+    var body: some View {
         if let entry = model.selected, let preview = model.preview, preview.entryID == entry.id {
             HistoryPreviewPane(model: model, entry: entry, preview: preview, focused: model.keysInPreview)
                 .id(preview.signature)
-                .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in model.previewFrame = frame }
+                .background(AreaReader { area in model.previewArea = area })
         } else {
             EmptyState(
                 symbol: "rectangle.on.rectangle",
@@ -326,5 +373,4 @@ struct HistoryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-
 }

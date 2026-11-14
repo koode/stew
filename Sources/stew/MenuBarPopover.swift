@@ -1,19 +1,14 @@
 import AppKit
+import Combine
 import SwiftUI
 import StewCore
 
-/// What the menu bar popover shows, and what its buttons do.
+/// What the menu bar popover shows, and what its buttons do. Its list of requests and
+/// the preview beside it are a `HistoryModel` of their own.
 final class MenuBarPopoverModel: ObservableObject {
     @Published var state = MenuBarState()
-    @Published private(set) var entries: [HistoryEntry] = []
-    @Published var missedOnly = false {
-        didSet { if missedOnly != oldValue { markSeenIfShown() } }
-    }
-    /// Missed requests that were new when the popover opened: they keep a dot.
-    @Published private(set) var unseen: Set<UUID> = []
+    let history = HistoryModel()
     var onOpenNeeds: (String) -> Void = { _ in }
-    var onOpenEntry: (UUID) -> Void = { _ in }
-    var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
     var onPause: (PauseChoice) -> Void = { _ in }
     var onResume: () -> Void = {}
@@ -21,31 +16,37 @@ final class MenuBarPopoverModel: ObservableObject {
     /// Marks the missed requests seen and returns when they were seen before.
     var onSeen: () -> Date? = { nil }
     private var markedSeen = false
+    private var filterWatch: AnyCancellable?
 
-    var content: MenuBarPopoverContent {
-        MenuBarPopoverContent(state: state, entries: entries, missedOnly: missedOnly)
+    init() {
+        filterWatch = history.$missedOnly.dropFirst().sink { [weak self] _ in
+            // Published before the change lands: check once it has.
+            DispatchQueue.main.async { self?.markSeenIfShown() }
+        }
     }
 
-    /// The popover opens: fresh history, and the missed requests in its list count as seen.
-    func opened(entries: [HistoryEntry]) {
-        self.entries = entries
-        unseen = []
+    var content: MenuBarPopoverContent {
+        MenuBarPopoverContent(state: state, entries: history.entries, missedOnly: history.missedOnly)
+    }
+
+    /// The popover opens: fresh history, `entryID` or else the newest request selected,
+    /// and the missed requests in its list count as seen.
+    func opened(missedOnly: Bool, select entryID: UUID? = nil) {
         markedSeen = false
+        history.open(missedOnly: missedOnly, select: entryID)
         markSeenIfShown()
     }
 
-    func showSample(state: MenuBarState, entries: [HistoryEntry], missedOnly: Bool = false, unseen: Set<UUID> = []) {
+    func showSample(state: MenuBarState, entries: [HistoryEntry], mailbox: LateMailbox = LateMailbox(), missedOnly: Bool = false, selection: UUID? = nil, unseen: Set<UUID> = []) {
         self.state = state
-        self.entries = entries
-        self.missedOnly = missedOnly
-        self.unseen = unseen
         markedSeen = true
+        history.showSample(entries, missedOnly: missedOnly, mailbox: mailbox, selection: selection, unseen: unseen)
     }
 
     private func markSeenIfShown() {
         guard !markedSeen, content.marksMissedSeen else { return }
         markedSeen = true
-        unseen = History.unseenMissedIDs(entries, seenAt: onSeen())
+        history.markUnseen(since: onSeen())
     }
 
     /// The menu's line for the waiting update, such as "stew 0.2.0 is ready, restart to update".
@@ -54,38 +55,62 @@ final class MenuBarPopoverModel: ObservableObject {
     }
 }
 
-/// Left-click on the menu bar item: what waits on the user, the recent requests, and
-/// History, Settings and the pause. Right-click opens the menu.
+/// Left-click on the menu bar item: what waits on the user and every finished request
+/// on the left, the selected request on the right as the panel showed it, and Settings
+/// and the pause at the bottom. Right-click opens the menu.
 struct MenuBarPopoverView: View {
     @ObservedObject var model: MenuBarPopoverModel
+    @ObservedObject private var history: HistoryModel
     /// Closes the popover before a button opens a window or the panel.
     var dismiss: () -> Void = {}
     @State private var hovered: String?
 
-    static let width: CGFloat = 360
+    init(model: MenuBarPopoverModel, dismiss: @escaping () -> Void = {}) {
+        self.model = model
+        history = model.history
+        self.dismiss = dismiss
+    }
+
+    static let listWidth: CGFloat = 320
+    /// The widest panel, for a call auto mode blocked, beside the preview's inset.
+    static let previewWidth: CGFloat = 560 + 2 * HistoryPreviewPane.inset
+    static let width: CGFloat = listWidth + 1 + previewWidth
+    /// The list and the preview scroll within it.
+    static let bodyHeight: CGFloat = 520
 
     var body: some View {
         let content = model.content
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if !content.needs.isEmpty {
-                        needsSection(content.needs)
+            HStack(spacing: 0) {
+                HistoryList(model: history) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !content.needs.isEmpty {
+                            needsSection(content.needs)
+                        }
+                        requestsHeader
                     }
-                    historySection(content)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
+                    if content.history.isEmpty {
+                        emptyList
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .frame(width: Self.listWidth)
+                .background(Color.primary.opacity(0.035))
+                Divider()
+                HistoryDetail(model: history)
+                    .frame(width: Self.previewWidth)
             }
-            .frame(maxHeight: 440)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: Self.bodyHeight)
             Divider()
             footer
         }
         .frame(width: Self.width)
         .tint(Brand.paprika)
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in history.reload() }
     }
 
     private var header: some View {
@@ -166,55 +191,30 @@ struct MenuBarPopoverView: View {
                 .help(item.session.cwd ?? item.session.name)
             }
         }
+        .padding(.horizontal, -4)
     }
 
-    private func historySection(_ content: MenuBarPopoverContent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                SectionLabel(text: "Recent requests")
-                Spacer()
-                HistoryFilterPicker(missedOnly: $model.missedOnly)
-                    .controlSize(.small)
-            }
-            .padding(.horizontal, 4)
-            .padding(.bottom, 4)
-            if content.history.isEmpty {
-                EmptyState(
-                    symbol: model.missedOnly ? "clock.badge.exclamationmark" : "clock",
-                    title: model.missedOnly ? "No missed requests" : "No requests yet",
-                    message: model.missedOnly
-                        ? "Requests that run out of time while nobody answers show here."
-                        : "Finished requests show here."
-                )
-            } else {
-                ForEach(content.history) { entry in
-                    Button {
-                        dismiss()
-                        model.onOpenEntry(entry.id)
-                    } label: {
-                        HistoryRow(entry: entry, unseen: model.unseen.contains(entry.id))
-                            .background(ListRowSelection(selected: hovered == entry.id.uuidString, focused: false))
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { inside in hover(entry.id.uuidString, inside) }
-                }
-                if content.historyTotal > content.history.count {
-                    Text("\(content.historyTotal - content.history.count) more in History")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.top, 4)
-                }
-            }
+    private var requestsHeader: some View {
+        HStack {
+            SectionLabel(text: "Requests")
+            Spacer()
+            HistoryFilterPicker(missedOnly: $history.missedOnly, missedCount: history.missedCount)
         }
+    }
+
+    private var emptyList: some View {
+        EmptyState(
+            symbol: history.missedOnly ? "clock.badge.exclamationmark" : "clock",
+            title: history.missedOnly ? "No missed requests" : "No requests yet",
+            message: history.missedOnly
+                ? "Requests that run out of time while nobody answers, and secrets you chose to enter later, show here."
+                : "Permission requests, questions and notifications show here once they finish."
+        )
+        .padding(.horizontal, 12)
     }
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Button("History") {
-                dismiss()
-                model.onHistory()
-            }
             Button("Settings") {
                 dismiss()
                 model.onSettings()
@@ -243,13 +243,20 @@ struct MenuBarPopoverView: View {
     }
 }
 
-/// Shows the popover under the menu bar item. It does not activate stew: the user's app
-/// keeps the keyboard, and the floating panel keeps its rule of never taking it. A
-/// click anywhere else closes it.
+/// Shows the popover under the menu bar item. Opening it does not activate stew: the
+/// user's app keeps the keyboard, and the floating panel keeps its rule of never taking
+/// it. A click in the popover gives it the keyboard, for the list's arrow keys and,
+/// after a click in the preview, the panel's keys; closing it hands the keyboard back.
+/// A click anywhere else closes it.
 final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     let model = MenuBarPopoverModel()
     private let popover = NSPopover()
     private var outsideClicks: Any?
+    private var insideClicks: Any?
+    /// The app that had the keyboard before a click in the popover took it.
+    private var previousApp: NSRunningApplication?
+    /// Told after the popover closed.
+    var onClose: () -> Void = {}
 
     override init() {
         super.init()
@@ -261,18 +268,42 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
 
     var isShown: Bool { popover.isShown }
 
-    func toggle(from button: NSStatusBarButton, entries: [HistoryEntry]) {
+    private var window: NSWindow? { popover.contentViewController?.view.window }
+
+    func toggle(from button: NSStatusBarButton) {
         if popover.isShown {
             close()
-            return
+        } else {
+            show(from: button, missedOnly: false)
         }
-        model.opened(entries: entries)
+    }
+
+    /// Opens the popover, or keeps it open, on the requests, only the missed ones when
+    /// `missedOnly`, with `entryID` or else the newest selected.
+    func show(from button: NSStatusBarButton, missedOnly: Bool, select entryID: UUID? = nil) {
+        model.opened(missedOnly: missedOnly, select: entryID)
+        guard !popover.isShown else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        model.history.startKeys()
         // A transient popover of an app that is not active does not see clicks in other
         // apps; a global monitor does, without any permission for mouse clicks.
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             self?.close()
         }
+        insideClicks = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.takeKeyboard(for: event)
+            return event
+        }
+    }
+
+    /// A click in the popover makes it the key window, so its keys reach it.
+    private func takeKeyboard(for event: NSEvent) {
+        guard let window, event.window === window, !window.isKeyWindow else { return }
+        if !NSApp.isActive {
+            previousApp = NSWorkspace.shared.frontmostApplication
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        window.makeKey()
     }
 
     func close() {
@@ -282,10 +313,25 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         stopWatching()
+        handBackKeyboard()
+        onClose()
+    }
+
+    /// The app that had the keyboard before a click in the popover gets it back,
+    /// unless a stew window, such as Settings, opened meanwhile.
+    private func handBackKeyboard() {
+        guard let previousApp else { return }
+        self.previousApp = nil
+        DispatchQueue.main.async {
+            guard NSApp.isActive, !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) else { return }
+            previousApp.activate()
+        }
     }
 
     private func stopWatching() {
-        if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
+        for monitor in [outsideClicks, insideClicks].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
         outsideClicks = nil
+        insideClicks = nil
+        model.history.stopKeys()
     }
 }

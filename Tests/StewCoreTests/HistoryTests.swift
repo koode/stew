@@ -92,6 +92,17 @@ private func entry(_ outcome: HistoryEntry.Outcome, endedMinutesAgo minutes: Dou
         #expect(History.missed(entries, since: start.addingTimeInterval(-6 * 60)).count == 1)
     }
 
+    @Test func keepsThePickElseSelectsTheNewest() {
+        let entries = [entry(.timedOut, endedMinutesAgo: 9), entry(.approved, endedMinutesAgo: 5), entry(.timedOut, endedMinutesAgo: 1)]
+        let all = History.filtered(entries, missedOnly: false)
+        let missed = History.filtered(entries, missedOnly: true)
+        #expect(History.keptSelection(nil, in: all) == entries[2].id)
+        #expect(History.keptSelection(entries[0].id, in: all) == entries[0].id)
+        // The approved one is not missed: the newest missed one takes its place.
+        #expect(History.keptSelection(entries[1].id, in: missed) == entries[2].id)
+        #expect(History.keptSelection(entries[1].id, in: []) == nil)
+    }
+
     @Test func summaryTitle() {
         #expect(History.returnSummary(missedCount: 1) == "1 request timed out while you were away")
         #expect(History.returnSummary(missedCount: 3) == "3 requests timed out while you were away")

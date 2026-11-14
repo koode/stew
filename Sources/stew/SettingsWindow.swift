@@ -93,6 +93,8 @@ final class SettingsWindowController {
     private var window: NSWindow?
     private var tabTitle: AnyCancellable?
     private var historyTab: AnyCancellable?
+    /// True while `show` sets the tab, so the tab bar's handler leaves it alone.
+    private var changingTab = false
     /// Called each time the History pane shows, which counts as seeing missed requests.
     /// Returns when History showed before, so the requests missed since keep a dot.
     var onHistoryShown: (() -> Date?)?
@@ -125,19 +127,15 @@ final class SettingsWindowController {
         history.reload()
     }
 
-    /// The History tab, optionally showing only the requests that timed out, with
-    /// `entryID` selected, or nothing.
-    func showHistory(missedOnly: Bool, select entryID: UUID? = nil) {
-        history.missedOnly = missedOnly
-        history.select(entryID)
-        show(.history)
-    }
-
     func show(_ tab: SettingsTab) {
         model.load()
         approvals.reload()
         history.reload()
+        // The tab is set here rather than through the tab bar: History's opening is
+        // handled once, below.
+        changingTab = true
         model.tab = tab
+        changingTab = false
         if window == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
@@ -156,7 +154,8 @@ final class SettingsWindowController {
             // Like other Settings windows, the title names the pane that is showing.
             tabTitle = model.$tab.sink { [weak window] tab in window?.title = tab.title }
             historyTab = model.$tab.sink { [weak self] tab in
-                if tab == .history, self?.window?.isVisible == true { self?.historyShown() }
+                guard let self, !self.changingTab else { return }
+                if tab == .history, self.window?.isVisible == true { self.historyShown() }
             }
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -167,7 +166,10 @@ final class SettingsWindowController {
     /// History needs room for its list beside the panel's preview.
     static let historyWidth: CGFloat = 1040
 
+    /// History opened: the newest request in its filter is selected, and the missed
+    /// requests count as seen.
     private func historyShown() {
+        history.open(missedOnly: history.missedOnly)
         history.markUnseen(since: onHistoryShown?() ?? nil)
         guard let window, window.frame.width < Self.historyWidth, let screen = window.screen else { return }
         var frame = window.frame
