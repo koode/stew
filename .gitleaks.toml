@@ -1,19 +1,14 @@
 # Extends gitleaks' default rules. Everything allowed below is test or sample data,
 # never a real credential:
-# - relay/test/fixtures: keys and tokens of a throwaway pairing made for the fixture.
-# - ios/App/Tests and Tests/: fake tokens that prove commands get masked.
-# - DebugLaunch.swift: fake values in the sample requests used for screenshots.
+# - Tests/: fake tokens that prove commands get masked.
 # - Curve25519 type names: declarations such as `signingKey: Curve25519.Signing.PrivateKey`.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Test fixtures, masking tests and screenshot sample data"
+description = "Masking tests"
 paths = [
-  '''^relay/test/fixtures/''',
-  '''^ios/App/Tests/''',
   '''^Tests/StewCoreTests/''',
-  '''^ios/App/Stew/DebugLaunch\.swift$''',
   '''^\.claude/''',
 ]
 regexes = [

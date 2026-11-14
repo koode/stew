@@ -2,7 +2,7 @@
 // writes it as an .icns file for the Mac app or as a 1024 px PNG for the iPhone app.
 //
 //   swift scripts/make-icon.swift Resources/AppIcon.icns
-//   swift scripts/make-icon.swift ios/App/Stew/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+//   swift scripts/make-icon.swift AppIcon.png   (into the iPhone app's AppIcon.appiconset)
 //
 // The Mac icon is a tile on the macOS icon grid with the site's dark edge and hard
 // shadow. The iPhone icon fills the whole square, because iOS rounds the corners.

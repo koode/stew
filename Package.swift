@@ -19,7 +19,7 @@ let package = Package(
         ),
         .testTarget(name: "StewCoreTests", dependencies: ["StewCore"]),
         .testTarget(name: "StewLinkTests", dependencies: ["StewLink", "StewCore"]),
-        // A stand-in iPhone for Tests/phone/run.sh: pairs, decrypts recorded pushes, answers.
+        // A stand-in iPhone for end-to-end tests against a relay: pairs, decrypts recorded pushes, answers.
         .executableTarget(name: "stew-test-phone", dependencies: ["StewLink", "StewCore"], path: "Tests/TestPhone"),
     ]
 )
