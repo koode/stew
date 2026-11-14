@@ -160,6 +160,9 @@ struct PairedPhoneRow: View {
         switch status {
         case .connected: StatusPill(text: "Connected", tone: .green)
         case .failed: StatusPill(text: "Relay unreachable", tone: .orange).help("stew keeps retrying.")
+        case .refused: StatusPill(text: "Relay refused this Mac", tone: .orange).help("Check that this Mac's clock is right. stew keeps retrying.")
+        case .stopped(.unsupportedProtocol): StatusPill(text: "Update stew", tone: .orange).help("The relay needs a newer stew.")
+        case .stopped: StatusPill(text: "Pairing gone", tone: .orange).help("The relay no longer knows this pairing. Unpair, then pair again.")
         case .connecting, nil: StatusPill(text: "Connecting…", tone: .secondary)
         }
     }

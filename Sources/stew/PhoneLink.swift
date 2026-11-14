@@ -95,8 +95,9 @@ final class PhoneLink: ObservableObject {
     private func connect(_ pairing: MacPairing) {
         guard let store, connections[pairing.pairingId] == nil else { return }
         let connection = RelayConnection(pairingId: pairing.pairingId, relay: pairing.relay, identity: store.identity)
-        connection.onFrame = { [weak self] frame in self?.received(frame, pairingId: pairing.pairingId) }
+        connection.onFrame = { [weak self] frame in self?.received(frame, pairingId: pairing.pairingId) ?? .handled }
         connection.onStatus = { [weak self] status in self?.statuses[pairing.pairingId] = status }
+        connection.onStop = { [weak self] reason in self?.relayStopped(pairing.pairingId, reason: reason) }
         connections[pairing.pairingId] = connection
         connection.connect()
     }
@@ -129,16 +130,25 @@ final class PhoneLink: ObservableObject {
         pairingError = nil
         let relay = coordinator.config.phone.relay
         let code = PairingCode.generate(relay: relay, macName: macName, macKeys: store.identity.publicKeys)
-        guard let claim = try? RelayClaim(code: code, identity: store.identity), let body = try? LinkJSON.encode(claim) else { return }
+        let identity = store.identity
         let pairing = MacPairing(pairingId: code.pairingId, relay: relay, macName: macName, secret: code.secret, state: .waiting, createdAt: Date())
-        let connection = RelayConnection(pairingId: code.pairingId, relay: relay, identity: store.identity)
-        connection.post("claim", body: body) { [weak self] result in
+        let connection = RelayConnection(pairingId: code.pairingId, relay: relay, identity: identity)
+        // The connection asks the relay for its protocol first, so a code never names a relay
+        // this Mac cannot use.
+        connection.post("claim", signed: true, body: { version in
+            switch version {
+            case .v2: try? LinkJSON.encode(RelayClaimV2(code: code, identity: identity))
+            case .v1: (try? RelayClaim(code: code, identity: identity)).flatMap { try? LinkJSON.encode($0) }
+            }
+        }) { [weak self] result in
             connection.stop()
             guard let self else { return }
             guard result.ok else {
-                self.pairingError = result.status == 0
-                    ? "Cannot reach the relay at \(relay)."
-                    : "The relay at \(relay) refused the pairing (\(result.status))."
+                switch result.status {
+                case 0: self.pairingError = "Cannot reach the relay at \(relay)."
+                case 426: self.pairingError = "The relay at \(relay) needs a newer stew. Update stew, then pair again."
+                default: self.pairingError = "The relay at \(relay) refused the pairing (\(result.status))."
+                }
                 return
             }
             self.save(pairing)
@@ -180,37 +190,51 @@ final class PhoneLink: ObservableObject {
         forget(pairingId)
     }
 
-    private func received(_ frame: RelayFrame, pairingId: String) {
-        guard let store, var pairing = pairings.first(where: { $0.pairingId == pairingId }) else { return }
+    /// The relay ended the link for good, by its close code.
+    private func relayStopped(_ pairingId: String, reason: RelayStop) {
+        switch reason {
+        case .unpaired:
+            forget(pairingId)
+        case .claimExpired:
+            if pairingCode?.pairingId == pairingId {
+                pairingCode = nil
+                pairingError = "The pairing code expired. Show a new one."
+            }
+            forget(pairingId)
+        case .unknownPairing, .unsupportedProtocol:
+            // Kept, with the reason in its status, so the user decides: pair again or update.
+            Log.write("phone: the relay stopped pairing \(pairingId): \(reason)")
+        }
+    }
+
+    /// Handles one frame. The connection acks it afterwards, whatever happened here, and
+    /// stops once that ack is out when this returns `finished`.
+    private func received(_ frame: RelayFrame, pairingId: String) -> RelayConnection.FrameHandling {
+        guard let store, var pairing = pairings.first(where: { $0.pairingId == pairingId }) else { return .handled }
         var replay = replayGuards[pairingId] ?? ReplayGuard()
         defer { replayGuards[pairingId] = replay }
-        let connection = connections[pairingId]
-        // Only queued frames need an ack; answers get a result instead.
-        let acknowledged = frame.type == .hello || frame.envelope.kind == .unpair
-        var ackSent = false
-        defer { if acknowledged && !ackSent { connection?.acknowledge(frame.envelope.messageId) } }
         do {
             switch frame.type {
             case .hello:
-                guard pairing.state == .waiting, let phoneKeys = try frame.phoneKeys?.validated() else { return }
+                guard pairing.state == .waiting, let phoneKeys = try frame.phoneKeys?.validated() else { return .handled }
                 let channel = try LinkChannel(pairingId: pairingId, side: .mac, identity: store.identity, peer: phoneKeys, pairingSecret: pairing.secret)
                 let hello = try channel.open(frame.envelope, as: LinkHello.self, replay: &replay)
                 guard frame.envelope.kind == .hello, hello.phoneKeys == phoneKeys else {
                     Log.write("phone: hello keys do not match the relay's copy; ignored")
-                    return
+                    return .handled
                 }
                 pairing.state = .confirming
                 pairing.phoneName = String(hello.phoneName.prefix(60))
                 pairing.phoneKeys = phoneKeys
                 save(pairing)
             case .envelope:
-                guard let channel = try pairing.channel(identity: store.identity) else { return }
+                guard let channel = try pairing.channel(identity: store.identity) else { return .handled }
                 switch frame.envelope.kind {
                 case .answer:
                     // Answers count only from a phone the user confirmed on this Mac.
-                    guard pairing.state == .paired else { return }
+                    guard pairing.state == .paired else { return .handled }
                     let answer = try channel.open(frame.envelope, as: LinkAnswer.self, replay: &replay)
-                    guard answer.requestId == frame.envelope.requestId else { return }
+                    guard answer.requestId == frame.envelope.requestId else { return .handled }
                     let result = apply(answer, from: pairingId)
                     // The phone shows the reason too; the log keeps it for when it did not.
                     if !result.accepted {
@@ -220,13 +244,12 @@ final class PhoneLink: ObservableObject {
                 case .unpair:
                     _ = try channel.open(frame.envelope, as: LinkUnpair.self, replay: &replay)
                     if pairingCode?.pairingId == pairingId { pairingCode = nil }
-                    // Keep the socket until the relay has the ack, then let it go.
+                    // The connection keeps its socket until the relay has the ack, then stops.
                     connections.removeValue(forKey: pairingId)
-                    ackSent = true
-                    connection?.acknowledge(frame.envelope.messageId) { connection?.stop() }
                     forget(pairingId)
+                    return .finished
                 default:
-                    return
+                    return .handled
                 }
             }
         } catch {
@@ -236,6 +259,7 @@ final class PhoneLink: ObservableObject {
                 Log.write("phone: refused a message for pairing \(pairingId): \(error)")
             }
         }
+        return .handled
     }
 
     private func reply(_ result: LinkResult, to answer: LinkEnvelope, channel: LinkChannel) {
