@@ -378,7 +378,8 @@ func samplePush(_ values: [String: String]) throws {
             queued: false,
             extendBy: hasNoTimeLimit ? nil : 120,
             hardDeny: sample.2,
-            risk: nil
+            risk: nil,
+            secretInApp: { if case .input(let input) = sample.1, input.secret { return true } else { return nil } }()
         )
         let envelope = try mac.seal(request, kind: .request, requestId: requestId, expiresAt: Date().addingTimeInterval(7200))
         let push = RelayPush(pairingId: code.pairingId, requestId: requestId, kind: .request, envelope: envelope)
@@ -390,7 +391,27 @@ func samplePush(_ values: [String: String]) throws {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
         try data.write(to: URL(fileURLWithPath: folder + "/push-\(sample.0).json"))
     }
-    print("wrote \(folder)/seed.txt and \(samples.count) payloads")
+    // The closed alert pushes that replace the first sample's notification, as the relay
+    // sends them. Deliver one after push-permission.json.
+    let closings: [(String, LinkResolved)] = [
+        ("closed-mac", LinkResolved(requestId: "sample0", outcome: .answeredOnMac)),
+        ("closed-phone", LinkResolved(requestId: "sample0", outcome: .approved, answeredOn: "Sam's iPhone", answeredHere: false)),
+        ("closed-timeout", LinkResolved(requestId: "sample0", outcome: .timedOut)),
+    ]
+    for (name, resolved) in closings {
+        let envelope = try mac.seal(resolved, kind: .resolved, requestId: "sample0", expiresAt: Date().addingTimeInterval(7200))
+        let push = RelayPush(pairingId: code.pairingId, requestId: "sample0", kind: .resolved, envelope: envelope)
+        let payload: [String: Any] = [
+            "aps": [
+                "alert": ["title": "stew", "body": "This request is closed."], "mutable-content": 1,
+                "interruption-level": "passive", "category": LinkPresentation.closedCategory, "thread-id": code.pairingId,
+            ],
+            "stew": try JSONSerialization.jsonObject(with: try LinkJSON.encode(push)),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
+        try data.write(to: URL(fileURLWithPath: folder + "/push-\(name).json"))
+    }
+    print("wrote \(folder)/seed.txt and \(samples.count + closings.count) payloads")
 }
 
 func fixture(_ values: [String: String]) throws {
