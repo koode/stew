@@ -173,7 +173,7 @@ All paths start with `/v1/pairings/{pairingId}`. The relay keeps one Durable Obj
 | Sender and kind | What the relay does |
 |---|---|
 | mac `request` | Stores it as pending, sends an alert push. 202, or 409 `no_device` |
-| mac `update` | Replaces the pending copy, sends a background push. 202 |
+| mac `update` | Replaces the pending copy, sends a background push. 202. For a request already resolved: neither stored nor pushed, 202, because `resolved` is terminal |
 | mac `resolved` | Drops the pending copy, keeps the envelope for an hour. Sends a closed alert push when the request was pending (so its alert went out), else a background push. 202 |
 | mac `result` | Hands it to the phone's waiting answer with that `replyTo`. 202 |
 | mac `unpair` | Sends a background push, then deletes the pairing. 202 |
