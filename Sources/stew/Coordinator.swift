@@ -143,6 +143,12 @@ final class Coordinator: ObservableObject {
     static let macName = Host.current().localizedName ?? "Mac"
     /// Set on History's preview of a request: what it may do, and where its answers go.
     var historyPreview: HistoryPreviewMode?
+    /// True while History's preview has the keyboard: the panel's keys then answer the
+    /// preview, so the floating panel lets go of them, and a key never answers a request
+    /// the user is not looking at.
+    var panelKeysSuspended = false {
+        didSet { if panelKeysSuspended != oldValue { onChange?() } }
+    }
     /// False in History's preview of an ended request: its buttons give way to the outcome.
     var showsButtons: Bool { historyPreview != .ended }
     /// History's preview: a late answer goes to the daemon's coordinator, which stores it

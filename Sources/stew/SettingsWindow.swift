@@ -109,6 +109,12 @@ final class SettingsWindowController {
         model.update { $0.menuBar = shown }
     }
 
+    /// History's preview takes the panel's keys, or lets go of them.
+    var onPreviewKeys: ((Bool) -> Void)? {
+        get { history.onPreviewKeys }
+        set { history.onPreviewKeys = newValue }
+    }
+
     /// A late answer from History's preview. False when it is too late.
     var onLateAnswer: ((UUID, StewResponse) -> Bool)? {
         get { history.onLateAnswer }

@@ -81,6 +81,11 @@ final class PanelController {
     }
 
     private func registerHotkeys() {
+        if coordinator.panelKeysSuspended {
+            hotkeys.unregisterAll()
+            registeredSignature = "suspended"
+            return
+        }
         let signature = coordinator.bindingSignature
         guard signature != registeredSignature else { return }
         registeredSignature = signature

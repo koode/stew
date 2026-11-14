@@ -24,12 +24,20 @@ final class HistoryModel: ObservableObject {
     /// Missed requests that were new when History opened: they keep a dot until selected.
     @Published private(set) var unseen: Set<UUID> = []
     /// The selected request, drawn with the panel's views.
-    @Published private(set) var preview: HistoryPreview?
+    @Published private(set) var preview: HistoryPreview? {
+        didSet { updateKeyOwnership() }
+    }
     /// A late answer from the preview. False when it is too late.
     var onLateAnswer: ((UUID, StewResponse) -> Bool)?
     /// True after a click in the preview, false after one in the list: only while the
     /// preview has the keyboard do the panel's keys answer it.
-    @Published var keysInPreview = false
+    @Published var keysInPreview = false {
+        didSet { updateKeyOwnership() }
+    }
+    /// Told when the preview takes the panel's keys and when it lets go of them.
+    var onPreviewKeys: ((Bool) -> Void)?
+    private var ownsKeys = false
+    private var keyWindowObservers: [NSObjectProtocol] = []
     /// Counts clicks in the preview, so the list gives up the keyboard.
     @Published private(set) var previewClicks = 0
     /// Where the list and the preview are, in the window's content view.
@@ -165,9 +173,23 @@ final class HistoryModel: ObservableObject {
             }
             return event
         }
+        keyWindowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.updateKeyOwnership() }
+        }
+    }
+
+    /// The preview has the panel's keys while it was clicked last, shows a request, and
+    /// its window is key.
+    private func updateKeyOwnership() {
+        let owns = keysInPreview && preview != nil && window?.isKeyWindow == true
+        guard owns != ownsKeys else { return }
+        ownsKeys = owns
+        onPreviewKeys?(owns)
     }
 
     func stopKeys() {
+        keyWindowObservers.forEach(NotificationCenter.default.removeObserver)
+        keyWindowObservers = []
         for monitor in [keyMonitor, clickMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
         keyMonitor = nil
         clickMonitor = nil

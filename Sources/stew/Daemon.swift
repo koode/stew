@@ -152,6 +152,7 @@ enum Daemon {
                 coordinator.answerLate(entryID: entryID, with: response, answeredOn: Coordinator.macName)
             }
             settings.onHistoryShown = { coordinator.historySeen() }
+            settings.onPreviewKeys = { owns in coordinator.panelKeysSuspended = owns }
             coordinator.onLateAnswer = { settings.reloadHistory() }
             coordinator.pauseModel.onPause = { coordinator.pause(seconds: Double(PauseState.defaultMinutes) * 60) }
             coordinator.pauseModel.onResume = { coordinator.resume() }
