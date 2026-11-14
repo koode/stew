@@ -23,7 +23,8 @@ stew-test-phone COMMAND [options]
       --force skips the phone's own checks, to prove the Mac refuses too. With it,
       ACTION label:TEXT sends a needs answer with any label, and reply sends --text
       to any input, also a secret one.
-      --twice posts the same envelope again and adds the relay's status for it.
+      --twice posts the same envelope again and adds the relay's status for it, and on
+      v2 whether it was marked a duplicate and carried the same result.
       --age SECONDS dates the answer that far back, to prove the Mac refuses stale answers.
       --confirmed yes says the user went through the extra confirmation, as the app
       does after its sheet for a high or critical request.
@@ -33,8 +34,13 @@ stew-test-phone COMMAND [options]
       Print the relay's open requests for this pairing.
   sample-push --out DIR
       Write seed.txt (for the app's -StewSeed argument) and APNs payloads for simctl push.
+  protocol --relay URL
+      Print the relay protocol version this phone speaks with that relay: 2, or 1 for a
+      relay from before v2.
   fixture --out FILE
-      Write Swift-made envelopes for the relay's unit tests.
+      Write Swift-made envelopes and a v2 auth header for the relay's unit tests.
+
+Like the app, it asks the relay for GET /v2/info and speaks v2, or v1 when that is absent.
 """
 
 struct Failure: Error, CustomStringConvertible {
@@ -81,7 +87,12 @@ func printJSON(_ object: Any) {
 }
 
 /// Synchronous HTTP, enough for a test client.
-func http(_ method: String, _ url: String, body: Data? = nil) throws -> (Int, Data) {
+func http(_ method: String, _ url: String, body: Data? = nil, headers: [String: String] = [:]) throws -> (Int, Data) {
+    let (status, data, _) = try httpWithHeaders(method, url, body: body, headers: headers)
+    return (status, data)
+}
+
+func httpWithHeaders(_ method: String, _ url: String, body: Data? = nil, headers: [String: String] = [:]) throws -> (Int, Data, HTTPURLResponse?) {
     guard let target = URL(string: url) else { throw Failure("bad url \(url)") }
     var request = URLRequest(url: target)
     request.httpMethod = method
@@ -90,13 +101,15 @@ func http(_ method: String, _ url: String, body: Data? = nil) throws -> (Int, Da
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "content-type")
     }
+    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
     let semaphore = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var outcome: Result<(Int, Data), Error> = .failure(Failure("no response"))
+    nonisolated(unsafe) var outcome: Result<(Int, Data, HTTPURLResponse?), Error> = .failure(Failure("no response"))
     URLSession.shared.dataTask(with: request) { data, response, error in
         if let error {
             outcome = .failure(error)
         } else {
-            outcome = .success(((response as? HTTPURLResponse)?.statusCode ?? 0, data ?? Data()))
+            let http = response as? HTTPURLResponse
+            outcome = .success((http?.statusCode ?? 0, data ?? Data(), http))
         }
         semaphore.signal()
     }.resume()
@@ -104,8 +117,31 @@ func http(_ method: String, _ url: String, body: Data? = nil) throws -> (Int, Da
     return try outcome.get()
 }
 
-func pairingURL(_ pairing: PhonePairing, _ path: String) -> String {
-    pairing.code.relay.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v1/pairings/\(pairing.code.pairingId)/\(path)"
+func relayBase(_ relay: String) -> String {
+    relay.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+}
+
+nonisolated(unsafe) var knownVersions: [String: RelayVersion] = [:]
+
+/// The protocol the app would speak with this relay: v2 when GET /v2/info lists it, v1 when
+/// the relay has no /v2/info.
+func relayVersion(_ relay: String) throws -> RelayVersion {
+    let base = relayBase(relay)
+    if let known = knownVersions[base] { return known }
+    let (status, body) = (try? http("GET", base + RelayProtocol.infoPath)) ?? (0, Data())
+    guard let version = RelayProbe.decide(status: status, body: body).version else {
+        throw Failure("the relay at \(base) speaks no protocol this phone knows (GET /v2/info: \(status))")
+    }
+    knownVersions[base] = version
+    return version
+}
+
+func pairingPath(_ pairing: PhonePairing, _ action: String) throws -> String {
+    try relayVersion(pairing.code.relay).pairingPath(pairing.code.pairingId, action)
+}
+
+func pairingURL(_ pairing: PhonePairing, _ action: String) throws -> String {
+    relayBase(pairing.code.relay) + (try pairingPath(pairing, action))
 }
 
 func pair(_ values: [String: String]) throws {
@@ -118,15 +154,16 @@ func pair(_ values: [String: String]) throws {
     let hello = try channel.seal(LinkHello(phoneName: phoneName, phoneKeys: identity.publicKeys), kind: .hello, requestId: "pairing", expiresAt: Date().addingTimeInterval(3600))
     let deviceToken = LinkRandom.bytes(32).map { String(format: "%02x", $0) }.joined()
     let registration = RelayRegistration(registrationToken: code.registrationToken, deviceToken: deviceToken, environment: "sandbox", phoneKeys: identity.publicKeys, hello: hello)
-    let (status, body) = try http("POST", pairingURL(pairing, "device"), body: try LinkJSON.encode(registration))
+    let (status, body) = try http("POST", try pairingURL(pairing, "device"), body: try LinkJSON.encode(registration))
     guard status == 201 else { throw Failure("register failed: \(status) \(String(decoding: body, as: UTF8.self))") }
     try saveState(PhoneState(phoneName: phoneName, identity: identity.stored, pairing: pairing, deviceToken: deviceToken, pushesSeen: 0, requests: [:]), statePath)
     print(code.verificationCode(phoneSigning: identity.publicKeys.signing))
 }
 
 func recordedPushes(_ state: PhoneState) throws -> [[String: Any]] {
-    let relay = state.pairing.code.relay.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let (status, body) = try http("GET", relay + "/v1/test/pushes/\(state.pairing.code.pairingId)")
+    let relay = relayBase(state.pairing.code.relay)
+    let version = try relayVersion(relay)
+    let (status, body) = try http("GET", relay + "/v\(version.rawValue)/test/pushes/\(state.pairing.code.pairingId)")
     guard status == 200, let object = try JSONSerialization.jsonObject(with: body) as? [String: Any],
           let pushes = object["pushes"] as? [[String: Any]] else {
         throw Failure("cannot read recorded pushes: \(status) \(String(decoding: body, as: UTF8.self))")
@@ -135,8 +172,17 @@ func recordedPushes(_ state: PhoneState) throws -> [[String: Any]] {
 }
 
 func fetchPending(_ state: PhoneState, identity: LinkIdentity) throws -> RelayPending {
-    let query = try RelayAuth.query(signing: { RelayAuth.pendingMessage(pairingId: state.pairing.code.pairingId, timestamp: $0) }, identity: identity)
-    let (status, body) = try http("GET", pairingURL(state.pairing, "pending") + "?" + query)
+    let status: Int
+    let body: Data
+    switch try relayVersion(state.pairing.code.relay) {
+    case .v2:
+        let path = try pairingPath(state.pairing, "pending")
+        let header = try RelayAuth.header(method: "GET", path: path, side: .phone, body: nil, identity: identity)
+        (status, body) = try http("GET", relayBase(state.pairing.code.relay) + path, headers: ["authorization": header])
+    case .v1:
+        let query = try RelayAuth.query(signing: { RelayAuth.pendingMessage(pairingId: state.pairing.code.pairingId, timestamp: $0) }, identity: identity)
+        (status, body) = try http("GET", try pairingURL(state.pairing, "pending") + "?" + query)
+    }
     guard status == 200 else { throw Failure("pending failed: \(status) \(String(decoding: body, as: UTF8.self))") }
     return try LinkJSON.decode(RelayPending.self, from: body)
 }
@@ -277,7 +323,7 @@ func answer(_ values: [String: String]) throws {
     let expires = min(request.deadline ?? .distantFuture, Date().addingTimeInterval(120))
     // A deadline already near still gets a minute, so the Mac can explain that it was late.
     let envelope = try channel.seal(answer, kind: .answer, requestId: requestId, expiresAt: max(expires, Date().addingTimeInterval(60)))
-    let (status, body) = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
+    let (status, body) = try http("POST", try pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
     guard status == 200 else {
         printJSON(["accepted": false, "status": status, "error": String(decoding: body, as: UTF8.self)])
         exit(6)
@@ -290,7 +336,12 @@ func answer(_ values: [String: String]) throws {
     if let late = result.late { output["late"] = late }
     if let deadline = result.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
     if values["twice"] == "yes" {
-        output["secondStatus"] = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope)).0
+        let (secondStatus, secondBody, secondResponse) = try httpWithHeaders("POST", try pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
+        output["secondStatus"] = secondStatus
+        if try relayVersion(state.pairing.code.relay) == .v2 {
+            output["secondDuplicate"] = secondResponse?.value(forHTTPHeaderField: RelayProtocol.duplicateHeader) == "1"
+            output["secondSameResult"] = (try? LinkJSON.decode(RelayAnswerReply.self, from: secondBody))?.result == reply.result
+        }
     }
     printJSON(output)
     exit(result.accepted ? 0 : 7)
@@ -300,7 +351,7 @@ func unpair(_ values: [String: String]) throws {
     let state = try loadState(try required(values, "state"))
     let channel = try state.pairing.channel(identity: try LinkIdentity(stored: state.identity))
     let envelope = try channel.seal(LinkUnpair(reason: "Unpaired on \(state.phoneName)."), kind: .unpair, requestId: "pairing", expiresAt: Date().addingTimeInterval(3600))
-    let (status, body) = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
+    let (status, body) = try http("POST", try pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
     guard (200..<300).contains(status) else { throw Failure("unpair failed: \(status) \(String(decoding: body, as: UTF8.self))") }
     print("unpaired")
 }
@@ -435,10 +486,35 @@ func fixture(_ values: [String: String]) throws {
         "request": try JSONSerialization.jsonObject(with: try LinkJSON.encode(request)),
         "answer": try JSONSerialization.jsonObject(with: try LinkJSON.encode(answer)),
         "requestSignedBytes": String(decoding: request.signedBytes, as: UTF8.self),
+        "authHeader": try authHeaderVector(code: code, macIdentity: macIdentity),
     ]
     let data = try JSONSerialization.data(withJSONObject: fixture, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     try data.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
+}
+
+/// A v2 auth header made by the Swift signer, so the relay's tests check it verifies there.
+func authHeaderVector(code: PairingCode, macIdentity: LinkIdentity) throws -> [String: Any] {
+    let path = RelayVersion.v2.pairingPath(code.pairingId, "claim")
+    let body = try LinkJSON.encode(RelayClaimV2(code: code, identity: macIdentity))
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let nonce = Data(repeating: 7, count: 16)
+    return [
+        "method": "POST",
+        "path": path,
+        "side": "mac",
+        "body": String(decoding: body, as: UTF8.self),
+        "bodyHash": RelayAuth.bodyHash(body),
+        "timestamp": 1_800_000_000,
+        "signedText": String(decoding: RelayAuth.headerMessage(
+            method: "POST", path: path, side: .mac, timestamp: 1_800_000_000, nonce: nonce.base64URLEncoded, bodyHash: RelayAuth.bodyHash(body)
+        ), as: UTF8.self),
+        "header": try RelayAuth.header(method: "POST", path: path, side: .mac, body: body, identity: macIdentity, now: now, nonce: nonce),
+    ]
+}
+
+func printProtocol(_ values: [String: String]) throws {
+    print(try relayVersion(try required(values, "relay")).rawValue)
 }
 
 extension PairingCode {
@@ -462,6 +538,7 @@ do {
     case "unpair": try unpair(values)
     case "sample-push": try samplePush(values)
     case "fixture": try fixture(values)
+    case "protocol": try printProtocol(values)
     default:
         print(usage)
         exit(64)
