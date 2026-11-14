@@ -46,17 +46,44 @@ public enum CommandText {
 
     private static let looseTokenPattern = #"[A-Za-z0-9+/_\-]{32,}={0,2}"#
 
+    /// Shortest `/`-separated part that can make a slashed token a secret on its own.
+    private static let minimumRandomSegmentLength = 16
+
     /// Long tokens with upper case, lower case and digits. Lowercase hex (git SHAs) and
-    /// paths do not qualify.
+    /// paths do not qualify. Base64 can contain `/`, so the token pattern spans slashes,
+    /// but a slashed token is a path (`.claude/worktrees/agent-1a2b/Dockerfile`) unless
+    /// one of its parts looks random by itself: long, with at least two upper case
+    /// letters, two lower case letters and two digits. A file or folder name rarely has
+    /// that (`config_Default2024`, `Stew-ab12cd34ef56`, a device UUID), a random part
+    /// of a key or a webhook URL nearly always does.
     private static func randomLookingRanges(in command: String) -> [NSRange] {
         guard let regex = try? NSRegularExpression(pattern: looseTokenPattern) else { return [] }
         let text = command as NSString
         return regex.matches(in: command, range: NSRange(location: 0, length: text.length)).compactMap { match in
             let token = text.substring(with: match.range)
-            let hasUpper = token.contains(where: \.isUppercase)
-            let hasLower = token.contains(where: \.isLowercase)
-            let hasDigit = token.contains(where: \.isNumber)
-            return hasUpper && hasLower && hasDigit ? match.range : nil
+            guard CharacterMix(token).hasEveryKind(atLeast: 1) else { return nil }
+            guard token.contains("/") else { return match.range }
+            let hasRandomSegment = token.split(separator: "/").contains { segment in
+                segment.count >= minimumRandomSegmentLength && CharacterMix(segment).hasEveryKind(atLeast: 2)
+            }
+            return hasRandomSegment ? match.range : nil
+        }
+    }
+
+    /// How many upper case letters, lower case letters and digits a token has.
+    private struct CharacterMix {
+        var uppercase = 0
+        var lowercase = 0
+        var digits = 0
+
+        init<Text: StringProtocol>(_ token: Text) {
+            for character in token {
+                if character.isUppercase { uppercase += 1 } else if character.isLowercase { lowercase += 1 } else if character.isNumber { digits += 1 }
+            }
+        }
+
+        func hasEveryKind(atLeast minimum: Int) -> Bool {
+            uppercase >= minimum && lowercase >= minimum && digits >= minimum
         }
     }
 

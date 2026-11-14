@@ -335,6 +335,37 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(CommandText.masked("deploy --key Xy7pQ2mN9vR4tL8wK3jH6fD1sA5gZ0cB") == "deploy --key ••••")
     }
 
+    @Test func leavesPathsAndDotfilesAlone() {
+        let commands = [
+            #"docker run --rm -i hadolint/hadolint:latest < /Users/abby/.claude/worktrees/agent-a77993da5667c2e4d/Dockerfile; echo "exit=$?""#,
+            "cat /Users/abby/.config/gcloud/configurations/config_Default2024",
+            "ls ~/.ssh/known_hosts ~/.zshrc /Users/sam/.foo/bar",
+            "swift test --filter StewCoreTests/CommandTextTests/leavesPathsAndDotfilesAlone2",
+            "open ~/Library/Developer/Xcode/DerivedData/Stew-ab12cd34ef56gh78/Build/Products/Debug",
+            "cp Sources/StewCore/CommandText.swift /tmp/Backup2026/StewCore/CommandText.swift",
+            "ls ~/Library/Developer/CoreSimulator/Devices/1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D/data/Containers",
+        ]
+        for command in commands {
+            #expect(CommandText.masked(command) == command, "got: \(CommandText.masked(command))")
+        }
+    }
+
+    @Test func stillMasksSecretsNextToPaths() {
+        let cases: [(String, String)] = [
+            ("API_KEY=Xy7pQ2mN9vR4 ./deploy.sh ~/.config/app", "API_KEY=•••• ./deploy.sh ~/.config/app"),
+            (#"DB_PASSWORD="correct horse" psql -f /Users/abby/.psqlrc"#, #"DB_PASSWORD="••••" psql -f /Users/abby/.psqlrc"#),
+            ("cat ~/.netrc && echo ghp_abcdefghijklmnopqrstuvwxyz0123", "cat ~/.netrc && echo ••••"), // gitleaks:allow (test fixture)
+            ("glpat-abcdefghij0123456789xy push", "•••• push"), // gitleaks:allow (test fixture)
+            ("echo sk-ant-api03-abcdefghijklmnopqrstuvwx > ~/.anthropic", "echo •••• > ~/.anthropic"), // gitleaks:allow (test fixture)
+            ("git clone https://abby:Tr0ub4dor@git.example.com/team/repo.git", "git clone https://abby:••••@git.example.com/team/repo.git"), // gitleaks:allow (test fixture)
+            ("curl https://hooks.example.com/services/T01ABCDEF/B02GHIJKL/Xy7pQ2mN9vR4tL8wK3jH6fD1", "curl https://hooks.example.••••"), // gitleaks:allow (test fixture)
+            ("aws configure set secret Xy7pQ2mN9vR4/tL8wK3jH6fD1sA5gZ0cBq9", "aws configure set secret ••••"), // gitleaks:allow (test fixture)
+        ]
+        for (command, expected) in cases {
+            #expect(CommandText.masked(command) == expected, "got: \(CommandText.masked(command))")
+        }
+    }
+
     @Test func wildcardsSecretsForRules() {
         #expect(CommandText.wildcarded("API_KEY=sk-abcdefghijklmnopqrstuv npm run deploy") == "API_KEY=* npm run deploy")
     }
