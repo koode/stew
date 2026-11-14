@@ -34,6 +34,8 @@ final class PhoneLink: ObservableObject {
     private var answeredBy: [UUID: String] = [:]
     /// Outcomes of recent requests, so a late answer gets a reason and not just "no".
     private var recentlyResolved: [String: (outcome: LinkOutcome, pairingId: String?, at: Date)] = [:]
+    /// Test notifications sent from Settings, by request id, with the phone each went to.
+    private var testRequests: [String: String] = [:]
     /// Requests that timed out on phones, by request id: which phones had them, and
     /// whether auto mode never allows them, so a phone can answer them late but not
     /// approve what only the Mac may. Memory only: after a restart only the Mac answers late.
@@ -279,6 +281,7 @@ final class PhoneLink: ObservableObject {
         if requestId.hasPrefix(needsPrefix) {
             return applyNeeds(answer, needsID: String(requestId.dropFirst(needsPrefix.count)), from: pairingId)
         }
+        if let test = applyTest(answer, from: pairingId) { return test }
         guard let coordinator,
               let item = coordinator.items.first(where: { $0.id.uuidString == requestId }),
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
@@ -497,6 +500,40 @@ final class PhoneLink: ObservableObject {
         lateAnswerable[requestId] = nil
         recentlyResolved[requestId] = (.answered, pairingId, Date())
         return LinkResult(requestId: requestId, accepted: true, message: LinkRefusal.lateAnswerSent + ".", late: true)
+    }
+
+    /// Sends a test notification to one paired phone, whatever "Send requests" says. It is
+    /// a notice from stew, so the phone shows it like any other and an answer to it is
+    /// accepted; it never reaches the panel or the history. False while the relay is not
+    /// connected, since the notification would not go anywhere.
+    @discardableResult
+    func sendTest(to pairingId: String) -> Bool {
+        guard case .connected = statuses[pairingId] else { return false }
+        let requestId = UUID().uuidString
+        let notice = NotifyRequest(title: "Test notification", body: "Notifications from \(macName) reach this iPhone.", level: .success)
+        let test = LinkRequest(
+            requestId: requestId, macName: macName,
+            request: StewRequest(session: SessionInfo(name: "stew"), prompt: .notify(notice), wait: false),
+            receivedAt: Date(), deadline: nil, queued: false, extendBy: nil, hardDeny: false, risk: nil
+        )
+        testRequests[requestId] = pairingId
+        send(test, kind: .request, expiresAt: Date().addingTimeInterval(Self.testLifetime), to: [pairingId])
+        Log.write("phone: test notification sent")
+        return true
+    }
+
+    /// How long the relay keeps a test notification for the phone.
+    static let testLifetime: TimeInterval = 10 * 60
+
+    /// An answer to a test notification: accepted, and the notification is cleared.
+    private func applyTest(_ answer: LinkAnswer, from pairingId: String) -> LinkResult? {
+        guard testRequests[answer.requestId] == pairingId else { return nil }
+        if answer.choice == .viewing || answer.choice == .left {
+            return LinkResult(requestId: answer.requestId, accepted: true, message: "")
+        }
+        testRequests[answer.requestId] = nil
+        resolve(answer.requestId, pairingIds: [pairingId], outcome: .answered, answering: pairingId)
+        return LinkResult(requestId: answer.requestId, accepted: true, message: "Notifications work.")
     }
 
     private func resolve(_ requestId: String, pairingIds: Set<String>, outcome: LinkOutcome, answering: String?) {

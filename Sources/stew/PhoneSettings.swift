@@ -23,6 +23,7 @@ struct PhoneSettingsTab: View {
 
     private static let modes: [(String, PhonePushMode)] = [("When I'm away", .away), ("Always", .always), ("Never", .never)]
     private static let viewingCaps: [(String, Double)] = [("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800), ("1 hour", 3600)]
+    private static let awayAfters: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300), ("10 minutes", 600), ("15 minutes", 900)]
     private static let waits: [(String, Double)] = [("Instantly", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
     private static let pairHint = "Requests that stay open while you are away arrive as notifications you can answer. Everything is end-to-end encrypted; the relay cannot read requests or answers."
 
@@ -63,7 +64,11 @@ struct PhoneSettingsTab: View {
                             }
                         } else {
                             ForEach(link.paired) { pairing in
-                                PairedPhoneRow(pairing: pairing, status: link.statuses[pairing.pairingId]) { unpairing = pairing }
+                                PairedPhoneRow(
+                                    pairing: pairing, status: link.statuses[pairing.pairingId],
+                                    onTest: { link.sendTest(to: pairing.pairingId) },
+                                    onUnpair: { unpairing = pairing }
+                                )
                             }
                             if !pairingInProgress {
                                 SettingRow(hint: Self.pairHint) { pairButton }
@@ -72,12 +77,22 @@ struct PhoneSettingsTab: View {
                     }
                 }
                 Section("Sending") {
-                    SettingRow(hint: "Away means no keyboard or mouse input for \(Self.minutes(model.config.phone.idleAfter)), or a locked screen. Someone at the Mac answers in the panel.") {
+                    SettingRow(hint: "Someone at the Mac answers in the panel, so When I'm away sends only while nobody is.") {
                         Picker("Send requests", selection: Binding(
                             get: { model.config.phone.mode },
                             set: { value in model.update { $0.phone.push = value.rawValue } }
                         )) {
                             ForEach(Self.modes, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    if model.config.phone.mode == .away {
+                        SettingRow(hint: "You count as away after this long without keyboard or mouse input, or at once when the screen locks.") {
+                            Picker("Away after", selection: Binding(
+                                get: { model.config.phone.idleAfter },
+                                set: { value in model.update { $0.phone.idleAfter = value } }
+                            )) {
+                                ForEach(Self.awayAfters, id: \.1) { Text($0.0).tag($0.1) }
+                            }
                         }
                     }
                     SettingRow(hint: "A request goes to your iPhone only after it has been open this long. The time to answer still applies there.") {
@@ -122,17 +137,16 @@ struct PhoneSettingsTab: View {
         }
         .buttonStyle(.borderedProminent)
     }
-
-    static func minutes(_ seconds: Double) -> String {
-        let minutes = Int((seconds / 60).rounded())
-        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
-    }
 }
 
 struct PairedPhoneRow: View {
     let pairing: MacPairing
     let status: RelayConnection.Status?
+    /// Sends a test notification; false when it could not go.
+    let onTest: () -> Bool
     let onUnpair: () -> Void
+    /// Set for a few seconds after Send test, so the button says what happened.
+    @State private var testSent = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -150,9 +164,21 @@ struct PairedPhoneRow: View {
             }
             Spacer()
             connection
+            Button(testSent ? "Sent" : "Send test") {
+                guard onTest() else { return }
+                testSent = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { testSent = false }
+            }
+            .disabled(!isConnected || testSent)
+            .help(isConnected ? "Send a test notification to this iPhone" : "The relay is not connected")
             Button("Unpair", role: .destructive, action: onUnpair)
         }
         .padding(.vertical, 2)
+    }
+
+    private var isConnected: Bool {
+        if case .connected = status { return true }
+        return false
     }
 
     @ViewBuilder
