@@ -368,6 +368,8 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         var text: String { String(decoding: body, as: UTF8.self) }
         /// The relay's error code; act on this, not on the status.
         var errorCode: String? { RelayErrorCode.read(body) }
+        /// The relay refused for want of a plan.
+        var planRequired: RelayPlanRequired? { RelayPlanRequired.read(body) }
         /// No response, or a proxy's page in place of the relay's: the post may or may not
         /// have reached the relay.
         var noRelayReply: Bool { RelayErrorCode.noRelayReply(status: status, body: body) }
@@ -430,6 +432,10 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
             }
             if !result.ok {
                 Log.write("phone: relay refused \(envelope.kind.rawValue) for \(envelope.requestId): \(result.status) \(result.text)")
+            }
+            // Only the user can change the plan, so the link stops until they do.
+            if let self, !self.stopped, let plan = result.planRequired {
+                self.end(.planRequired(plan))
             }
             completion?(result)
         }

@@ -56,7 +56,11 @@ struct PhoneSettingsTab: View {
                             Notice(.success, "Paired with \(justPaired). Requests can now go to it.")
                         }
                         if let error = link.pairingError {
-                            Notice(.error, error)
+                            if let plan = link.pairingPlan {
+                                Notice(.error, error, action: ("See plans", { NSWorkspace.shared.open(plan.upgradeURL) }))
+                            } else {
+                                Notice(.error, error)
+                            }
                         }
                         if link.paired.isEmpty {
                             EmptyState(symbol: "iphone", title: "No iPhone paired yet", message: Self.pairHint) {
@@ -164,13 +168,18 @@ struct PairedPhoneRow: View {
             }
             Spacer()
             connection
-            Button(testSent ? "Sent" : "Send test") {
-                guard onTest() else { return }
-                testSent = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { testSent = false }
+            if let plan = neededPlan {
+                Button("See plans") { NSWorkspace.shared.open(plan.upgradeURL) }
+                    .help("Open \(plan.upgradeURL.absoluteString)")
+            } else {
+                Button(testSent ? "Sent" : "Send test") {
+                    guard onTest() else { return }
+                    testSent = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { testSent = false }
+                }
+                .disabled(!isConnected || testSent)
+                .help(isConnected ? "Send a test notification to this iPhone" : "The relay is not connected")
             }
-            .disabled(!isConnected || testSent)
-            .help(isConnected ? "Send a test notification to this iPhone" : "The relay is not connected")
             Button("Unpair", role: .destructive, action: onUnpair)
         }
         .padding(.vertical, 2)
@@ -181,6 +190,11 @@ struct PairedPhoneRow: View {
         return false
     }
 
+    private var neededPlan: RelayPlanRequired? {
+        if case .stopped(.planRequired(let plan)) = status { return plan }
+        return nil
+    }
+
     @ViewBuilder
     private var connection: some View {
         switch status {
@@ -188,6 +202,7 @@ struct PairedPhoneRow: View {
         case .failed: StatusPill(text: "Relay unreachable", tone: Tone.orange.color).help("stew keeps retrying.")
         case .refused: StatusPill(text: "Relay refused this Mac", tone: Tone.orange.color).help("Check that this Mac's clock is right. stew keeps retrying.")
         case .stopped(.unsupportedProtocol): StatusPill(text: "Update stew", tone: Tone.orange.color).help("The relay needs a newer stew.")
+        case .stopped(.planRequired(let plan)): StatusPill(text: "Plan needed", tone: Tone.orange.color).help("\(plan.message) stew tries again on its next start.")
         case .stopped: StatusPill(text: "Pairing gone", tone: Tone.orange.color).help("The relay no longer knows this pairing. Unpair, then pair again.")
         case .connecting, nil: StatusPill(text: "Connecting…", tone: Ink.secondary)
         }

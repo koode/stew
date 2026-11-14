@@ -83,6 +83,8 @@ public enum RelayErrorCode {
     /// The Mac did not return a result to an answer within `answerTimeoutSeconds`.
     public static let macTimeout = "mac_timeout"
     public static let rateLimited = "rate_limited"
+    /// The pairing has no plan for what was asked; see `RelayPlanRequired`.
+    public static let planRequired = "plan_required"
 
     private struct Body: Decodable {
         let error: String
@@ -101,6 +103,58 @@ public enum RelayErrorCode {
     }
 }
 
+/// A `plan_required` refusal: the pairing has no plan for what was asked. A client shows
+/// `message` with an action that opens `upgradeURL`, keeps the pairing, and does not retry
+/// by itself, since only the user can change the plan. It is never read as offline.
+public struct RelayPlanRequired: Equatable, Sendable {
+    /// The status of the refusal. Over HTTP clients go by the error code; only a refused
+    /// socket upgrade, whose body a WebSocket client cannot read, goes by this status.
+    public static let status = 402
+    /// Opened in place of an upgrade URL that is missing or not allowed.
+    public static let fallbackURL = URL(string: "https://stewcli.com/")!
+    /// Shown when the relay sent no message, as on a refused socket upgrade.
+    public static let fallbackMessage = "This needs a stew plan."
+    /// The only host, with its subdomains, an upgrade URL may point at.
+    public static let allowedHost = "stewcli.com"
+
+    public var message: String
+    public var upgradeURL: URL
+
+    public init(message: String?, upgradeURL: String?) {
+        let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.message = trimmed.isEmpty ? Self.fallbackMessage : trimmed
+        self.upgradeURL = Self.allowedURL(upgradeURL) ?? Self.fallbackURL
+    }
+
+    /// The refusal of a socket upgrade with status 402, which carries no readable body.
+    public static let socketRefusal = RelayPlanRequired(message: nil, upgradeURL: nil)
+
+    private struct Body: Decodable {
+        let error: String
+        let message: String?
+        let upgradeUrl: String?
+    }
+
+    /// The refusal in a relay error body, or nil when its code is not `plan_required`.
+    public static func read(_ body: Data) -> RelayPlanRequired? {
+        guard let decoded = try? JSONDecoder().decode(Body.self, from: body), decoded.error == RelayErrorCode.planRequired else { return nil }
+        return RelayPlanRequired(message: decoded.message, upgradeURL: decoded.upgradeUrl)
+    }
+
+    /// The URL when it is https on stewcli.com or one of its subdomains, without a user or
+    /// password and on the default port; nil otherwise. Anything else could send the user
+    /// to a page the relay's operator chose, so it is never opened.
+    public static func allowedURL(_ text: String?) -> URL? {
+        guard let text, let components = URLComponents(string: text),
+              components.scheme?.lowercased() == "https",
+              components.user == nil, components.password == nil,
+              components.port == nil || components.port == 443,
+              let host = components.host?.lowercased(),
+              host == allowedHost || host.hasSuffix("." + allowedHost) else { return nil }
+        return components.url
+    }
+}
+
 /// What a phone's answer got back when it was not the Mac's result, read by error code.
 public enum RelayAnswerRefusal: Equatable, Sendable {
     /// `mac_offline`: nothing was recorded, so the very same answer may go again.
@@ -110,6 +164,8 @@ public enum RelayAnswerRefusal: Equatable, Sendable {
     case macTimeout
     /// `rate_limited`: wait the seconds of Retry-After.
     case rateLimited
+    /// `plan_required`: show the message and the upgrade action; do not send it again.
+    case planRequired(RelayPlanRequired)
     /// No answer from the relay itself (see `RelayErrorCode.noRelayReply`): treat it like a
     /// dropped connection.
     case noRelayReply
@@ -122,6 +178,7 @@ public enum RelayAnswerRefusal: Equatable, Sendable {
         case RelayErrorCode.macTimeout: return .macTimeout
         case RelayErrorCode.macOffline: return .macOffline
         case RelayErrorCode.rateLimited: return .rateLimited
+        case RelayErrorCode.planRequired: return .planRequired(RelayPlanRequired.read(body) ?? RelayPlanRequired(message: nil, upgradeURL: nil))
         case let code?: return .other(code: code)
         case nil:
             // Cloudflare's page in place of the 504 mac_timeout of a v2 relay from before the
@@ -283,6 +340,9 @@ public enum RelayStop: Equatable, Sendable {
     case unknownPairing
     /// 4026 or HTTP 426: the relay needs a newer stew.
     case unsupportedProtocol
+    /// HTTP 402 on the upgrade, or `plan_required` on a post: the pairing needs a plan. The
+    /// pairing is kept, and the link waits for the user.
+    case planRequired(RelayPlanRequired)
 }
 
 /// What a client does after its socket closed or the upgrade was refused, per the close
@@ -323,6 +383,7 @@ public enum RelayReconnect: Equatable, Sendable {
     public static func afterRefusal(status: Int, retryAfter: String?) -> RelayReconnect {
         switch status {
         case 401: .authFailed
+        case RelayPlanRequired.status: .stop(.planRequired(.socketRefusal))
         case 404: .stop(.unknownPairing)
         case 426: .stop(.unsupportedProtocol)
         case 429: .after(retryAfter.flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) } ?? defaultRateLimitWait)

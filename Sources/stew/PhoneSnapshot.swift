@@ -12,6 +12,7 @@ enum PhoneSnapshot {
         var statuses: [String: RelayConnection.Status] = [:]
         var code: PairingCode?
         var error: String?
+        var plan: RelayPlanRequired?
         var sample = PhonePaneSample()
     }
 
@@ -35,6 +36,7 @@ enum PhoneSnapshot {
             state: .waiting, createdAt: Date().addingTimeInterval(-139)
         )
         let connected: [String: RelayConnection.Status] = ["samplepaired": .connected, "samplesecond": .failed("offline")]
+        let samplePlan = RelayPlanRequired(message: "A second iPhone needs a stew plan.", upgradeURL: "https://stewcli.com/plans")
         let scenarios = [
             Scenario(name: "empty"),
             Scenario(name: "pairing", pairings: [waiting], code: code),
@@ -42,10 +44,12 @@ enum PhoneSnapshot {
             Scenario(name: "mismatch", pairings: [confirming], sample: PhonePaneSample(digits: "418207", mismatch: true)),
             Scenario(name: "error", error: "Cannot reach the relay at \(PhoneConfig.defaultRelay)."),
             Scenario(name: "paired", pairings: [paired, second], statuses: connected, sample: PhonePaneSample(justPaired: "Work iPhone")),
+            Scenario(name: "plan", pairings: [paired, second], statuses: ["samplepaired": .connected, "samplesecond": .stopped(.planRequired(samplePlan))]),
+            Scenario(name: "plan-pairing", plan: samplePlan),
         ]
         let link = PhoneLink.shared
         for scenario in scenarios {
-            link.showSample(pairings: scenario.pairings, statuses: scenario.statuses, code: scenario.code, error: scenario.error, store: store)
+            link.showSample(pairings: scenario.pairings, statuses: scenario.statuses, code: scenario.code, error: scenario.error, plan: scenario.plan, store: store)
             for dark in [false, true] {
                 let model = SettingsModel()
                 model.load()

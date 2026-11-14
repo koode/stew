@@ -229,10 +229,13 @@ struct Notice: View {
 
     let tone: Tone
     let text: String
+    /// A button after the text: its label and what it does.
+    let action: (label: String, perform: () -> Void)?
 
-    init(_ tone: Tone, _ text: String) {
+    init(_ tone: Tone, _ text: String, action: (label: String, perform: () -> Void)? = nil) {
         self.tone = tone
         self.text = text
+        self.action = action
     }
 
     var body: some View {
@@ -245,6 +248,10 @@ struct Notice: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
+            if let action {
+                Button(action.label, action: action.perform)
+                    .controlSize(.small)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)

@@ -15,6 +15,9 @@ final class PhoneLink: ObservableObject {
     /// The code on screen while a pairing waits for a phone.
     @Published private(set) var pairingCode: PairingCode?
     @Published private(set) var pairingError: String?
+    /// Set when the relay refused the claim for want of a plan; `pairingError` then holds
+    /// the relay's message.
+    @Published private(set) var pairingPlan: RelayPlanRequired?
 
     private struct Pushed {
         var pairingIds: Set<String>
@@ -85,12 +88,16 @@ final class PhoneLink: ObservableObject {
     }
 
     /// Sample state for `stew snapshot`, which never starts the link.
-    func showSample(pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, error: String? = nil, store: PhoneStore) {
+    func showSample(
+        pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, error: String? = nil, plan: RelayPlanRequired? = nil,
+        store: PhoneStore
+    ) {
         self.store = store
         self.pairings = pairings
         self.statuses = statuses
         pairingCode = code
-        pairingError = error
+        pairingError = plan?.message ?? error
+        pairingPlan = plan
     }
 
     func verificationCode(for pairing: MacPairing) -> String? {
@@ -134,6 +141,7 @@ final class PhoneLink: ObservableObject {
         guard let store, let coordinator else { return }
         cancelPairing()
         pairingError = nil
+        pairingPlan = nil
         let relay = coordinator.config.phone.relay
         let code = PairingCode.generate(relay: relay, macName: macName, macKeys: store.identity.publicKeys)
         let identity = store.identity
@@ -150,6 +158,12 @@ final class PhoneLink: ObservableObject {
             connection.stop()
             guard let self else { return }
             guard result.ok else {
+                if let plan = result.planRequired {
+                    Log.write("phone: the relay at \(relay) needs a plan to pair: \(plan.message) (\(plan.upgradeURL.absoluteString))")
+                    self.pairingError = plan.message
+                    self.pairingPlan = plan
+                    return
+                }
                 switch result.status {
                 case 0: self.pairingError = "Cannot reach the relay at \(relay)."
                 case 426: self.pairingError = "The relay at \(relay) needs a newer stew. Update stew, then pair again."
@@ -210,6 +224,10 @@ final class PhoneLink: ObservableObject {
         case .unknownPairing, .unsupportedProtocol:
             // Kept, with the reason in its status, so the user decides: pair again or update.
             Log.write("phone: the relay stopped pairing \(pairingId): \(reason)")
+        case .planRequired(let plan):
+            // Kept, with the plan in its status: the user picks a plan, then stew connects
+            // again on its next start.
+            Log.write("phone: the relay needs a plan for pairing \(pairingId): \(plan.message) (\(plan.upgradeURL.absoluteString))")
         }
     }
 

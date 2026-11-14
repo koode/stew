@@ -137,6 +137,11 @@ struct RelayProtocolTests {
         #expect(RelayReconnect.afterRefusal(status: 404, retryAfter: nil) == .stop(.unknownPairing))
         #expect(RelayReconnect.afterRefusal(status: 426, retryAfter: nil) == .stop(.unsupportedProtocol))
         #expect(RelayReconnect.afterRefusal(status: 429, retryAfter: "7") == .after(7))
+        // A WebSocket client cannot read the body of a refused upgrade, so 402 alone means
+        // plan_required, with the fallback message and URL.
+        #expect(RelayReconnect.afterRefusal(status: 402, retryAfter: nil) == .stop(.planRequired(.socketRefusal)))
+        #expect(RelayPlanRequired.socketRefusal.upgradeURL == RelayPlanRequired.fallbackURL)
+        #expect(RelayPlanRequired.socketRefusal.message == RelayPlanRequired.fallbackMessage)
         #expect(RelayReconnect.afterRefusal(status: 500, retryAfter: nil) == .backoff)
     }
 
@@ -166,6 +171,50 @@ struct RelayProtocolTests {
         #expect(RelayAnswerRefusal.read(status: 503, body: Data()) == .noRelayReply)
         #expect(RelayAnswerRefusal.read(status: 502, body: page) == .noRelayReply)
         #expect(RelayAnswerRefusal.read(status: 429, body: Data()) == .other(code: nil))
+    }
+
+    @Test func planRequiredIsReadByCodeWithItsMessageAndURL() throws {
+        let body = Data(#"{"error":"plan_required","message":"Pushes to your iPhone need a stew plan.","upgradeUrl":"https://stewcli.com/plans"}"#.utf8)
+        let plan = try #require(RelayPlanRequired.read(body))
+        #expect(plan.message == "Pushes to your iPhone need a stew plan.")
+        #expect(plan.upgradeURL.absoluteString == "https://stewcli.com/plans")
+        #expect(RelayAnswerRefusal.read(status: 402, body: body) == .planRequired(plan))
+        // The code decides, not the status.
+        #expect(RelayAnswerRefusal.read(status: 400, body: body) == .planRequired(plan))
+        #expect(RelayPlanRequired.read(Data(#"{"error":"mac_offline"}"#.utf8)) == nil)
+        #expect(RelayPlanRequired.read(Data("<html>402</html>".utf8)) == nil)
+        #expect(RelayAnswerRefusal.read(status: 402, body: Data()) == .other(code: nil))
+    }
+
+    @Test func aPlanRefusalWithoutDetailsFallsBack() throws {
+        let plan = try #require(RelayPlanRequired.read(Data(#"{"error":"plan_required","message":"  "}"#.utf8)))
+        #expect(plan.message == RelayPlanRequired.fallbackMessage)
+        #expect(plan.upgradeURL == RelayPlanRequired.fallbackURL)
+    }
+
+    @Test func onlyHttpsURLsOnStewcliComAreOpened() {
+        #expect(RelayPlanRequired.allowedURL("https://stewcli.com/plans?from=relay")?.absoluteString == "https://stewcli.com/plans?from=relay")
+        #expect(RelayPlanRequired.allowedURL("https://www.stewcli.com/plans") != nil)
+        #expect(RelayPlanRequired.allowedURL("HTTPS://STEWCLI.COM/") != nil)
+        #expect(RelayPlanRequired.allowedURL("https://stewcli.com:443/") != nil)
+        let refused = [
+            "http://stewcli.com/plans",
+            "https://evil.example/plans",
+            "https://stewcli.com.evil.example/",
+            "https://evilstewcli.com/",
+            "https://stewcli.com@evil.example/",
+            "https://user:pass@stewcli.com/",
+            "https://stewcli.com:8443/",
+            "stewcli://open",
+            "javascript:alert(1)",
+            "/plans",
+            "",
+        ]
+        for text in refused {
+            #expect(RelayPlanRequired.allowedURL(text) == nil, "\(text) must not be opened")
+            #expect(RelayPlanRequired(message: "x", upgradeURL: text).upgradeURL == RelayPlanRequired.fallbackURL)
+        }
+        #expect(RelayPlanRequired.allowedURL(nil) == nil)
     }
 
     @Test func claimBodiesDifferByVersion() throws {

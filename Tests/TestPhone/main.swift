@@ -330,6 +330,7 @@ func answer(_ values: [String: String]) throws {
         case .macOffline: RelayErrorCode.macOffline
         case .macTimeout: RelayErrorCode.macTimeout
         case .rateLimited: RelayErrorCode.rateLimited
+        case .planRequired: RelayErrorCode.planRequired
         case .noRelayReply: "no_relay_reply"
         case .other(let code): code ?? "unknown"
         }
