@@ -219,6 +219,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var historyDays: Int
     /// The stew item in the menu bar. Off, it still shows while a needs item is open.
     public var menuBar: Bool
+    /// The hour, 0 to 23 local time, that Pause stew ▸ Until 08:00 ends at, today while it is still ahead, else tomorrow.
+    public var pauseMorningHour: Int
     public var classifier: ClassifierConfig
     /// When open requests go to paired iPhones.
     public var phone: PhoneConfig
@@ -301,6 +303,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = true
         historyDays = History.defaultKeepDays
         menuBar = true
+        pauseMorningHour = PauseChoice.defaultMorningHour
         classifier = ClassifierConfig()
         phone = PhoneConfig()
     }
@@ -325,6 +328,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate
         historyDays = try container.decodeIfPresent(Int.self, forKey: .historyDays) ?? defaults.historyDays
         menuBar = try container.decodeIfPresent(Bool.self, forKey: .menuBar) ?? defaults.menuBar
+        let morningHour = try container.decodeIfPresent(Int.self, forKey: .pauseMorningHour) ?? defaults.pauseMorningHour
+        pauseMorningHour = (0...23).contains(morningHour) ? morningHour : defaults.pauseMorningHour
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
     }

@@ -4,12 +4,12 @@ import StewCore
 
 /// The pause as the settings window shows it.
 final class PauseModel: ObservableObject {
-    @Published var until: Date?
-    var onPause: () -> Void = {}
+    @Published var display: PauseDisplay?
+    var onPause: (PauseChoice) -> Void = { _ in }
     var onResume: () -> Void = {}
 
-    init(until: Date? = nil) {
-        self.until = until
+    init(display: PauseDisplay? = nil) {
+        self.display = display
     }
 }
 
@@ -17,16 +17,21 @@ final class PauseModel: ObservableObject {
 /// opens the popover with the open needs items and the recent requests; a right-click or
 /// control-click opens the menu for the open needs items, History, Settings, the pause
 /// and a waiting update.
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var state = MenuBarState()
+    /// The right-click menu. It is the status item's menu only while it is open, so a
+    /// left click reaches the popover.
+    private let menu = NSMenu()
+    /// Counts down "Pausing in 0:45…" while the menu is open.
+    private var countdown: Timer?
     let popover = MenuBarPopoverController()
     /// The history for the popover, read when it opens.
     var historyEntries: () -> [HistoryEntry] = { [] }
     var onOpenNeeds: (String) -> Void = { _ in }
     var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
-    var onPause: () -> Void = {}
+    var onPause: (PauseChoice) -> Void = { _ in }
     var onResume: () -> Void = {}
     var onUpdate: () -> Void = {}
     var onHide: () -> Void = {}
@@ -51,6 +56,9 @@ final class MenuBarController: NSObject {
             button.action = #selector(clicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        menu.autoenablesItems = false
+        menu.delegate = self
+        fill(menu, with: state.entries(timeText: Coordinator.clockText))
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -66,15 +74,14 @@ final class MenuBarController: NSObject {
     /// The menu opens the way a status item's own menu does, under the item.
     private func showMenu() {
         guard let statusItem else { return }
-        statusItem.menu = menu(for: state)
+        statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
     }
 
-    private func menu(for state: MenuBarState) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for entry in state.entries(timeText: Coordinator.clockText) {
+    private func fill(_ menu: NSMenu, with entries: [MenuEntry]) {
+        menu.removeAllItems()
+        for entry in entries {
             if entry.isSeparator {
                 menu.addItem(.separator())
                 continue
@@ -82,12 +89,50 @@ final class MenuBarController: NSObject {
             let item = NSMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = MenuAction(entry.action)
-            item.isEnabled = entry.action != .none
+            item.isEnabled = entry.isEnabled
             item.toolTip = entry.toolTip
             if let badge = entry.badge { item.badge = NSMenuItemBadge(count: badge) }
+            if entry.hasSubmenu {
+                let submenu = NSMenu()
+                submenu.autoenablesItems = false
+                fill(submenu, with: entry.submenu)
+                item.submenu = submenu
+            }
             menu.addItem(item)
         }
-        return menu
+    }
+
+    /// Titles that depend on the time, such as "Until 08:00" and the countdown, are
+    /// current each time the menu opens.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        fill(menu, with: state.entries(timeText: Coordinator.clockText))
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === self.menu, case .startsAt = state.pause else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self, weak menu] _ in
+            guard let self, let menu else { return }
+            self.refreshTitles(of: menu)
+        }
+        // Common modes, so it also fires while the menu tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        countdown = timer
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        countdown?.invalidate()
+        countdown = nil
+    }
+
+    /// Updates the titles of the open menu in place, so it stays open.
+    private func refreshTitles(of menu: NSMenu) {
+        let entries = state.entries(timeText: Coordinator.clockText)
+        guard entries.count == menu.items.count else { return }
+        for (entry, item) in zip(entries, menu.items) where !entry.isSeparator && item.title != entry.title {
+            item.title = entry.title
+        }
     }
 
     @objc private func choose(_ sender: NSMenuItem) {
@@ -97,7 +142,7 @@ final class MenuBarController: NSObject {
         case .openNeeds(let id): onOpenNeeds(id)
         case .history: onHistory()
         case .settings: onSettings()
-        case .pause: onPause()
+        case .pause(let choice): onPause(choice)
         case .resume: onResume()
         case .update: onUpdate()
         case .hide: onHide()
@@ -149,7 +194,13 @@ enum StatusIcon {
     /// The tooltip and the words for VoiceOver.
     static func description(of state: MenuBarState) -> String {
         var parts = ["stew"]
-        if let until = state.pausedUntil { parts.append("paused until \(Coordinator.clockText(until))") }
+        switch state.pause {
+        case .until(let date): parts.append("paused until \(Coordinator.clockText(date))")
+        case .untilBack: parts.append("paused until you're back")
+        // The tooltip is not redrawn each second, so it gives no countdown.
+        case .startsAt: parts.append("pausing soon")
+        case nil: break
+        }
         if !state.openNeeds.isEmpty { parts.append(NeedsBook.countText(state.openNeeds.count)) }
         if state.missedCount > 0 { parts.append(state.missedCount == 1 ? "1 missed request" : "\(state.missedCount) missed requests") }
         if state.update != nil { parts.append("an update is waiting") }
@@ -279,30 +330,55 @@ enum StatusIcon {
 /// The menu as SwiftUI, for `stew snapshot`: an NSMenu cannot be drawn offscreen. It
 /// follows the system menu's metrics and is built from the same entries.
 struct MenuPreview: View {
-    let state: MenuBarState
+    let entries: [MenuEntry]
+
+    init(state: MenuBarState) {
+        entries = state.entries(timeText: Coordinator.clockText)
+    }
+
+    /// A submenu on its own.
+    init(entries: [MenuEntry]) {
+        self.entries = entries
+    }
+
+    static let rowHeight: CGFloat = 22
+    static let separatorHeight: CGFloat = 11
+    static let verticalPadding: CGFloat = 5
+
+    /// Where the row of `entry` starts, from the top of the menu: to draw its submenu
+    /// beside it.
+    static func top(of entry: MenuEntry, in entries: [MenuEntry]) -> CGFloat {
+        let above = entries.prefix { $0 != entry }
+        return verticalPadding + above.reduce(0) { height, row in height + (row.isSeparator ? separatorHeight : rowHeight) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(state.entries(timeText: Coordinator.clockText).enumerated()), id: \.offset) { _, entry in
+            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 if entry.isSeparator {
-                    Divider().padding(.horizontal, 10).padding(.vertical, 5)
+                    Divider().padding(.horizontal, 10).frame(height: Self.separatorHeight)
                 } else {
                     HStack(spacing: 8) {
                         Text(entry.title)
                             .fixedSize()
-                            .foregroundStyle(entry.action == .none ? .secondary : .primary)
+                            .foregroundStyle(entry.isEnabled ? .primary : .secondary)
                         Spacer(minLength: 16)
                         if let badge = entry.badge {
                             Text("\(badge)").monospacedDigit().foregroundStyle(.secondary)
                         }
+                        if entry.hasSubmenu {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .font(.system(size: 13))
                     .padding(.horizontal, 14)
-                    .frame(height: 22)
+                    .frame(height: Self.rowHeight)
                 }
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, Self.verticalPadding)
         .frame(minWidth: 240)
         .fixedSize()
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(nsColor: .windowBackgroundColor)))

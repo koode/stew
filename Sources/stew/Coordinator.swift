@@ -195,6 +195,15 @@ final class Coordinator: ObservableObject {
     /// Missed requests the user has not seen in History yet.
     private(set) var missedCount = 0
     private var pauseCheck: Timer?
+    /// The pause as the menu bar and settings window last showed it.
+    private var shownPause: PauseDisplay?
+    /// When a pause last ended because the user came back, so the away watcher does not
+    /// report the same return again.
+    private var lastReturn: Date?
+    /// The last simulated keyboard or mouse input and screen lock, in the headless test
+    /// daemon.
+    private var testLastInput: Date?
+    private var testScreenLocked = false
     /// Callers of `stew needs --wait`, by item id. The item can leave the panel ("Not
     /// now") while its caller still waits.
     private var needsWaiters: [String: NeedsWaiter] = [:]
@@ -259,13 +268,15 @@ final class Coordinator: ObservableObject {
             connection.send(Data("opened\n".utf8))
             openHistory(missedOnly: control == "history missed")
         case "resume":
-            connection.send(Data((resume() ? "stew resumed\n" : "stew is not paused\n").utf8))
+            let starting = chosenPause?.isPending(now: Date()) ?? false
+            let reply = resume() ? (starting ? "pause canceled" : "stew resumed") : "stew is not paused"
+            connection.send(Data((reply + "\n").utf8))
         case _ where control.hasPrefix("pause "):
-            guard let minutes = try? PauseState.minutes(from: String(control.dropFirst("pause ".count))) else {
-                connection.send(Data("error: pause takes a whole number of minutes from 1 to \(PauseState.maximumMinutes)\n".utf8))
+            guard let choice = PauseChoice(controlArgument: String(control.dropFirst("pause ".count))) else {
+                connection.send(Data("error: pause takes a whole number of minutes from 1 to \(PauseState.maximumMinutes), until HH:MM, or back\n".utf8))
                 return
             }
-            pause(seconds: Double(minutes) * 60)
+            pause(choice)
             connection.send(Data((pauseDescription + "\n").utf8))
         case "update":
             guard let onUpdate else {
@@ -523,7 +534,7 @@ final class Coordinator: ObservableObject {
             }
         case "returned":
             // Simulates the user coming back after `argument` seconds away.
-            userReturned(awaySince: Date().addingTimeInterval(-(Double(argument) ?? 0)))
+            idleUserReturned(awaySince: Date().addingTimeInterval(-(Double(argument) ?? 0)))
         case "announce":
             // The update check found `argument`, which a test daemon never checks for.
             announceAvailable(argument, route: .inPlace)
@@ -545,6 +556,15 @@ final class Coordinator: ObservableObject {
             // A pause of a few seconds, to see it end by itself.
             guard let seconds = Double(argument), seconds > 0 else { return "bad seconds" }
             pause(seconds: seconds)
+        case "input":
+            // Keyboard or mouse input from the user, which a test daemon never has.
+            testLastInput = Date()
+            checkPause()
+        case "screen":
+            // "screen locked" or "screen unlocked", as the system announces it.
+            guard ["locked", "unlocked"].contains(argument) else { return "bad screen state" }
+            testScreenLocked = argument == "locked"
+            screenLockChanged(locked: testScreenLocked)
         case "state":
             break
         default:
@@ -773,6 +793,13 @@ final class Coordinator: ObservableObject {
         return true
     }
 
+    /// The away watcher saw the user come back after two idle minutes. A return that
+    /// already ended a pause until they are back was summed up then.
+    func idleUserReturned(awaySince: Date) {
+        if let lastReturn, lastReturn >= awaySince { return }
+        userReturned(awaySince: awaySince)
+    }
+
     /// The user is back after being away since `awaySince`. One notice for every
     /// request that timed out meanwhile and every open needs item; nothing when there is
     /// neither. Parked needs items come back into the panel, each one only once.
@@ -819,37 +846,67 @@ final class Coordinator: ObservableObject {
         if stateStore.state.historySeenAt == nil {
             stateStore.update { $0.historySeenAt = Date() }
         }
-        if stateStore.state.pause != nil, activePause == nil {
+        if stateStore.state.pause != nil, chosenPause == nil {
             stateStore.update { $0.pause = nil }
         }
         schedulePauseCheck()
-        pauseModel.until = activePause?.until
+        pauseChanged()
         refreshMissed()
-        menuBarChanged()
     }
 
     /// The pause in effect now, if any.
     var activePause: PauseState? {
-        guard let pause = stateStore.state.pause, pause.isActive(now: Date()) else { return nil }
+        guard let pause = chosenPause, pause.isActive(now: Date()) else { return nil }
         return pause
     }
 
-    /// Pauses stew for `seconds` from now. Pausing again moves the end, and keeps when
+    /// The pause in effect, or Until I'm back in the minute before it begins.
+    var chosenPause: PauseState? {
+        guard let pause = stateStore.state.pause, !pause.hasEnded(now: Date()) else { return nil }
+        return pause
+    }
+
+    /// Pauses stew as `choice` says. Pausing again replaces how it ends, and keeps when
     /// the pause began for the summary on Resume.
+    func pause(_ choice: PauseChoice) {
+        let pause = choice.pause(
+            now: Date(), calendar: .current, current: chosenPause, screenLocked: samplePresence().screenLocked, armingDelay: Self.pauseArmingDelay
+        )
+        stateStore.update { $0.pause = pause }
+        if let until = pause.until {
+            Log.write("paused until \(Self.clockText(until))")
+        } else {
+            Log.write("paused until the user is back, from \(Self.clockText(pause.since))")
+        }
+        schedulePauseCheck()
+        pauseChanged()
+    }
+
+    /// Pauses stew for `seconds` from now, for the end-to-end tests of a pause that ends
+    /// by itself.
     func pause(seconds: Double) {
         let now = Date()
-        let since = activePause?.since ?? now
-        stateStore.update { $0.pause = PauseState(since: since, until: now.addingTimeInterval(seconds)) }
+        stateStore.update { $0.pause = PauseState(since: activePause?.since ?? now, until: now.addingTimeInterval(seconds)) }
         Log.write("paused until \(Self.clockText(now.addingTimeInterval(seconds)))")
         schedulePauseCheck()
         pauseChanged()
     }
 
-    /// Ends the pause by the user's hand: needs items that waited come into the panel,
-    /// with the summary of what timed out meanwhile. False when stew was not paused.
+    /// Ends the pause by the user's hand, or because they came back: needs items that
+    /// waited come into the panel, with the summary of what timed out meanwhile. In the
+    /// minute before Until I'm back begins, it only cancels it. False when stew was not
+    /// paused.
     @discardableResult
     func resume() -> Bool {
-        guard let pause = activePause else { return false }
+        guard let pause = chosenPause else { return false }
+        guard pause.isActive(now: Date()) else {
+            pauseCheck?.invalidate()
+            pauseCheck = nil
+            stateStore.update { $0.pause = nil }
+            Log.write("pause canceled")
+            pauseChanged()
+            return true
+        }
         endPause()
         userReturned(awaySince: History.wholeSecond(pause.since))
         return true
@@ -868,33 +925,117 @@ final class Coordinator: ObservableObject {
         pauseChanged()
     }
 
-    /// Checks the wall clock at the end of the pause, and at least every 30 seconds,
-    /// so a Mac that slept through the end still resumes on time.
+    /// Checks the wall clock at the end of the pause, and at least every 30 seconds, so
+    /// a Mac that slept through the end still resumes on time. An armed pause until the
+    /// user is back samples the idle time every few seconds instead.
     private func schedulePauseCheck() {
         pauseCheck?.invalidate()
         pauseCheck = nil
-        guard let pause = activePause else { return }
-        let wait = min(max(0, pause.until.timeIntervalSinceNow), 30)
+        guard let pause = chosenPause else { return }
+        let now = Date()
+        let wait: TimeInterval
+        switch pause.ending {
+        case .afterMinutes, .atTime:
+            wait = min(max(0, (pause.until ?? now).timeIntervalSince(now)), 30)
+        case .whenBack:
+            if let armsAt = pause.armsAt, armsAt > now {
+                wait = min(armsAt.timeIntervalSince(now), 30)
+            } else {
+                wait = Self.returnSampleInterval
+            }
+        }
         pauseCheck = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            if self.activePause == nil { self.endPause() } else { self.schedulePauseCheck() }
+            self?.checkPause()
         }
     }
 
+    /// Ends a pause that ran out, resumes one until the user is back once they are, and
+    /// shows a pause that began.
+    private func checkPause() {
+        guard let pause = stateStore.state.pause else { return }
+        let now = Date()
+        if pause.hasEnded(now: now) {
+            endPause()
+            return
+        }
+        let presence = samplePresence()
+        if pause.userIsBack(now: now, idleSeconds: presence.idleSeconds, screenLocked: presence.screenLocked) {
+            Log.write("the user is back: resuming")
+            resume()
+            lastReturn = Date()
+            return
+        }
+        if pause.display(now: now) != shownPause { pauseChanged() }
+        schedulePauseCheck()
+    }
+
+    /// The screen locked or unlocked. Locking says the user is leaving, so Until I'm
+    /// back begins at once; unlocking after that says they are back.
+    func screenLockChanged(locked: Bool) {
+        guard let pause = chosenPause else { return }
+        let now = Date()
+        if locked {
+            let begun = pause.lockingScreen(at: now)
+            guard begun != pause else { return }
+            stateStore.update { $0.pause = begun }
+            Log.write("screen locked: the pause until the user is back begins now")
+            schedulePauseCheck()
+            pauseChanged()
+        } else if pause.endsOnUnlock(at: now) {
+            Log.write("screen unlocked: resuming")
+            resume()
+            lastReturn = Date()
+        }
+    }
+
+    /// Idle time and screen lock. The headless test daemon has no user, so the `input`
+    /// and `screen` test controls stand in for one.
+    private func samplePresence() -> MacPresence {
+        guard Paths.headless else { return MacPresence.sampled() }
+        return MacPresence(idleSeconds: testLastInput.map { Date().timeIntervalSince($0) } ?? .infinity, screenLocked: testScreenLocked)
+    }
+
+    /// How often an armed pause until the user is back looks for input.
+    private static let returnSampleInterval: TimeInterval = 2
+
+    /// The headless test daemon can shorten the minute before Until I'm back begins
+    /// with STEW_PAUSE_ARMING.
+    static var pauseArmingDelay: TimeInterval {
+        guard Paths.headless, let text = ProcessInfo.processInfo.environment["STEW_PAUSE_ARMING"], let seconds = Double(text) else {
+            return PauseState.armingDelay
+        }
+        return seconds
+    }
+
     private func pauseChanged() {
-        pauseModel.until = activePause?.until
+        shownPause = chosenPause?.display(now: Date())
+        pauseModel.display = shownPause
         menuBarChanged()
     }
 
     /// The reply to `stew pause`.
     var pauseDescription: String {
-        guard let pause = activePause else { return "stew is not paused" }
-        return "stew is paused until \(Self.clockText(pause.until)). Permission requests, questions and inputs time out at once; notifications and needs items still arrive."
+        let effect = "Permission requests, questions and inputs time out at once; notifications and needs items still arrive."
+        let now = Date()
+        switch chosenPause?.display(now: now) {
+        case nil:
+            return "stew is not paused"
+        case .until(let date):
+            return "stew is paused until \(Self.clockText(date)). \(effect)"
+        case .untilBack:
+            return "stew is paused until there is keyboard or mouse input again, or the screen is unlocked. \(effect)"
+        case .startsAt(let date):
+            return "stew pauses in \(PauseDisplay.countdown(to: date, now: now)), then stays paused until there is keyboard or mouse input again, or the screen is unlocked. \(effect)"
+        }
     }
 
-    /// The end of a pause: the time today, else the date and time.
+    /// The end of a pause: the time today, "08:00 tomorrow", else the date and time.
     static func clockText(_ date: Date) -> String {
-        Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : HistoryEntry.timeText(date)
+        PauseState.endText(
+            date, now: Date(), calendar: .current,
+            time: { time in PauseState.timeOfDay(time) },
+            dateAndTime: HistoryEntry.timeText
+        )
     }
 
     /// A request that needs an answer now, while paused: it times out at once and Claude
@@ -902,7 +1043,8 @@ final class Coordinator: ObservableObject {
     /// can still answer it late.
     private func timeOutWhilePaused(_ request: StewRequest, connection: Connection?, pause: PauseState) {
         let item = Item(request: request, connection: connection)
-        let response = StewResponse(status: .timeout, note: request.pausedNote(remainingMinutes: pause.remainingMinutes(now: Date())))
+        let resumes = pause.resumesText(now: Date(), timeText: Self.clockText)
+        let response = StewResponse(status: .timeout, note: request.pausedNote(resumes: resumes))
         record(item, response)
         connection?.send((try? Wire.encode(response)) ?? Data())
         Log.write("paused: a \(request.prompt.kind) from \(request.session.name) timed out at once")
@@ -912,9 +1054,10 @@ final class Coordinator: ObservableObject {
         MenuBarState(
             openNeeds: needsStore.items,
             missedCount: missedCount,
-            pausedUntil: activePause?.until,
+            pause: chosenPause?.display(now: Date()),
             update: updateEntry,
-            showsAlways: config.menuBar
+            showsAlways: config.menuBar,
+            morningHour: config.pauseMorningHour
         )
     }
 

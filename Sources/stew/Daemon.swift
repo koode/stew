@@ -154,7 +154,7 @@ enum Daemon {
             settings.onHistoryShown = { coordinator.historySeen() }
             settings.onPreviewKeys = { owns in coordinator.panelKeysSuspended = owns }
             coordinator.onLateAnswer = { settings.reloadHistory() }
-            coordinator.pauseModel.onPause = { coordinator.pause(seconds: Double(PauseState.defaultMinutes) * 60) }
+            coordinator.pauseModel.onPause = { choice in coordinator.pause(choice) }
             coordinator.pauseModel.onResume = { coordinator.resume() }
             // Only the real daemon has a menu bar item; a headless one answers `menu`.
             let menuBar = MenuBarController()
@@ -186,7 +186,15 @@ enum Daemon {
             popover.onUpdate = menuBar.onUpdate
             popover.onSeen = { coordinator.historySeen() }
             coordinator.onMenuBarChange = { state in menuBar.update(state) }
-            awayWatcher.start { awaySince in coordinator.userReturned(awaySince: awaySince) }
+            awayWatcher.start { awaySince in coordinator.idleUserReturned(awaySince: awaySince) }
+            // Locking the screen counts as leaving and unlocking it as coming back, for
+            // Pause stew ▸ Until I'm back.
+            let distributed = DistributedNotificationCenter.default()
+            for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+                screenLockObservers.append(distributed.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { _ in
+                    coordinator.screenLockChanged(locked: locked)
+                })
+            }
         }
 
         let server = SocketServer(path: Paths.socket)
@@ -288,5 +296,6 @@ enum Daemon {
     private static var updateWatch: AnyCancellable?
     private static var signalSources: [DispatchSourceSignal] = []
     private static let awayWatcher = AwayWatcher()
+    private static var screenLockObservers: [NSObjectProtocol] = []
     private static var historyPruner: Timer?
 }

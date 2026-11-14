@@ -56,15 +56,15 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
     }
 
     @Test func noteTellsClaudeTheUserIsAway() {
-        let note = request(permission).pausedNote(remainingMinutes: 42)
+        let note = request(permission).pausedNote(resumes: "in about 42 min")
         #expect(note == "The user paused stew and is away, so nobody saw this request. Treat it as denied and continue another way, or ask again after stew resumes in about 42 min. If they answer later, stew passes their answer on to you as a late answer, which replaces this timeout.")
-        let questionNote = request(question).pausedNote(remainingMinutes: 5)
+        let questionNote = request(question).pausedNote(resumes: "in about 5 min")
         #expect(questionNote.hasPrefix("The user paused stew and is away, so nobody saw this request. Continue with a safe choice"))
         #expect(questionNote.contains("in about 5 min."))
     }
 
     @Test func noteOffersNoLateAnswerWithoutASession() {
-        let note = request(permission, in: SessionInfo(name: "script")).pausedNote(remainingMinutes: 10)
+        let note = request(permission, in: SessionInfo(name: "script")).pausedNote(resumes: "in about 10 min")
         #expect(!note.contains("late answer"))
     }
 }
@@ -103,7 +103,7 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
     }
 
     @Test func iconShowsPauseAndUpdate() {
-        let state = MenuBarState(pausedUntil: start, update: .ready("0.2.0"))
+        let state = MenuBarState(pause: .until(start), update: .ready("0.2.0"))
         #expect(state.icon == MenuBarIcon(count: 0, updateDot: true, paused: true))
     }
 
@@ -115,11 +115,45 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
     }
 
     @Test func plainMenu() {
-        #expect(titles(MenuBarState()) == ["History…", "Settings…", "-", "Pause stew for 1 hour", "-", "Hide menu bar icon"])
+        #expect(titles(MenuBarState()) == ["History…", "Settings…", "-", "Pause stew", "-", "Hide menu bar icon"])
+    }
+
+    @Test func pauseSubmenuListsTheChoices() throws {
+        var amsterdam = Calendar(identifier: .gregorian)
+        amsterdam.timeZone = try #require(TimeZone(identifier: "Europe/Amsterdam"))
+        // 2026-11-14 14:00 in Amsterdam: the morning hour is tomorrow.
+        let afternoon = Date(timeIntervalSince1970: 1_794_661_200)
+        let entries = MenuBarState(morningHour: 7).entries(now: afternoon, calendar: amsterdam) { date in
+            amsterdam.component(.day, from: date) == 14 ? "today" : "tomorrow"
+        }
+        let pause = try #require(entries.first { $0.title == "Pause stew" })
+        #expect(pause.isEnabled)
+        #expect(pause.action == MenuEntry.Action.none)
+        #expect(pause.submenu.map(\.title) == ["For 1 hour", "For 2 hours", "Until tomorrow", "Until I'm back"])
+        #expect(pause.submenu.map(\.action) == [.pause(.minutes(60)), .pause(.minutes(120)), .pause(.until(hour: 7, minute: 0)), .pause(.untilBack)])
+        #expect(MenuBarState(morningHour: 7).pauseChoices == pause.submenu.compactMap { entry in
+            if case .pause(let choice) = entry.action { return choice } else { return nil }
+        })
+    }
+
+    @Test func untilBackShowsTheCountdownThenThePause() {
+        let starting = MenuBarState(pause: .startsAt(start.addingTimeInterval(45)))
+        let startingTitles = starting.entries(now: start, timeText: { _ in "15:40" }).map { $0.isSeparator ? "-" : $0.title }
+        #expect(startingTitles == ["Pausing in 0:45…", "-", "History…", "Settings…", "-", "Cancel pause", "-", "Hide menu bar icon"])
+        #expect(!starting.icon.paused)
+        let paused = MenuBarState(pause: .untilBack)
+        #expect(titles(paused) == ["Paused until you're back", "-", "History…", "Settings…", "-", "Resume stew", "-", "Hide menu bar icon"])
+        #expect(paused.icon.paused)
+        #expect(paused.entries(timeText: { _ in "" }).first { $0.title == "Resume stew" }?.action == .resume)
+    }
+
+    @Test func describeSpellsOutTheSubmenu() {
+        let line = MenuBarState().describe(now: start, timeText: { _ in "08:00" })
+        #expect(line.contains("| Pause stew ▸ {For 1 hour; For 2 hours; Until 08:00; Until I'm back} |"))
     }
 
     @Test func fullMenu() {
-        let state = MenuBarState(openNeeds: needs, missedCount: 2, pausedUntil: start, update: .ready("0.2.0"))
+        let state = MenuBarState(openNeeds: needs, missedCount: 2, pause: .until(start), update: .ready("0.2.0"))
         #expect(titles(state) == [
             "Paused until 15:40", "-",
             "2 things need you", "release job · Log in to npm", "release job · Plug in the key", "-",

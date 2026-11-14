@@ -227,23 +227,49 @@ struct GeneralSettings: View {
     private static let extensions: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300)]
     private static let delays: [(String, Double)] = [("Off", 0), ("0.25 seconds", 0.25), ("0.5 seconds", 0.5), ("1 second", 1)]
     private static let positions: [(String, String)] = [("Top right", "top-right"), ("Top center", "top-center"), ("Top left", "top-left")]
+    /// 05:00 to 12:00, and an hour set in config.json outside them.
+    private static func morningHours(including chosen: Int) -> [Int] {
+        Array(Set(Array(5...12) + [chosen])).sorted()
+    }
+
+    /// An hour as the clock shows it, in the form of the end of a pause: "08:00".
+    private static func hourText(_ hour: Int) -> String {
+        let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) ?? Date()
+        return PauseState.timeOfDay(date)
+    }
+
     private static let sounds = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"]
 
     var body: some View {
         SettingsPane(tab: .general) {
             SettingsForm {
                 Section("Menu bar") {
-                    SettingRow(hint: "While paused, permission requests, questions and inputs time out at once, and Claude is told you are away. Notifications and needs items still arrive. A pause ends by itself.") {
+                    SettingRow(hint: "While paused, permission requests, questions and inputs time out at once, and Claude is told you are away. Notifications and needs items still arrive. A pause ends at its time, or for Until I'm back, at the first keyboard or mouse input after a minute, or when you unlock the screen.") {
                         LabeledContent("Pause") {
                             HStack(spacing: 8) {
-                                if let until = pause.until {
-                                    StatusPill(text: "Paused until \(Coordinator.clockText(until))", tone: .orange)
-                                    Button("Resume") { pause.onResume() }
+                                if let display = pause.display {
+                                    // Each second, for the countdown before Until I'm back begins.
+                                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                                        StatusPill(text: display.title(now: context.date, timeText: Coordinator.clockText), tone: .orange)
+                                    }
+                                    Button(display.isPaused ? "Resume" : "Cancel") { pause.onResume() }
                                         .buttonStyle(.borderedProminent)
                                 } else {
-                                    Button("Pause for 1 hour") { pause.onPause() }
+                                    TimelineView(.everyMinute) { context in
+                                        Menu("Pause stew") {
+                                            ForEach(PauseChoice.menu(morningHour: model.config.pauseMorningHour), id: \.self) { choice in
+                                                Button(choice.title(now: context.date, calendar: .current, timeText: Coordinator.clockText)) { pause.onPause(choice) }
+                                            }
+                                        }
+                                        .fixedSize()
+                                    }
                                 }
                             }
+                        }
+                    }
+                    SettingRow(hint: "Pause stew ▸ Until \(Self.hourText(model.config.pauseMorningHour)) ends at this hour: today while it is still ahead, else tomorrow.") {
+                        Picker("Pause until morning", selection: binding(\.pauseMorningHour)) {
+                            ForEach(Self.morningHours(including: model.config.pauseMorningHour), id: \.self) { hour in Text(Self.hourText(hour)).tag(hour) }
                         }
                     }
                     SettingRow(hint: "Shows what waits for you, with History, Settings and Pause. When off, it still appears while something needs you, and stew settings or opening Stew.app brings you here.") {

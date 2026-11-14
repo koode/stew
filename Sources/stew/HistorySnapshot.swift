@@ -15,7 +15,9 @@ enum PopoverSnapshot {
             ("menubar-popover", MenuBarState(), seen, false, []),
             ("menubar-popover-missed", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, false, sample.unseen),
             ("menubar-popover-missed-only", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, true, sample.unseen),
-            ("menubar-popover-paused", MenuBarState(missedCount: 2, pausedUntil: Date().addingTimeInterval(42 * 60)), sample.entries, false, sample.unseen),
+            ("menubar-popover-paused", MenuBarState(missedCount: 2, pause: .until(Date().addingTimeInterval(42 * 60))), sample.entries, false, sample.unseen),
+            ("menubar-popover-pausing", MenuBarState(pause: .startsAt(Date().addingTimeInterval(45))), seen, false, []),
+            ("menubar-popover-until-back", MenuBarState(pause: .untilBack), seen, false, []),
             ("menubar-popover-update", MenuBarState(update: .ready("0.2.0")), seen, false, []),
             ("menubar-popover-empty", MenuBarState(), [], false, []),
         ]

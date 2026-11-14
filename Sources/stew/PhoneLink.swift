@@ -680,17 +680,12 @@ final class PhoneLink: ObservableObject {
         }
     }
 
-    /// Idle time from the last keyboard, mouse or trackpad event, and the lock state of
-    /// the login session. The headless test daemon can set STEW_PHONE_PRESENCE instead.
+    /// The Mac's presence. The headless test daemon can set STEW_PHONE_PRESENCE instead.
     static func samplePresence() -> MacPresence {
         if Paths.headless, let forced = ProcessInfo.processInfo.environment["STEW_PHONE_PRESENCE"] {
             return forced == "away" ? MacPresence(idleSeconds: .infinity, screenLocked: true) : MacPresence(idleSeconds: 0, screenLocked: false)
         }
-        let anyInput = CGEventType(rawValue: ~0) ?? .null
-        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        let locked = (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
-        return MacPresence(idleSeconds: idle, screenLocked: locked)
+        return MacPresence.sampled()
     }
 
     /// Pairing from the socket exists only in the headless test daemon. On the real daemon
@@ -719,5 +714,17 @@ final class PhoneLink: ObservableObject {
         default:
             return "unknown phone control"
         }
+    }
+}
+
+extension MacPresence {
+    /// Idle time from the last keyboard, mouse or trackpad event, and the lock state of
+    /// the login session. Reading the idle time needs no Accessibility permission.
+    static func sampled() -> MacPresence {
+        let anyInput = CGEventType(rawValue: ~0) ?? .null
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        let locked = (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
+        return MacPresence(idleSeconds: idle, screenLocked: locked)
     }
 }

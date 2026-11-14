@@ -62,7 +62,7 @@ enum Snapshot {
             model.tab = .claude
         }
         // The Menu bar section while stew is paused.
-        settings("settings-general-paused", in: directory, pause: PauseModel(until: Date().addingTimeInterval(42 * 60))) { _, _, _ in }
+        settings("settings-general-paused", in: directory, pause: PauseModel(display: .until(Date().addingTimeInterval(42 * 60)))) { _, _, _ in }
         // The glass look over a busy backdrop, as over other windows.
         for dark in [false, true] {
             let coordinator = Coordinator()

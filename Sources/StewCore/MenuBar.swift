@@ -1,72 +1,5 @@
 import Foundation
 
-/// stew paused by the user, who is away. Requests that need an answer now time out at
-/// once with a note saying so; notifications and needs items still arrive. A pause
-/// always ends by itself.
-public struct PauseState: Codable, Equatable, Sendable {
-    public var since: Date
-    public var until: Date
-
-    public init(since: Date, until: Date) {
-        self.since = since
-        self.until = until
-    }
-
-    /// The menu bar's "Pause stew for 1 hour", and `stew pause` without a number.
-    public static let defaultMinutes = 60
-    /// Longest pause `stew pause MINUTES` accepts: a day.
-    public static let maximumMinutes = 24 * 60
-
-    public static func starting(at now: Date, minutes: Int) -> PauseState {
-        PauseState(since: now, until: now.addingTimeInterval(Double(minutes) * 60))
-    }
-
-    public func isActive(now: Date) -> Bool { now < until }
-
-    /// Whole minutes left, rounded up, so the last seconds still read "1 min".
-    public func remainingMinutes(now: Date) -> Int {
-        max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
-    }
-
-    /// Permission requests, questions and inputs time out at once while paused, since
-    /// nobody would answer them in time. Notifications and needs items can wait.
-    public static func timesOut(_ prompt: Prompt) -> Bool {
-        switch prompt {
-        case .permission, .question, .input: true
-        case .notify, .needs: false
-        }
-    }
-
-    public struct MinutesError: Error, Equatable, CustomStringConvertible {
-        public let description: String
-    }
-
-    /// The MINUTES of `stew pause [MINUTES]`: a whole number from 1 to a day.
-    public static func minutes(from text: String?) throws -> Int {
-        guard let text else { return defaultMinutes }
-        guard let minutes = Int(text), (1...maximumMinutes).contains(minutes) else {
-            throw MinutesError(description: "pause takes a whole number of minutes from 1 to \(maximumMinutes)")
-        }
-        return minutes
-    }
-}
-
-extension StewRequest {
-    /// What Claude reads about a request that timed out at once because stew is paused.
-    public func pausedNote(remainingMinutes: Int) -> String {
-        let late = LateMailbox.canAnswerLate(self)
-            ? " If they answer later, stew passes their answer on to you as a late answer, which replaces this timeout."
-            : ""
-        let span = "\(remainingMinutes) min"
-        switch prompt {
-        case .permission, .notify, .needs:
-            return "The user paused stew and is away, so nobody saw this request. Treat it as denied and continue another way, or ask again after stew resumes in about \(span).\(late)"
-        case .question, .input:
-            return "The user paused stew and is away, so nobody saw this request. Continue with a safe choice that does not need this answer, or ask again after stew resumes in about \(span).\(late)"
-        }
-    }
-}
-
 /// What the stew menu bar item shows: the icon with its badges, and the menu.
 public struct MenuBarState: Equatable, Sendable {
     public enum Update: Equatable, Sendable {
@@ -84,19 +17,29 @@ public struct MenuBarState: Equatable, Sendable {
     public var openNeeds: [NeedsItem]
     /// Missed requests the user has not seen in History yet.
     public var missedCount: Int
-    /// Set only while a pause is active.
-    public var pausedUntil: Date?
+    /// Set while a pause is active, and in the minute before Until I'm back begins.
+    public var pause: PauseDisplay?
     public var update: Update?
     /// The "Show in menu bar" setting.
     public var showsAlways: Bool
+    /// The hour the morning choice, Until 08:00, ends at.
+    public var morningHour: Int
 
-    public init(openNeeds: [NeedsItem] = [], missedCount: Int = 0, pausedUntil: Date? = nil, update: Update? = nil, showsAlways: Bool = true) {
+    public init(
+        openNeeds: [NeedsItem] = [], missedCount: Int = 0, pause: PauseDisplay? = nil, update: Update? = nil, showsAlways: Bool = true,
+        morningHour: Int = PauseChoice.defaultMorningHour
+    ) {
         self.openNeeds = openNeeds
         self.missedCount = missedCount
-        self.pausedUntil = pausedUntil
+        self.pause = pause
         self.update = update
         self.showsAlways = showsAlways
+        self.morningHour = morningHour
     }
+
+    /// The ways to pause stew, in the order the Pause stew submenu lists them. Each gets
+    /// its title from `PauseChoice.title`, and the daemon starts it with `pause(_:)`.
+    public var pauseChoices: [PauseChoice] { PauseChoice.menu(morningHour: morningHour) }
 
     /// With "Show in menu bar" off, the item still appears while something needs the user.
     public var isVisible: Bool { showsAlways || !openNeeds.isEmpty }
@@ -105,14 +48,15 @@ public struct MenuBarState: Equatable, Sendable {
     public var badgeCount: Int { openNeeds.count + missedCount }
 
     public var icon: MenuBarIcon {
-        MenuBarIcon(count: badgeCount, updateDot: update != nil, paused: pausedUntil != nil)
+        MenuBarIcon(count: badgeCount, updateDot: update != nil, paused: pause?.isPaused ?? false)
     }
 
-    /// The menu, top to bottom. `timeText` formats the end of a pause ("15:40").
-    public func entries(timeText: (Date) -> String) -> [MenuEntry] {
+    /// The menu at `now`, top to bottom. `timeText` formats the end of a pause ("15:40",
+    /// "08:00 tomorrow"), as `PauseState.endText` does.
+    public func entries(now: Date = Date(), calendar: Calendar = .current, timeText: (Date) -> String) -> [MenuEntry] {
         var sections: [[MenuEntry]] = []
-        if let pausedUntil {
-            sections.append([MenuEntry(title: "Paused until \(timeText(pausedUntil))", action: .none)])
+        if let pause {
+            sections.append([MenuEntry(title: pause.title(now: now, timeText: timeText), action: .none)])
         }
         if !openNeeds.isEmpty {
             var needs = [MenuEntry(title: NeedsBook.countText(openNeeds.count), action: .none)]
@@ -123,9 +67,16 @@ public struct MenuBarState: Equatable, Sendable {
             MenuEntry(title: "History…", action: .history, badge: missedCount > 0 ? missedCount : nil),
             MenuEntry(title: "Settings…", action: .settings),
         ])
-        var control = [pausedUntil == nil
-            ? MenuEntry(title: "Pause stew for 1 hour", action: .pause)
-            : MenuEntry(title: "Resume stew", action: .resume)]
+        var control: [MenuEntry]
+        switch pause {
+        case nil:
+            let choices = pauseChoices.map { choice in
+                MenuEntry(title: choice.title(now: now, calendar: calendar, timeText: timeText), action: .pause(choice))
+            }
+            control = [MenuEntry(title: "Pause stew", action: .none, submenu: choices)]
+        case .startsAt: control = [MenuEntry(title: "Cancel pause", action: .resume)]
+        case .until, .untilBack: control = [MenuEntry(title: "Resume stew", action: .resume)]
+        }
         switch update {
         case .ready(let version): control.append(MenuEntry(title: "stew \(version) is ready, restart to update", action: .update))
         case .available(let version): control.append(MenuEntry(title: "stew \(version) is available, install now", action: .update))
@@ -142,12 +93,14 @@ public struct MenuBarState: Equatable, Sendable {
     }
 
     /// The icon's state, then the entries, for the end-to-end tests, on one line split by
-    /// " | ": "-" for a separator, "(…)" around one that does nothing, "[N]" after a badge.
-    public func describe(timeText: (Date) -> String) -> String {
+    /// " | ": "-" for a separator, "(…)" around one that does nothing, "[N]" after a badge,
+    /// and "▸ {a; b}" after one that opens a submenu.
+    public func describe(now: Date = Date(), calendar: Calendar = .current, timeText: (Date) -> String) -> String {
         let icon = self.icon
         let header = "visible=\(isVisible) count=\(icon.count) dot=\(icon.updateDot) paused=\(icon.paused)"
-        let lines = entries(timeText: timeText).map { entry -> String in
+        let lines = entries(now: now, calendar: calendar, timeText: timeText).map { entry -> String in
             if entry.isSeparator { return "-" }
+            if entry.hasSubmenu { return "\(entry.title) ▸ {\(entry.submenu.map(\.title).joined(separator: "; "))}" }
             let title = entry.action == .none ? "(\(entry.title))" : entry.title
             return entry.badge.map { "\(title) [\($0)]" } ?? title
         }
@@ -157,10 +110,11 @@ public struct MenuBarState: Equatable, Sendable {
 
 public struct MenuEntry: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
-        /// A heading or a state line: shown, not clickable.
+        /// A heading, a state line, or the parent of a submenu: does nothing by itself.
         case none
         case openNeeds(String)
-        case history, settings, pause, resume, update, hide
+        case pause(PauseChoice)
+        case history, settings, resume, update, hide
     }
 
     public var title: String
@@ -168,14 +122,22 @@ public struct MenuEntry: Equatable, Sendable {
     /// A count at the trailing edge.
     public var badge: Int?
     public var toolTip: String?
+    /// What the submenu this entry opens lists; empty for an entry without one.
+    public var submenu: [MenuEntry]
     public var isSeparator = false
 
-    public init(title: String, action: Action, badge: Int? = nil, toolTip: String? = nil) {
+    public init(title: String, action: Action, badge: Int? = nil, toolTip: String? = nil, submenu: [MenuEntry] = []) {
         self.title = title
         self.action = action
         self.badge = badge
         self.toolTip = toolTip
+        self.submenu = submenu
     }
+
+    public var hasSubmenu: Bool { !submenu.isEmpty }
+
+    /// Clickable: it does something, or opens a submenu.
+    public var isEnabled: Bool { action != .none || hasSubmenu }
 
     public static let separator: MenuEntry = {
         var entry = MenuEntry(title: "", action: .none)

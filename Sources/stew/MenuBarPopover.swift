@@ -15,7 +15,7 @@ final class MenuBarPopoverModel: ObservableObject {
     var onOpenEntry: (UUID) -> Void = { _ in }
     var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
-    var onPause: () -> Void = {}
+    var onPause: (PauseChoice) -> Void = { _ in }
     var onResume: () -> Void = {}
     var onUpdate: () -> Void = {}
     /// Marks the missed requests seen and returns when they were seen before.
@@ -91,19 +91,22 @@ struct MenuBarPopoverView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(nsImage: StatusIcon.image(for: MenuBarIcon(paused: model.state.pausedUntil != nil)))
+                Image(nsImage: StatusIcon.image(for: MenuBarIcon(paused: model.state.pause?.isPaused ?? false)))
                 VStack(alignment: .leading, spacing: 0) {
                     Text("stew").font(.system(size: 13, weight: .semibold))
-                    if let until = model.state.pausedUntil {
-                        Text("Paused until \(Coordinator.clockText(until))")
-                            .font(.system(size: 11))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                    if let pause = model.state.pause {
+                        // "Pausing in 0:45…" counts down each second.
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(pause.title(now: context.date, timeText: Coordinator.clockText))
+                                .font(.system(size: 11))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 Spacer(minLength: 8)
-                if model.state.pausedUntil != nil {
-                    Button("Resume") { model.onResume() }
+                if let pause = model.state.pause {
+                    Button(pause.isPaused ? "Resume" : "Cancel pause") { model.onResume() }
                         .controlSize(.small)
                 }
             }
@@ -217,8 +220,17 @@ struct MenuBarPopoverView: View {
                 model.onSettings()
             }
             Spacer()
-            if model.state.pausedUntil == nil {
-                Button("Pause for 1 hour") { model.onPause() }
+            if model.state.pause == nil {
+                // The same choices as the menu's Pause stew submenu.
+                Menu("Pause stew") {
+                    ForEach(model.state.pauseChoices, id: \.self) { choice in
+                        Button(choice.title(now: Date(), calendar: .current, timeText: Coordinator.clockText)) {
+                            model.onPause(choice)
+                        }
+                    }
+                }
+                .menuStyle(.button)
+                .fixedSize()
             }
         }
         .controlSize(.small)

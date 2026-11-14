@@ -35,7 +35,9 @@ enum MenuBarSnapshot {
         let menus: [(String, MenuBarState)] = [
             ("menubar-menu", MenuBarState()),
             ("menubar-menu-waiting", MenuBarState(openNeeds: needs, missedCount: 3, update: .ready("0.2.0"))),
-            ("menubar-menu-paused", MenuBarState(openNeeds: Array(needs.prefix(1)), missedCount: 1, pausedUntil: Date().addingTimeInterval(42 * 60), update: .available("0.2.0"))),
+            ("menubar-menu-paused", MenuBarState(openNeeds: Array(needs.prefix(1)), missedCount: 1, pause: .until(Date().addingTimeInterval(42 * 60)), update: .available("0.2.0"))),
+            ("menubar-menu-paused-until-back", MenuBarState(pause: .untilBack)),
+            ("menubar-menu-pausing", MenuBarState(pause: .startsAt(Date().addingTimeInterval(45)))),
             ("menubar-menu-homebrew", MenuBarState(update: .homebrew("0.2.0"))),
             ("menubar-menu-hidden-setting", MenuBarState(openNeeds: Array(needs.prefix(1)), showsAlways: false)),
         ]
@@ -43,6 +45,20 @@ enum MenuBarSnapshot {
             for dark in [false, true] {
                 let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
                 write(AnyView(MenuPreview(state: state)), dark, path)
+                print(path)
+            }
+        }
+        // The Pause stew submenu open beside its entry, as macOS draws it.
+        let entries = MenuBarState().entries(timeText: Coordinator.clockText)
+        if let pauseEntry = entries.first(where: \.hasSubmenu) {
+            let submenuTop = MenuPreview.top(of: pauseEntry, in: entries) - MenuPreview.verticalPadding
+            for dark in [false, true] {
+                let path = "\(directory)/menubar-menu-pause-submenu-\(dark ? "dark" : "light").png"
+                let view = HStack(alignment: .top, spacing: -2) {
+                    MenuPreview(entries: entries)
+                    MenuPreview(entries: pauseEntry.submenu).padding(.top, submenuTop)
+                }
+                write(AnyView(view), dark, path)
                 print(path)
             }
         }
