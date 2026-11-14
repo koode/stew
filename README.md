@@ -10,7 +10,7 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
 - **Nobody waits forever.** You get 1 minute per request by default. If you don't answer, Claude is told you did not respond in time, so it can go another way. ⌘E gives you more time.
-- **In the menu bar.** The stew icon counts what waits for you. A click shows the open needs items and your recent requests; a right-click opens the menu with History, Settings and the pause.
+- **In the menu bar.** The stew icon counts what waits for you. A click shows the open needs items and your recent requests; a right-click opens the menu with History and Settings. Both pause stew while you are away: for an hour or two, until the morning, or until you are back at the Mac.
 
 ## Requirements
 
@@ -286,16 +286,24 @@ Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak
 
 The stew icon in the menu bar is the app icon. A count beside it says what waits for you: open needs items, and missed requests you have not seen in History yet. A blue dot means an update is waiting, and the icon turns grey while stew is paused.
 
-A click opens a popover: the pause (with Resume) and a waiting update at the top, then the open needs items, then your recent requests with All and Missed, and History, Settings and the pause at the bottom. Click a needs item to open it in the panel, or a request to open History with it selected, where you can still answer it late. The popover does not take the keyboard from the app you are in, and a click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
+A click opens a popover: the pause (with Resume, or Cancel pause while Until I'm back counts down) and a waiting update at the top, then the open needs items, then your recent requests with All and Missed, and History, Settings and Pause stew at the bottom. Pause stew offers the same choices as the menu. Click a needs item to open it in the panel, or a request to open History with it selected, where you can still answer it late. The popover does not take the keyboard from the app you are in, and a click anywhere else closes it. Opening it counts as seeing the missed requests in its list.
 
-A right-click or Control-click opens the menu. It lists the open needs items, then History…, Settings…, Pause stew for 1 hour (or Resume stew), an update entry when there is one, and Hide menu bar icon.
+A right-click or Control-click opens the menu. It lists the open needs items, then History…, Settings…, Pause stew (or Resume stew), an update entry when there is one, and Hide menu bar icon.
 
-**Pause** when you step away: permission requests, questions and inputs then time out at once, and Claude is told you paused stew and are away, so it can go another way. They are recorded as missed, so you can still answer them late from History. Notifications still show, and needs items wait in the menu bar until the pause ends. A pause ends by itself; Resume ends it early and shows what timed out meanwhile. Settings → General shows the pause too.
+**Pause** when you step away: permission requests, questions and inputs then time out at once, and Claude is told you paused stew and are away, and when stew resumes, so it can go another way. They are recorded as missed, so you can still answer them late from History. Notifications still show, and needs items wait in the menu bar until the pause ends. Resume ends a pause early and shows what timed out meanwhile. Settings → General shows the pause too.
+
+The Pause stew submenu offers:
+
+- **For 1 hour** and **For 2 hours**.
+- **Until 08:00**: until the next morning hour, today while it is still ahead, else tomorrow (the menu then says "Until 08:00 tomorrow"). Set the hour in Settings → General → Pause until morning, or `"pauseMorningHour": 7`.
+- **Until I'm back**: the menu counts down a minute ("Pausing in 0:45…", with Cancel pause), so moving the mouse right after choosing it does not end it. Then stew stays paused until the first keyboard or mouse input. Locking the screen begins the pause at once, and unlocking it ends the pause. stew reads only how long the Mac has been idle, so it needs no Accessibility permission.
 
 ```bash
-stew pause         # for 1 hour
-stew pause 20      # for 20 minutes (at most 1440)
-stew resume        # end it now
+stew pause                 # for 1 hour
+stew pause 20              # for 20 minutes (at most 1440)
+stew pause --until 08:00   # until the next 08:00 (also 8am, 8:30pm, 20:30)
+stew pause --until-back    # after 1 minute, until the next keyboard or mouse input
+stew resume                # end it now, or cancel Until I'm back before it begins
 ```
 
 Hide the icon with Hide menu bar icon, Settings → General → "Show in menu bar", or `"menuBar": false`. It still shows while a needs item is open, and `stew settings` (or opening Stew.app) brings Settings back.
@@ -379,6 +387,7 @@ The window has six panes, picked from its toolbar:
 - `autoUpdate` installs new versions by itself (see Updates).
 - `historyDays` is how many days of request history to keep.
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
+- `pauseMorningHour` is the hour, 0 to 23, that Pause stew → Until 08:00 ends at (8 by default).
 - `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
 - `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
 
