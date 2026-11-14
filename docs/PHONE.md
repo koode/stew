@@ -89,7 +89,7 @@ This section is the contract between the Mac, the relay and the phone. Swift typ
 ### Encodings
 
 - JSON bodies carry binary fields (keys, ciphertext, signatures) as standard base64 with padding.
-- Query strings carry signatures as base64url without padding.
+- The `authorization` header carries its nonce and signature as base64url without padding.
 - Ids (pairing, request, message) are 1 to 64 characters of `A-Z a-z 0-9 - _`.
 - Times on the wire are Unix seconds.
 
@@ -111,19 +111,22 @@ This section is the contract between the Mac, the relay and the phone. Swift typ
 
 ### Relay
 
-The relay forwards envelopes between the two devices and sends Apple push notifications to the phone. It cannot read or forge them (see Security). It keeps one Durable Object per pairing id, and all its paths start with `/v1/pairings/{pairingId}`:
+The relay forwards envelopes between the two devices and sends Apple push notifications to the phone. It cannot read or forge them (see Security). The relay protocol has a version of its own, separate from the envelope's `v`: stew speaks version 2, and version 1 with a relay from before version 2. Its paths start with `/v2/pairings/{pairingId}`:
 
 | Method and path | Caller | What it does |
 |---|---|---|
+| `GET /v2/info` | anyone | Lists the protocol versions the relay serves, with its limits and timers |
 | `POST /claim` | Mac | Claims a new pairing id with the Mac's signing key and the SHA-256 of a registration token derived from the pairing secret |
 | `POST /device` | phone | Registers the phone's push token and keys with that token (once), later updates the push token with a signed call |
-| `GET /socket` | Mac | The Mac's WebSocket, on which the relay passes on the phone's hello, answers and unpair |
-| `POST /messages` | either | Takes an envelope. A Mac request is stored until it is resolved and pushed to the phone; a phone answer goes to the Mac's socket and waits up to 10 seconds for the Mac's result |
+| `GET /socket` | Mac | The Mac's WebSocket (subprotocol `stew.relay.2`), on which the relay passes on the phone's hello, answers and unpair |
+| `POST /messages` | either | Takes an envelope. A Mac request is stored until it is resolved and pushed to the phone; a phone answer goes to the Mac and waits up to 10 seconds for the Mac's result |
 | `GET /pending` | phone | Returns the open and recently resolved requests |
 
-- Signed calls without an envelope carry a timestamp within 300 seconds of the relay's clock and an Ed25519 signature over a fixed text, such as `stew-link/1 claim\n{id}\n{hash}\n{ts}`. A signed GET is accepted once.
-- The relay checks every envelope's fields, its expiry (at most 7 days ahead), its signature against the sender's stored key and that its message id is new, and limits the rate per pairing and per client address.
-- The relay keeps the hello and a phone's unpair until the Mac acknowledges them on its socket with `{"type":"ack","messageId":…}`, and sends them again each time the Mac connects.
-- A push carries the envelope when it fits in 4 KB; otherwise the notification extension fetches it from `GET /pending`. When a request ends, a closed push replaces its notification without a sound and without actions.
+- Before it claims a pairing id or connects, stew asks `GET /v2/info`. It speaks v2 when the relay lists 2, and v1 only when the relay has no `/v2/info`. A relay that answered v2 once is not talked down to v1.
+- Calls without an envelope carry `authorization: Stew-Ed25519 side=…, ts=…, nonce=…, sig=…`: an Ed25519 signature over the method, path, side, time, a random nonce and the SHA-256 of the body. The relay refuses a time more than 300 seconds off and a nonce it has seen. No credential is ever in a URL.
+- The relay checks every envelope's fields, its expiry (at most 7 days ahead), its signature against the sender's stored key and its message id, and limits the rate per pairing and per client address. The same envelope sent again gets its first outcome back, so a phone that lost the response to an answer sends it again and gets the Mac's result, which the relay keeps.
+- Every frame on the Mac's socket has a `seq`. The Mac acks the highest one it has handled, and on each connect the relay sends every frame above the last ack again, so nothing for the Mac is lost on a dropping socket.
+- The Mac pings every 25 seconds and reconnects when no pong comes within 10. It acts on the relay's close codes: after an unpair it stops and forgets the pairing, after a replaced socket it waits a minute.
+- A push carries the envelope when it fits in 4 KB; otherwise the notification extension fetches it from `GET /pending`. When a request ends, a closed push replaces its notification without a sound and without actions. `resolved` is final: an update that arrives after it changes nothing.
 
-The Mac's side is in `Sources/StewLink` and `Sources/stew/PhoneLink.swift`.
+The Mac's side is in `Sources/StewLink` (the v2 header, frames and close codes in `RelayProtocol.swift`), `Sources/stew/RelayConnection.swift` and `Sources/stew/PhoneLink.swift`.
