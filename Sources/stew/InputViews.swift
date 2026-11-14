@@ -30,11 +30,21 @@ struct InputBody: View {
                         coordinator.setTextMode(true)
                     }
                 }
-                hint(check)
-                    .font(.system(size: 11))
-                    .fixedSize(horizontal: false, vertical: true)
+                if coordinator.showsButtons {
+                    hint(check)
+                        .font(.system(size: 11))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            HStack(spacing: 8) {
+            if coordinator.showsButtons {
+                buttons(check)
+            }
+        }
+    }
+
+    private func buttons(_ check: InputRequest.Check) -> some View {
+        let keymap = coordinator.keymap
+        return HStack(spacing: 8) {
                 if item.request.offersEnterLater, item.lateEntryID == nil {
                     ActionButton(title: "I'll enter it later", shortcut: keymap[.enterLater]) { coordinator.perform(.enterLater) }
                 }
@@ -46,7 +56,6 @@ struct InputBody: View {
                     .disabled(!check.isValid)
                     .opacity(check.isValid ? 1 : 0.45)
                     .help(check.isValid ? "Send this answer to Claude" : "Type an answer in the expected format first")
-            }
         }
     }
 

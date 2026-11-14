@@ -20,18 +20,37 @@ enum Snapshot {
             }
         }
         // Every pane, with sample approvals and history so their tables show.
+        let historySample = HistorySample.make()
         for tab in SettingsTab.order where tab != .phone {
-            settings("settings-\(tab.rawValue)", in: directory) { model, approvals, history in
+            let width = tab == .history ? SettingsWindowController.historyWidth : settingsSize.width
+            settings("settings-\(tab.rawValue)", in: directory, width: width) { model, approvals, history in
                 model.tab = tab
                 approvals.showSample(sampleGrants)
-                history.showSample(sampleHistory)
+                history.showSample(historySample.entries, mailbox: historySample.mailbox, unseen: historySample.unseen)
             }
+        }
+        // History with each kind of request selected, and the Missed filter.
+        for pick in HistorySample.Pick.allCases {
+            settings("settings-history-\(pick.rawValue)", in: directory, width: SettingsWindowController.historyWidth) { model, _, history in
+                model.tab = .history
+                history.showSample(
+                    historySample.entries, mailbox: historySample.mailbox, selection: HistorySample.ids[pick],
+                    unseen: historySample.unseen.subtracting([HistorySample.ids[pick]!])
+                )
+            }
+        }
+        settings("settings-history-missed", in: directory, width: SettingsWindowController.historyWidth) { model, _, history in
+            model.tab = .history
+            history.showSample(
+                historySample.entries, missedOnly: true, mailbox: historySample.mailbox,
+                selection: HistorySample.ids[.blockedMissed], unseen: historySample.unseen
+            )
         }
         settings("settings-approvals-empty", in: directory) { model, approvals, _ in
             model.tab = .approvals
             approvals.showSample([])
         }
-        settings("settings-history-empty", in: directory) { model, _, history in
+        settings("settings-history-empty", in: directory, width: SettingsWindowController.historyWidth) { model, _, history in
             model.tab = .history
             history.showSample([], missedOnly: true)
         }
@@ -83,6 +102,7 @@ enum Snapshot {
     private static func settings(
         _ name: String,
         in directory: String,
+        width: CGFloat = settingsSize.width,
         height: CGFloat = settingsSize.height,
         updater: Updater = Updater(log: { _ in }),
         pause: PauseModel = PauseModel(),
@@ -97,7 +117,7 @@ enum Snapshot {
             let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
             write(
                 SettingsView(model: model, approvals: approvals, history: history, updater: updater, pause: pause)
-                    .frame(width: settingsSize.width, height: height),
+                    .frame(width: width, height: height),
                 dark: dark,
                 to: path
             )
@@ -111,58 +131,6 @@ enum Snapshot {
             Grant(kind: .pattern, toolName: "Bash", value: "git push origin feature/*", projectRoot: "/Users/you/code/web-app", created: now.addingTimeInterval(-600), expires: now.addingTimeInterval(3000)),
             Grant(kind: .category, toolName: "Bash", value: "Destructive or Unwanted Actions", projectRoot: "/Users/you/code/web-app", created: now.addingTimeInterval(-7200)),
             Grant(kind: .claudeRule, toolName: "Bash", value: "Bash(pnpm test:*)", projectRoot: "/Users/you/code/mobile-app", settingsPath: "/Users/you/code/mobile-app/.claude/settings.local.json", created: now.addingTimeInterval(-86_400)),
-        ]
-    }
-
-    private static var sampleHistory: [HistoryEntry] {
-        let now = Date()
-        func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
-        let blocked = BlockedCall(
-            toolName: "Bash", category: "Destructive or Unwanted Actions", reason: "[Destructive or Unwanted Actions]",
-            hardDeny: false, projectRoot: "/Users/you/code/web-app", suggestions: CommandText.ruleSuggestions(for: "git push --force origin main")
-        )
-        return [
-            HistoryEntry(
-                received: ago(14), ended: ago(9), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "permission",
-                summary: "Force-push the rebased main branch", command: "git push --force origin main",
-                detail: "The rebase rewrote three commits on main, so a normal push is rejected.", outcome: .timedOut,
-                note: "The user did not respond in time.", blocked: blocked,
-                severity: .high, reversibility: "Rewrites history others have pulled; they must reset to recover."
-            ),
-            HistoryEntry(
-                received: ago(30), ended: ago(29), session: "release", cwd: "~/code/web-app", kind: "input",
-                summary: "What is the npm one-time password?", command: nil, detail: "npm publish asks for it.", outcome: .later,
-                note: StewResponse.laterNote, secret: true
-            ),
-            HistoryEntry(
-                received: ago(35), ended: ago(34), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "input",
-                summary: "Which domain should the staging site use?", command: nil, detail: nil, outcome: .answered,
-                text: "staging.example.com"
-            ),
-            HistoryEntry(
-                received: ago(41), ended: ago(40), session: "refactor auth middleware", cwd: "~/code/web-app", kind: "permission",
-                summary: "Run the database migrations", command: "pnpm db:migrate", detail: "The new session table needs them.", outcome: .approved,
-                severity: .medium, reversibility: "Can be undone with the down migration."
-            ),
-            HistoryEntry(
-                received: ago(75), ended: ago(73), session: "mobile-app", cwd: "~/code/mobile-app", kind: "question",
-                summary: "Ship to TestFlight now?", command: nil, detail: "Ship to TestFlight now?\n- Yes\n- No", outcome: .answered,
-                answers: ["Ship to TestFlight now?": "Yes"]
-            ),
-            HistoryEntry(
-                received: ago(130), ended: ago(129), session: "mobile-app", cwd: "~/code/mobile-app", kind: "permission",
-                summary: "Delete the build folder", command: "rm -rf build", detail: "A stale build breaks the preview.", outcome: .denied,
-                note: "Use make clean instead.",
-                severity: .low, reversibility: "The next build recreates the folder."
-            ),
-            HistoryEntry(
-                received: ago(200), ended: ago(180), session: "release", cwd: "~/code/web-app", kind: "needs",
-                summary: "Log in to npm so I can publish 2.4.0", command: nil, detail: "The publish step failed with E401.", outcome: .done
-            ),
-            HistoryEntry(
-                received: ago(320), ended: ago(319), session: "mobile-app", cwd: "~/code/mobile-app", kind: "notify",
-                summary: "Simulator tests passed", command: nil, detail: nil, outcome: .dismissed
-            ),
         ]
     }
 

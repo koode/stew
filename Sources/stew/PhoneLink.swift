@@ -73,6 +73,10 @@ final class PhoneLink: ObservableObject {
         pairings = store.pairings
         for pairing in pairings { connect(pairing) }
         coordinator.onRespond = { [weak self] item, response in self?.responded(item, response) }
+        coordinator.answeringPhone = { [weak self] item in
+            guard let self, let pairingId = self.answeredBy[item.id] else { return nil }
+            return self.phoneName(pairingId)
+        }
         coordinator.onControl = { [weak self] control in self?.control(control) }
         coordinator.onNeedsFinished = { [weak self] record, outcome in self?.needsFinished(record, outcome) }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
@@ -365,6 +369,11 @@ final class PhoneLink: ObservableObject {
 
     /// A needs item takes Done, or one of its other answers by label, from a phone. "Not
     /// now" never leaves the phone.
+    /// A paired phone by the name the history shows.
+    private func phoneName(_ pairingId: String) -> String {
+        paired.first { $0.pairingId == pairingId }?.phoneName ?? "iPhone"
+    }
+
     private func applyNeeds(_ answer: LinkAnswer, needsID: String, from pairingId: String) -> LinkResult {
         let requestId = answer.requestId
         func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
@@ -381,14 +390,14 @@ final class PhoneLink: ObservableObject {
         switch answer.choice {
         case .done:
             needsDoneBy[needsID] = pairingId
-            coordinator.answerNeeds(id: needsID, answerIndex: nil, note: note)
+            coordinator.answerNeeds(id: needsID, answerIndex: nil, note: note, answeredOn: phoneName(pairingId))
             return LinkResult(requestId: requestId, accepted: true, message: "Marked done on \(macName).")
         case .needsAnswer(let label):
             guard let record = coordinator.needsStore.item(needsID), let index = record.needs.answers.firstIndex(of: label) else {
                 return refuse(LinkRefusal.unknownAnswer)
             }
             needsDoneBy[needsID] = pairingId
-            guard coordinator.answerNeeds(id: needsID, answerIndex: index, note: note) else {
+            guard coordinator.answerNeeds(id: needsID, answerIndex: index, note: note, answeredOn: phoneName(pairingId)) else {
                 needsDoneBy[needsID] = nil
                 return refuse(LinkRefusal.unknownAnswer)
             }
@@ -482,7 +491,7 @@ final class PhoneLink: ObservableObject {
         default:
             return refuse(LinkRefusal.closed(.timedOut, macName: macName))
         }
-        guard coordinator.answerLate(entryID: entryID, with: response) else {
+        guard coordinator.answerLate(entryID: entryID, with: response, answeredOn: phoneName(pairingId)) else {
             return refuse(LinkRefusal.closed(nil, macName: macName))
         }
         lateAnswerable[requestId] = nil

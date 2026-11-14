@@ -2,25 +2,55 @@ import AppKit
 import SwiftUI
 import StewCore
 
-/// The History tab: every finished request, newest first, with what Claude was told.
+/// The History tab: every finished request, newest first, in a list on the left, and
+/// the selected one on the right as the panel showed it.
 final class HistoryModel: ObservableObject {
     @Published private(set) var entries: [HistoryEntry] = []
-    @Published var missedOnly = false
-    @Published var selection: HistoryEntry.ID?
-    @Published private(set) var message: String?
+    @Published var missedOnly = false {
+        didSet { if missedOnly != oldValue { keepSelectionVisible() } }
+    }
+    @Published var selection: HistoryEntry.ID? {
+        didSet {
+            guard selection != oldValue else { return }
+            if let selection { unseen.remove(selection) }
+            message = nil
+            rebuildPreview()
+        }
+    }
+    @Published private(set) var message: HistoryMessage?
     @Published private(set) var keepDays = History.defaultKeepDays
     /// Timed-out requests that can still be answered, and the late answers given.
     @Published private(set) var mailbox = LateMailbox()
-    /// "Answer now": shows the request in the panel again. False when it is too late.
-    var onAnswerNow: ((UUID) -> Bool)?
+    /// Missed requests that were new when History opened: they keep a dot until selected.
+    @Published private(set) var unseen: Set<UUID> = []
+    /// The selected request, drawn with the panel's views.
+    @Published private(set) var preview: HistoryPreview?
+    /// A late answer from the preview. False when it is too late.
+    var onLateAnswer: ((UUID, StewResponse) -> Bool)?
+    /// True after a click in the preview, false after one in the list: only while the
+    /// preview has the keyboard do the panel's keys answer it.
+    @Published var keysInPreview = false
+    /// Counts clicks in the preview, so the list gives up the keyboard.
+    @Published private(set) var previewClicks = 0
+    /// Where the list and the preview are, in the window's content view.
+    var listFrame: CGRect = .zero
+    var previewFrame: CGRect = .zero
+    /// The window History is in. Keys typed in another window never reach the preview.
+    weak var window: NSWindow?
+    private var keyMonitor: Any?
+    private var clickMonitor: Any?
+    private var keyLayout: [Character: UInt16] = [:]
     /// Sample entries for `stew snapshot`: reloading leaves them alone.
     private var isSample = false
 
-    func showSample(_ entries: [HistoryEntry], missedOnly: Bool = false) {
+    func showSample(_ entries: [HistoryEntry], missedOnly: Bool = false, mailbox: LateMailbox = LateMailbox(), selection: UUID? = nil, unseen: Set<UUID> = []) {
         isSample = true
         self.entries = entries
+        self.mailbox = mailbox
         self.missedOnly = missedOnly
-        selection = visible.first?.id
+        self.selection = selection
+        self.unseen = unseen
+        rebuildPreview()
     }
 
     var visible: [HistoryEntry] { History.filtered(entries, missedOnly: missedOnly) }
@@ -31,22 +61,61 @@ final class HistoryModel: ObservableObject {
         keepDays = loadConfig().0.historyDays
         entries = HistoryStore.readFile()
         mailbox = LateAnswerFile.read()
-        if selection == nil || !visible.contains(where: { $0.id == selection }) {
-            selection = visible.first?.id
+        unseen = unseen.filter { id in entries.contains { $0.id == id && $0.late == nil } }
+        keepSelectionVisible()
+        rebuildPreview()
+    }
+
+    /// History showed. `seenBefore` is when it last showed: missed requests since then
+    /// get the unseen dot, until selected.
+    func markUnseen(since seenBefore: Date?) {
+        reload()
+        unseen.formUnion(History.unseenMissedIDs(entries, seenAt: seenBefore))
+        if let selection { unseen.remove(selection) }
+    }
+
+    /// Selects `entryID`, showing every request if the filter hides it.
+    func select(_ entryID: UUID?) {
+        if let entryID, !visible.contains(where: { $0.id == entryID }) { missedOnly = false }
+        selection = entryID
+    }
+
+    /// Up and down in the list. Nothing selected: down picks the first.
+    func moveSelection(by offset: Int) {
+        let ids = visible.map(\.id)
+        guard !ids.isEmpty else { return }
+        guard let current = selection, let index = ids.firstIndex(of: current) else {
+            selection = offset > 0 ? ids.first : ids.last
+            return
+        }
+        selection = ids[min(max(index + offset, 0), ids.count - 1)]
+    }
+
+    private func keepSelectionVisible() {
+        if let selection, !visible.contains(where: { $0.id == selection }) { self.selection = nil }
+    }
+
+    private func rebuildPreview() {
+        guard let entry = selected else {
+            preview = nil
+            return
+        }
+        let waiting = entry.late == nil && entry.answerableLater ? mailbox.waiting(entry.id, now: Date()) : nil
+        if let preview, preview.signature == HistoryPreview.signature(entry, live: waiting != nil) { return }
+        preview = HistoryPreview(entry: entry, waiting: waiting) { [weak self] entryID, response in
+            self?.answerLate(entryID, response) ?? false
         }
     }
 
-    func canAnswerNow(_ entry: HistoryEntry) -> Bool {
-        entry.answerableLater && entry.late == nil && mailbox.waiting(entry.id, now: Date()) != nil
-    }
-
-    func answerNow(_ entry: HistoryEntry) {
-        if onAnswerNow?(entry.id) == true {
-            message = "Shown in the panel. Claude gets your answer at its next step."
-        } else {
-            message = "This request can no longer be answered: it timed out more than a day ago."
-            reload()
-        }
+    private func answerLate(_ entryID: UUID, _ response: StewResponse) -> Bool {
+        let stored = onLateAnswer?(entryID, response) ?? false
+        message = stored
+            ? HistoryMessage(.success, "Claude gets your answer at its next step.")
+            : HistoryMessage(.error, "This request can no longer be answered: it timed out more than a day ago.")
+        // The coordinator dropped the item: build the preview again, with the outcome.
+        preview = nil
+        reload()
+        return stored
     }
 
     /// Where a late answer is: waiting for the session's next step, or delivered.
@@ -56,7 +125,7 @@ final class HistoryModel: ObservableObject {
             return "No longer tracked: answers are kept for a day."
         }
         if let delivered = answer.delivered {
-            return "Delivered \(HistoryEntry.timeText(delivered))\(answer.deliveredBy.map { ", at \($0)" } ?? "")."
+            return "Delivered \(SettingsDate.text(delivered))\(answer.deliveredBy.map { ", at \($0)" } ?? "")."
         }
         return "Waiting for the session's next step."
     }
@@ -69,251 +138,170 @@ final class HistoryModel: ObservableObject {
                 try Hooks.apply(GrantChoice(scope: scope, duration: duration), toolName: blocked.toolName, projectRoot: blocked.projectRoot, grants: &grants)
             }
             let project = URL(fileURLWithPath: blocked.projectRoot).lastPathComponent
-            message = duration == .always ? "Allowed in \(project) from now on." : "Allowed in \(project) for 1 hour."
+            message = HistoryMessage(.success, duration == .always ? "Allowed in \(project) from now on." : "Allowed in \(project) for 1 hour.")
         } catch {
-            message = "Could not allow it: \(error)"
+            message = HistoryMessage(.error, "Could not allow it: \(error)")
         }
+    }
+
+    /// The panel's keys answer the preview, only while History's window is key and the
+    /// preview has the keyboard. The list's keys only move the selection.
+    func startKeys() {
+        guard keyMonitor == nil else { return }
+        keyLayout = KeyCodes.currentLayoutMap()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.keysInPreview, let window = self.window, event.window === window, window.isKeyWindow,
+                  let preview = self.preview, preview.perform(event, layout: self.keyLayout) else { return event }
+            return nil
+        }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let window = self.window, event.window === window,
+                  let point = window.contentView?.convert(event.locationInWindow, from: nil) else { return event }
+            if self.previewFrame.contains(point) {
+                self.keysInPreview = true
+                self.previewClicks += 1
+            } else if self.listFrame.contains(point) {
+                self.keysInPreview = false
+            }
+            return event
+        }
+    }
+
+    func stopKeys() {
+        for monitor in [keyMonitor, clickMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
+        keyMonitor = nil
+        clickMonitor = nil
+        keysInPreview = false
+    }
+}
+
+/// A line under the preview about something that just happened.
+struct HistoryMessage: Equatable {
+    let tone: Notice.Tone
+    let text: String
+
+    init(_ tone: Notice.Tone, _ text: String) {
+        self.tone = tone
+        self.text = text
     }
 }
 
 struct HistoryView: View {
     @ObservedObject var model: HistoryModel
+    @FocusState private var focus: HistoryFocus?
+
+    private enum HistoryFocus: Hashable {
+        case list
+    }
 
     var body: some View {
         SettingsPane(
             tab: .history,
             subtitle: "Requests from the last \(model.keepDays) days. Missed ones ran out of time while nobody answered, or are secrets you chose to enter later."
         ) {
-            Toggle("Missed only", isOn: $model.missedOnly)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        } content: {
-            VStack(alignment: .leading, spacing: 12) {
-                if model.visible.isEmpty {
-                    SettingsCard {
-                        EmptyState(
-                            symbol: model.missedOnly ? "clock.badge.exclamationmark" : "clock",
-                            title: model.missedOnly ? "No missed requests" : "No requests yet",
-                            message: model.missedOnly
-                                ? "Requests that run out of time while nobody answers, and secrets you chose to enter later, show here."
-                                : "Permission requests, questions and notifications show here once they finish."
-                        )
-                        .frame(maxHeight: .infinity)
-                    }
-                } else {
-                    SettingsCard {
-                        Table(model.visible, selection: $model.selection) {
-                            TableColumn("Time") { entry in
-                                Text(HistoryEntry.timeText(entry.ended)).font(.system(size: 12)).monospacedDigit()
-                            }
-                            .width(min: 90, ideal: 100)
-                            TableColumn("Session") { entry in
-                                Text(entry.session).font(.system(size: 12)).lineLimit(1).help(entry.cwd ?? entry.session)
-                            }
-                            .width(min: 90, ideal: 130)
-                            TableColumn("Request") { entry in
-                                Text(entry.summary).font(.system(size: 12)).lineLimit(1).truncationMode(.tail).help(entry.summary)
-                            }
-                            .width(min: 160)
-                            TableColumn("Risk") { entry in
-                                if let severity = entry.severity { SeverityPill(severity: severity) }
-                            }
-                            .width(100)
-                            TableColumn("Outcome") { entry in
-                                OutcomePill(entry: entry)
-                            }
-                            .width(140)
-                        }
-                        .scrollContentBackground(.hidden)
-                        .alternatingRowBackgrounds(.disabled)
-                    }
-                    .frame(minHeight: 160)
-                    if let entry = model.selected {
-                        SettingsCard {
-                            ScrollView {
-                                HistoryDetail(entry: entry, model: model)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(14)
-                            }
-                        }
-                        .frame(minHeight: 150, idealHeight: 200, maxHeight: 240)
-                    }
-                }
+            HSplitView {
+                sidebar
+                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 420)
+                detail
+                    .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, SettingsMetrics.inset)
-            .padding(.top, 14)
-            .padding(.bottom, SettingsMetrics.inset)
+            .overlay(alignment: .top) { Divider() }
+            .padding(.top, 12)
         }
-        .onAppear { model.reload() }
+        .background(WindowReader { window in model.window = window })
+        .onAppear {
+            model.reload()
+            model.startKeys()
+        }
+        .onDisappear { model.stopKeys() }
+        .onChange(of: focus) { _, newFocus in
+            if newFocus == .list { model.keysInPreview = false }
+        }
+        .onChange(of: model.previewClicks) {
+            // A click in the preview takes the keyboard from the list, so its
+            // selection dims, as in Mail.
+            if focus == .list { focus = nil }
+        }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.reload() }
     }
-}
 
-extension HistoryEntry {
-    /// One date form for the whole tab, such as "Nov 12, 17:15".
-    static func timeText(_ date: Date) -> String {
-        date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
-    }
-}
-
-/// One form for every outcome: a tinted capsule, the same size in every row. A late
-/// answer shows as its own outcome, such as "Approved late", in that outcome's tone.
-struct OutcomePill: View {
-    let entry: HistoryEntry
-
-    private var outcome: HistoryEntry.Outcome { entry.late?.outcome ?? entry.outcome }
-
-    var body: some View {
-        StatusPill(text: entry.outcomeLabel, tone: tone)
-    }
-
-    private var tone: Color {
-        switch outcome {
-        case .approved, .done: .green
-        case .denied: .red
-        case .answered, .acknowledged, .resolvedByClaude, .answeredInSession: .blue
-        case .movedOn: .secondary
-        case .timedOut, .later: .orange
-        case .dismissed, .callerGone: .secondary
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            HistoryFilterPicker(missedOnly: $model.missedOnly)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+            Divider()
+            if model.visible.isEmpty {
+                emptyList
+            } else {
+                list
+            }
         }
+        .background(Color.primary.opacity(0.035))
     }
-}
 
-struct HistoryDetail: View {
-    let entry: HistoryEntry
-    @ObservedObject var model: HistoryModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(entry.summary).font(.system(size: 14, weight: .semibold)).textSelection(.enabled)
-                Spacer()
-                OutcomePill(entry: entry)
-            }
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
-                row("Session", entry.cwd.map { "\(entry.session) · \($0)" } ?? entry.session)
-                row("Asked", HistoryEntry.timeText(entry.received))
-                row("Ended", HistoryEntry.timeText(entry.ended))
-                if let command = entry.command {
-                    row("Command", command, monospaced: true)
-                }
-                if let severity = entry.severity {
-                    row("Risk", [severity.label, entry.reversibility].compactMap { $0 }.joined(separator: " · "))
-                }
-                if let detail = entry.detail, !detail.isEmpty {
-                    row(detailLabel, detail)
-                }
-                if let answers = entry.answers, !answers.isEmpty {
-                    row("Answers", answers.sorted { $0.key < $1.key }.map { "\($0.key) → \($0.value)" }.joined(separator: "\n"))
-                }
-                if let text = entry.text {
-                    row("Answer", text)
-                } else if entry.secret == true, entry.outcome == .answered {
-                    row("Answer", Self.secretEntered)
-                }
-                if let grant = entry.grant {
-                    row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
-                }
-                // Claude hears about a needs item only when it waited for it, so the
-                // row shows the user's note instead.
-                if entry.kind == "needs" {
-                    if let answer = entry.answer, !answer.isEmpty { row("Answer", answer) }
-                    if let note = entry.note, !note.isEmpty { row("Note", note) }
-                } else {
-                    row("Claude was told", toldClaude)
-                }
-                if let late = entry.late {
-                    row("Answered late", HistoryEntry.timeText(late.answered))
-                    if let answers = late.answers, !answers.isEmpty {
-                        row("Answers", answers.sorted { $0.key < $1.key }.map { "\($0.key) → \($0.value)" }.joined(separator: "\n"))
-                    }
-                    if let text = late.text {
-                        row("Answer", text)
-                    } else if entry.secret == true, late.outcome == .answered {
-                        row("Answer", Self.secretEntered)
-                    }
-                    if let grant = late.grant {
-                        row("Allowed", "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")")
-                    }
-                    row("Claude is told", late.message)
-                    if let delivery = model.deliveryText(entry) {
-                        row("Delivery", delivery)
-                    }
-                }
-            }
-            if model.canAnswerNow(entry) {
-                SettingRow(hint: entry.secret == true
-                    ? "Shows it in the panel again. stew keeps the secret in memory only until Claude's next step picks it up."
-                    : "Shows it in the panel again. Claude gets your answer at its next step.") {
-                    Button("Answer now") { model.answerNow(entry) }
-                        .buttonStyle(.borderedProminent)
-                        .fixedSize()
-                }
-            }
-            if entry.missed, let blocked = entry.blocked, !blocked.grantScopes.isEmpty {
-                SettingRow(hint: "In \(URL(fileURLWithPath: blocked.projectRoot).lastPathComponent), without asking.") {
-                    Menu("Allow next time…") {
-                        ForEach(blocked.grantScopes, id: \.self) { scope in
-                            Section(scopeTitle(scope)) {
-                                Button("For 1 hour") { model.allow(scope, .hour, for: blocked) }
-                                Button("Always") { model.allow(scope, .always, for: blocked) }
+    private var list: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(model.visible) { entry in
+                        HistoryRow(entry: entry, unseen: model.unseen.contains(entry.id))
+                            .background(ListRowSelection(selected: entry.id == model.selection, focused: focus == .list))
+                            .id(entry.id)
+                            .onTapGesture {
+                                focus = .list
+                                model.selection = entry.id
                             }
-                        }
                     }
-                    .fixedSize()
+                }
+                .padding(6)
+            }
+            .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in model.listFrame = frame }
+            .focusable()
+            .focused($focus, equals: .list)
+            .focusEffectDisabled()
+            // Plain keys only move the selection; they never answer anything.
+            .onMoveCommand { direction in
+                switch direction {
+                case .up: model.moveSelection(by: -1)
+                case .down: model.moveSelection(by: 1)
+                default: break
                 }
             }
-            if let message = model.message {
-                Text(message).font(.system(size: 11)).foregroundStyle(.secondary)
+            .onChange(of: model.selection) { _, selection in
+                guard let selection else { return }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(selection) }
             }
         }
-        .padding(.vertical, 4)
     }
 
-    private var detailLabel: String {
-        switch entry.kind {
-        case "question": "Questions"
-        case "notify": "Message"
-        case "needs": "Details"
-        default: "Why"
-        }
-    }
-
-    /// Shown for a secret instead of its value, which stew never stores.
-    static let secretEntered = "A secret was entered. stew does not keep it."
-
-    /// The status Claude got, with the note that came with it.
-    private var toldClaude: String {
-        if let note = entry.note, !note.isEmpty {
-            return "\(entry.outcome.label): \(note)"
-        }
-        switch entry.outcome {
-        case .callerGone: return "Nothing: the caller had stopped waiting."
-        case .answered where entry.kind == "input": return entry.secret == true ? "The secret." : "The answer above."
-        case .answered: return "The answers above."
-        default: return "\(entry.outcome.label)."
-        }
-    }
-
-    private func scopeTitle(_ scope: GrantChoice.Scope) -> String {
-        switch scope.kind {
-        case .exact: "This command: \(scope.value)"
-        case .pattern: "Commands that start like this: \(scope.value)"
-        case .category: "Anything auto mode blocks as \(scope.value)"
-        }
+    private var emptyList: some View {
+        EmptyState(
+            symbol: model.missedOnly ? "clock.badge.exclamationmark" : "clock",
+            title: model.missedOnly ? "No missed requests" : "No requests yet",
+            message: model.missedOnly
+                ? "Requests that run out of time while nobody answers, and secrets you chose to enter later, show here."
+                : "Permission requests, questions and notifications show here once they finish."
+        )
+        .padding(.horizontal, 12)
+        .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private func row(_ label: String, _ value: String, monospaced: Bool = false) -> some View {
-        GridRow {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .gridColumnAlignment(.trailing)
-            Text(value)
-                .font(.system(size: 12, design: monospaced ? .monospaced : .default))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+    private var detail: some View {
+        if let entry = model.selected, let preview = model.preview, preview.entryID == entry.id {
+            HistoryPreviewPane(model: model, entry: entry, preview: preview, focused: model.keysInPreview)
+                .id(preview.signature)
+                .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in model.previewFrame = frame }
+        } else {
+            EmptyState(
+                symbol: "rectangle.on.rectangle",
+                title: "No request selected",
+                message: "Select a request to see it as the panel showed it. One that timed out can still be answered from here."
+            )
+            .opacity(model.visible.isEmpty ? 0 : 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
 }

@@ -94,7 +94,8 @@ final class SettingsWindowController {
     private var tabTitle: AnyCancellable?
     private var historyTab: AnyCancellable?
     /// Called each time the History pane shows, which counts as seeing missed requests.
-    var onHistoryShown: (() -> Void)?
+    /// Returns when History showed before, so the requests missed since keep a dot.
+    var onHistoryShown: (() -> Date?)?
 
     init(updater: Updater, pause: PauseModel, onSaved: @escaping () -> Void) {
         self.updater = updater
@@ -108,19 +109,21 @@ final class SettingsWindowController {
         model.update { $0.menuBar = shown }
     }
 
-    /// "Answer now" on a missed request: shows it in the panel again.
-    var onAnswerNow: ((UUID) -> Bool)? {
-        get { history.onAnswerNow }
-        set { history.onAnswerNow = newValue }
+    /// A late answer from History's preview. False when it is too late.
+    var onLateAnswer: ((UUID, StewResponse) -> Bool)? {
+        get { history.onLateAnswer }
+        set { history.onLateAnswer = newValue }
     }
 
     func reloadHistory() {
         history.reload()
     }
 
-    /// The History tab, optionally showing only the requests that timed out.
-    func showHistory(missedOnly: Bool) {
+    /// The History tab, optionally showing only the requests that timed out, with
+    /// `entryID` selected, or nothing.
+    func showHistory(missedOnly: Bool, select entryID: UUID? = nil) {
         history.missedOnly = missedOnly
+        history.select(entryID)
         show(.history)
     }
 
@@ -147,12 +150,25 @@ final class SettingsWindowController {
             // Like other Settings windows, the title names the pane that is showing.
             tabTitle = model.$tab.sink { [weak window] tab in window?.title = tab.title }
             historyTab = model.$tab.sink { [weak self] tab in
-                if tab == .history, self?.window?.isVisible == true { self?.onHistoryShown?() }
+                if tab == .history, self?.window?.isVisible == true { self?.historyShown() }
             }
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
-        if tab == .history { onHistoryShown?() }
+        if tab == .history { historyShown() }
+    }
+
+    /// History needs room for its list beside the panel's preview.
+    static let historyWidth: CGFloat = 1040
+
+    private func historyShown() {
+        history.markUnseen(since: onHistoryShown?() ?? nil)
+        guard let window, window.frame.width < Self.historyWidth, let screen = window.screen else { return }
+        var frame = window.frame
+        let grow = Self.historyWidth - frame.width
+        frame.size.width = Self.historyWidth
+        frame.origin.x = max(screen.visibleFrame.minX, frame.origin.x - grow / 2)
+        window.setFrame(frame.intersection(screen.visibleFrame), display: true, animate: window.isVisible)
     }
 }
 

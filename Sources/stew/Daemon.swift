@@ -147,8 +147,10 @@ enum Daemon {
             }
             let settings = SettingsWindowController(updater: updater, pause: coordinator.pauseModel) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
-            coordinator.onOpenHistory = { missedOnly in settings.showHistory(missedOnly: missedOnly) }
-            settings.onAnswerNow = { entryID in coordinator.answerLate(entryID: entryID) }
+            coordinator.onOpenHistory = { missedOnly, entryID in settings.showHistory(missedOnly: missedOnly, select: entryID) }
+            settings.onLateAnswer = { entryID, response in
+                coordinator.answerLate(entryID: entryID, with: response, answeredOn: Coordinator.macName)
+            }
             settings.onHistoryShown = { coordinator.historySeen() }
             coordinator.onLateAnswer = { settings.reloadHistory() }
             coordinator.pauseModel.onPause = { coordinator.pause(seconds: Double(PauseState.defaultMinutes) * 60) }

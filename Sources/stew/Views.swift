@@ -54,10 +54,14 @@ struct RootView: View {
         coordinator.hotkeyFailures.isEmpty ? nil : Text("Taken by another app: \(coordinator.hotkeyFailures.text). Click instead, or remap in config.json.")
     }
 
-    private var width: CGFloat {
-        if coordinator.current?.blocked != nil { return 560 }
-        guard case .question = coordinator.current?.request.prompt,
-              let flow = coordinator.current?.flow,
+    private var width: CGFloat { Self.width(for: coordinator.current) }
+
+    /// The panel's width for `item`: wider for a blocked call's grants and for options
+    /// with previews.
+    static func width(for item: Item?) -> CGFloat {
+        if item?.blocked != nil { return 560 }
+        guard case .question = item?.request.prompt,
+              let flow = item?.flow,
               flow.current.options.contains(where: { $0.preview != nil }) else { return 520 }
         return 720
     }
@@ -180,7 +184,7 @@ struct Header: View {
                 // The kind stays whole; only the path shrinks, from the middle, so its
                 // last folders stay visible. The session id is in the tooltip.
                 HStack(spacing: 0) {
-                    Text(item.lateEntryID == nil ? style.title : "\(style.title), timed out").fixedSize()
+                    Text(item.lateEntryID == nil || coordinator.historyPreview != nil ? style.title : "\(style.title), timed out").fixedSize()
                     if let cwd = session.cwd {
                         Text(" · ").fixedSize()
                         Text(cwd).lineLimit(1).truncationMode(.middle)
@@ -194,6 +198,21 @@ struct Header: View {
     }
 
     @ViewBuilder private var controls: some View {
+        switch coordinator.historyPreview {
+        case .late(let ended):
+            Text(ended)
+                .fixedSize()
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        case .ended:
+            EmptyView()
+        case nil:
+            panelControls
+        }
+    }
+
+    @ViewBuilder private var panelControls: some View {
         if coordinator.items.count > 1 {
             Text("1 of \(coordinator.items.count)")
                 .fixedSize()
@@ -541,7 +560,7 @@ struct PermissionBody: View {
             }
             if coordinator.grantMode, let blocked = item.blocked {
                 GrantPicker(blocked: blocked, coordinator: coordinator)
-            } else {
+            } else if coordinator.showsButtons {
             HStack(spacing: 8) {
                 ActionButton(title: "Deny", shortcut: keymap[.deny]) { coordinator.perform(.deny) }
                 ActionButton(title: "Note", shortcut: keymap[.other]) { coordinator.perform(.other) }
@@ -691,13 +710,15 @@ struct NotifyBody: View {
                         .help(link.url)
                 }
                 Spacer()
-                if notify.action == .installUpdate {
-                    ActionButton(title: "Later", shortcut: coordinator.keymap[.dismiss]) {
-                        coordinator.perform(.dismiss)
+                if coordinator.showsButtons {
+                    if notify.action == .installUpdate {
+                        ActionButton(title: "Later", shortcut: coordinator.keymap[.dismiss]) {
+                            coordinator.perform(.dismiss)
+                        }
                     }
-                }
-                ActionButton(title: approveTitle, shortcut: coordinator.keymap[.approve], prominent: true) {
-                    coordinator.perform(.approve)
+                    ActionButton(title: approveTitle, shortcut: coordinator.keymap[.approve], prominent: true) {
+                        coordinator.perform(.approve)
+                    }
                 }
             }
         }
@@ -720,7 +741,7 @@ struct QuestionBody: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     LongText(text: question.question, size: 15, weight: .semibold, maxLines: 5)
-                    if question.multiSelect {
+                    if question.multiSelect, coordinator.showsButtons {
                         Text("Choose any, then \(keymap[.submit].text) to confirm.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
@@ -741,8 +762,10 @@ struct QuestionBody: View {
                                 if inside { item.hoveredOption = index } else if item.hoveredOption == index { item.hoveredOption = nil }
                             }
                         }
-                        OtherRow(shortcut: keymap[.other], text: flow.otherText[flow.index], active: coordinator.textMode) {
-                            coordinator.perform(.other)
+                        if coordinator.showsButtons || !(flow.otherText[flow.index] ?? "").isEmpty {
+                            OtherRow(shortcut: keymap[.other], text: flow.otherText[flow.index], active: coordinator.textMode) {
+                                coordinator.perform(.other)
+                            }
                         }
                     }
                     .frame(width: hasPreview ? 300 : nil)
@@ -768,7 +791,7 @@ struct QuestionBody: View {
                             ActionButton(title: "Next", shortcut: keymap[.next]) { coordinator.perform(.next) }
                         }
                         Spacer()
-                        if question.multiSelect || coordinator.textMode {
+                        if (question.multiSelect || coordinator.textMode) && coordinator.showsButtons {
                             ActionButton(title: flow.isLast ? "Submit" : "Confirm", shortcut: keymap[.submit], prominent: true) {
                                 coordinator.perform(.submit)
                             }

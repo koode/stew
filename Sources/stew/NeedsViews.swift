@@ -78,14 +78,16 @@ struct NeedsBody: View {
                 )
             }
             // A long Done label gets a row of its own, still at the bottom right.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    secondaryButtons(keymap)
-                    doneButton(keymap)
-                }
-                VStack(alignment: .trailing, spacing: 8) {
-                    HStack(spacing: 8) { secondaryButtons(keymap) }
-                    doneButton(keymap)
+            if coordinator.showsButtons {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        secondaryButtons(keymap)
+                        doneButton(keymap)
+                    }
+                    VStack(alignment: .trailing, spacing: 8) {
+                        HStack(spacing: 8) { secondaryButtons(keymap) }
+                        doneButton(keymap)
+                    }
                 }
             }
         }

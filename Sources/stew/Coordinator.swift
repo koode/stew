@@ -101,6 +101,25 @@ enum PanelAction: Equatable {
     case grantAlways
 }
 
+/// History's preview of a finished request, drawn with the panel's views.
+enum HistoryPreviewMode: Equatable {
+    /// Timed out, or a secret set aside for later, and still answerable: the panel's
+    /// buttons answer it late. No clock; the header says when it ended, such as
+    /// "Timed out Nov 14 at 11:22".
+    case late(ended: String)
+    /// Ended for good: the panel's content without its buttons.
+    case ended
+
+    /// Closing, more time and "later" belong to a waiting caller; a preview has none.
+    /// An ended request only pages through its questions.
+    func allows(_ action: HotkeyAction) -> Bool {
+        switch self {
+        case .late: ![.dismiss, .dismissAll, .extend, .enterLater, .enterSoon].contains(action)
+        case .ended: [.next, .previous].contains(action)
+        }
+    }
+}
+
 final class Coordinator: ObservableObject {
     @Published private(set) var items: [Item] = []
     @Published private(set) var textMode = false
@@ -117,6 +136,18 @@ final class Coordinator: ObservableObject {
     var panelLook: String { lookOverride ?? config.panelLook }
     /// Told about every answer before its item leaves, so paired phones learn the outcome.
     var onRespond: ((Item, StewResponse) -> Void)?
+    /// The paired phone answering this item right now, by name, so the history says
+    /// where it was answered. Nil: the user answered on the Mac.
+    var answeringPhone: ((Item) -> String?)?
+    /// The Mac as the history names it when the user answered here.
+    static let macName = Host.current().localizedName ?? "Mac"
+    /// Set on History's preview of a request: what it may do, and where its answers go.
+    var historyPreview: HistoryPreviewMode?
+    /// False in History's preview of an ended request: its buttons give way to the outcome.
+    var showsButtons: Bool { historyPreview != .ended }
+    /// History's preview: a late answer goes to the daemon's coordinator, which stores it
+    /// and keeps a secret in memory. Returns false when it is too late.
+    var onPreviewAnswer: ((UUID, StewResponse) -> Bool)?
     /// Gets controls this class does not know; a non-nil reply answers the caller.
     var onControl: ((String) -> String?)?
     /// Told when a needs item ends for good, with how it ended, so paired phones learn it.
@@ -133,8 +164,9 @@ final class Coordinator: ObservableObject {
     var onIdle: (() -> Void)?
     /// Where finished requests are recorded. Nil when rendering snapshots.
     var history: HistoryStore?
-    /// Opens the settings window on History; true shows only missed requests.
-    var onOpenHistory: ((Bool) -> Void)?
+    /// Opens the settings window on History; true shows only missed requests. The id
+    /// selects that request.
+    var onOpenHistory: ((Bool, UUID?) -> Void)?
     /// Called after a late answer is stored, so the History tab shows it.
     var onLateAnswer: (() -> Void)?
     /// `stew update`: check and install now, then reply with the outcome.
@@ -409,9 +441,16 @@ final class Coordinator: ObservableObject {
     /// Ends a needs item for good: history entry, answer for a waiting caller, gone from
     /// the panel and needs.json. `answer` is the label of the answer the user picked.
     @discardableResult
-    private func finishNeeds(id: String, outcome: HistoryEntry.Outcome, status: StewStatus, note: String?, answer: String? = nil) -> Bool {
+    private func finishNeeds(
+        id: String, outcome: HistoryEntry.Outcome, status: StewStatus, note: String?, answer: String? = nil, answeredOn device: String? = nil
+    ) -> Bool {
         guard let record = needsStore.remove(id) else { return false }
-        history?.append(HistoryEntry.record(record, outcome: outcome, note: note, answer: answer, ended: Date()))
+        // Claude resolving it, or the session moving on, is no answer from a device.
+        let byUser = [.done, .answered, .dismissed].contains(outcome)
+        let entry = HistoryEntry.record(
+            record, outcome: outcome, note: note, answer: answer, ended: Date(), answeredOn: byUser ? device ?? Self.macName : nil
+        )
+        history?.append(entry)
         onNeedsFinished?(record, outcome)
         answerWaiter(id, StewResponse(status: status, note: note, id: id, answer: answer))
         if let panelItem = items.first(where: { $0.needsID == id }) {
@@ -426,14 +465,14 @@ final class Coordinator: ObservableObject {
     /// Done (`answerIndex` nil) or one of the item's other answers, from the panel or a
     /// paired phone. False when the item is gone or has no answer at `answerIndex`.
     @discardableResult
-    func answerNeeds(id: String, answerIndex: Int?, note: String?) -> Bool {
+    func answerNeeds(id: String, answerIndex: Int?, note: String?, answeredOn device: String? = nil) -> Bool {
         guard let record = needsStore.item(id) else { return false }
         let label = record.needs.answerLabel(at: answerIndex)
         guard let answerIndex else {
-            return finishNeeds(id: id, outcome: .done, status: .done, note: note, answer: label)
+            return finishNeeds(id: id, outcome: .done, status: .done, note: note, answer: label, answeredOn: device)
         }
         guard label != nil, record.needs.answers.indices.contains(answerIndex) else { return false }
-        return finishNeeds(id: id, outcome: .answered, status: .answered, note: note, answer: label)
+        return finishNeeds(id: id, outcome: .answered, status: .answered, note: note, answer: label, answeredOn: device)
     }
 
     /// "Not now": out of the panel, still open in the menu bar. A waiting caller keeps waiting.
@@ -538,6 +577,14 @@ final class Coordinator: ObservableObject {
         changed()
     }
 
+    /// History's preview: the one item, with no clock.
+    func showPreview(_ item: Item, mode: HistoryPreviewMode) {
+        historyPreview = mode
+        item.timeLimit = nil
+        items = [item]
+        changed()
+    }
+
     func connectionClosed(_ connectionID: UUID) {
         if let (id, waiter) = needsWaiters.first(where: { $0.value.connection.id == connectionID }) {
             // The caller stopped waiting; the item itself stays open.
@@ -562,7 +609,9 @@ final class Coordinator: ObservableObject {
             celebrations += 1
             onCelebrate?()
         }
-        if let entryID = item.lateEntryID {
+        if let entryID = item.lateEntryID, let onPreviewAnswer {
+            if !onPreviewAnswer(entryID, response) { Log.write("late answer: \(entryID) is no longer waiting") }
+        } else if let entryID = item.lateEntryID {
             storeLateAnswer(item.request, response, entryID: entryID)
         } else {
             record(item, response)
@@ -597,7 +646,7 @@ final class Coordinator: ObservableObject {
         // A late answer in progress has no caller; its request stays answerable.
         for item in items where !item.isNeeds && item.lateEntryID == nil {
             let response = StewResponse(status: .dismissed, note: "stew daemon stopped")
-            record(item, response)
+            record(item, response, byUser: false)
             item.connection?.send((try? Wire.encode(response)) ?? Data())
         }
         items = []
@@ -606,10 +655,13 @@ final class Coordinator: ObservableObject {
 
     /// No response means the caller went away before an answer. A request of a known
     /// session that timed out stays answerable from the history for a day.
-    private func record(_ item: Item, _ response: StewResponse?) {
+    private func record(_ item: Item, _ response: StewResponse?, byUser: Bool = true) {
         // Needs items record their own ending in finishNeeds.
         guard let history, item.source == .caller, !item.isNeeds else { return }
-        let entry = HistoryEntry.record(item.request, received: item.received, response: response, ended: Date(), id: item.id)
+        let device = byUser ? answeringPhone?(item) ?? Self.macName : nil
+        let entry = HistoryEntry.record(
+            item.request, received: item.received, response: response, ended: Date(), id: item.id, answeredOn: device
+        )
         history.append(entry)
         let answerableLater = (response?.status == .timeout && LateMailbox.canAnswerLate(item.request))
             || (response?.status == .later && item.request.offersEnterLater)
@@ -659,21 +711,26 @@ final class Coordinator: ObservableObject {
     /// A late answer given somewhere else than the panel, such as on the iPhone: stored
     /// exactly like an answer after Answer now. When Answer now has the request in the
     /// panel, the panel closes with it. False when it can no longer be answered.
-    func answerLate(entryID: UUID, with response: StewResponse) -> Bool {
+    func answerLate(entryID: UUID, with response: StewResponse, answeredOn device: String) -> Bool {
         if let item = items.first(where: { $0.lateEntryID == entryID }) {
+            lateDevice = device
+            defer { lateDevice = nil }
             respond(item, response)
             return LateAnswerFile.read().answer(entryID) != nil
         }
         guard let waiting = LateAnswerFile.read().waiting(entryID, now: Date()) else { return false }
-        return storeLateAnswer(waiting.request, response, entryID: entryID)
+        return storeLateAnswer(waiting.request, response, entryID: entryID, answeredOn: device)
     }
+
+    /// Where the late answer being stored was given, when not in the panel.
+    private var lateDevice: String?
 
     /// The user answered a timed-out request: store the answer for the session's next
     /// hook call, the one-shot retry grant for an approved blocked call, and the late
     /// outcome on the history entry. Closing the panel is no answer: the request stays
     /// answerable. False when nothing was stored.
     @discardableResult
-    private func storeLateAnswer(_ request: StewRequest, _ response: StewResponse, entryID: UUID) -> Bool {
+    private func storeLateAnswer(_ request: StewRequest, _ response: StewResponse, entryID: UUID, answeredOn device: String? = nil) -> Bool {
         guard [.approved, .denied, .answered].contains(response.status) else { return false }
         let now = Date()
         // A secret stays out of late-answers.json and the history: the file gets a
@@ -703,7 +760,8 @@ final class Coordinator: ObservableObject {
                 Log.write("late answer: could not store the grant: \(error)")
             }
         }
-        history?.update(entryID) { $0.recordLate(stored, message: late.message, at: now) }
+        let answeredOn = device ?? lateDevice ?? Self.macName
+        history?.update(entryID) { $0.recordLate(stored, message: late.message, at: now, on: answeredOn) }
         onLateAnswer?()
         refreshMissed()
         return true
@@ -868,15 +926,19 @@ final class Coordinator: ObservableObject {
     }
 
     /// Opens the History pane, which counts as seeing the missed requests in it.
-    func openHistory(missedOnly: Bool) {
-        onOpenHistory?(missedOnly)
+    func openHistory(missedOnly: Bool, select entryID: UUID? = nil) {
+        onOpenHistory?(missedOnly, entryID)
         historySeen()
     }
 
-    /// The History pane showed: missed requests so far count as seen.
-    func historySeen() {
+    /// The History pane showed: missed requests so far count as seen. Returns when it
+    /// showed before.
+    @discardableResult
+    func historySeen() -> Date? {
+        let previous = stateStore.state.historySeenAt
         stateStore.update { $0.historySeenAt = Date() }
         refreshMissed()
+        return previous
     }
 
     private func changed() {
@@ -1031,6 +1093,7 @@ final class Coordinator: ObservableObject {
     }
 
     func perform(_ action: HotkeyAction) {
+        if let historyPreview, !historyPreview.allows(action) { return }
         if action == .dismissAll {
             // Needs items are things to do, not questions: dismissing everything parks
             // them, the same as "Not now", instead of declining them.
@@ -1136,6 +1199,7 @@ final class Coordinator: ObservableObject {
     }
 
     func choose(option index: Int) {
+        if historyPreview == .ended { return }
         if let item = current, item.isNeeds {
             let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             if let id = item.needsID { answerNeeds(id: id, answerIndex: index, note: note.isEmpty ? nil : note) }
@@ -1178,7 +1242,7 @@ final class Coordinator: ObservableObject {
     }
 
     func setTextMode(_ enabled: Bool) {
-        guard textMode != enabled else { return }
+        guard textMode != enabled, !(enabled && historyPreview == .ended) else { return }
         textMode = enabled
         // A request that arrived while the user typed on a needs item goes ahead of it now.
         if !enabled { arrangeQueue() }
@@ -1187,6 +1251,17 @@ final class Coordinator: ObservableObject {
 
     /// The shortcuts that make sense for what is on screen now.
     func activeBindings() -> [(Shortcut, PanelAction)] {
+        let bindings = panelBindings()
+        guard let historyPreview else { return bindings }
+        return bindings.filter { _, panelAction in
+            switch panelAction {
+            case .action(let action): historyPreview.allows(action)
+            case .option, .grantAlways: historyPreview != .ended
+            }
+        }
+    }
+
+    private func panelBindings() -> [(Shortcut, PanelAction)] {
         guard let item = current else { return [] }
         var bindings: [(Shortcut, PanelAction)] = [(keymap[.dismiss], .action(.dismiss))]
         if items.count > 1 { bindings.append((keymap[.dismissAll], .action(.dismissAll))) }
