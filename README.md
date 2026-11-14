@@ -214,7 +214,7 @@ The same check also rates how bad the action is if it runs, and says in one line
 | High risk | `rm -rf` outside the project, a force-push to a shared branch, `DROP TABLE`, deleting cloud resources | The warning look, and 1 more minute to answer |
 | Critical risk | Sending money or emails to customers, deleting production data or backups, publishing a release | The red look, Approve needs ⇧⌘↩ like a hard deny, and 1 more minute to answer |
 
-The panel shows the level as a chip in the risk banner, with the reversibility line under the summary, such as "Can be undone with git reflog." or "Deletes files permanently; no undo." History shows the level in its own column. On the iPhone, high and critical need an extra confirmation before Approve (see [docs/PHONE.md](docs/PHONE.md)). When the risk check is off or fails, there is no severity and nothing changes. Each rule is a setting under Settings ▸ Claude Code ▸ Risk check.
+The panel shows the level as a chip in the risk banner, with the reversibility line under the summary, such as "Can be undone with git reflog." or "Deletes files permanently; no undo." History and the menu bar popover show the level as a pill next to the outcome. On the iPhone, high and critical need an extra confirmation before Approve (see [docs/PHONE.md](docs/PHONE.md)). When the risk check is off or fails, there is no severity and nothing changes. Each rule is a setting under Settings ▸ Claude Code ▸ Risk check.
 
 ### History: what you missed
 
