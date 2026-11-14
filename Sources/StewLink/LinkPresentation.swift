@@ -14,6 +14,8 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case reply
         /// A secret input: "Give me 5 min" and "I'll enter it later".
         case enterSoon, enterLater
+        /// A secret input: opens the request in the app, to type it there.
+        case enterInApp
         /// Opens the request in the app, for a permission that needs the extra confirmation.
         case review
     }
@@ -81,10 +83,21 @@ public enum LinkPresentation {
     /// Inputs that are not secret get a category per request, because the reply field's
     /// placeholder is the request's own.
     public static let inputCategoryPrefix = "stew.input."
-    /// Secret inputs: no text field, only the two ways to say "on the Mac".
+    /// Secret inputs: no text field, because a notification cannot hide what is typed.
+    /// From a Mac that takes the secret typed in the app, the category ends in `.app` and
+    /// its first action opens the request there.
     public static let secretCategory = "stew.secret"
     public static let enterSoonTitle = "Give me 5 min"
     public static let enterLaterTitle = "I'll enter it later"
+    /// Opens the secret input in the app, where its masked field is.
+    public static let enterInAppAction = "enterInApp"
+    public static let enterInAppTitle = "Enter in app"
+
+    /// Whether the app may offer a field for this secret input.
+    public static func takesSecretInApp(_ request: LinkRequest) -> Bool {
+        guard case .input(let input) = request.request.prompt, input.secret else { return false }
+        return request.secretInApp == true
+    }
 
     /// Request ids for needs items, which have short ids of their own on the Mac.
     public static func needsRequestId(_ needsID: String) -> String { "needs-" + needsID }
@@ -155,6 +168,7 @@ public enum LinkPresentation {
         case .input(let input):
             guard input.secret else { return inputCategoryPrefix + request.requestId }
             return secretCategory + (canExtend(request) ? "" : ".noTime") + (request.request.offersEnterLater ? "" : ".noLater")
+                + (takesSecretInApp(request) ? ".app" : "")
         }
     }
 
@@ -164,9 +178,10 @@ public enum LinkPresentation {
 
     /// Whether the phone may still answer the request after its time ran out: the Mac
     /// then passes the answer to the Claude session as a late answer, as History's Answer
-    /// now does. It needs the session's id. A secret never: the phone has no field for it.
+    /// now does. It needs the session's id. A secret only from a Mac that takes it typed
+    /// in the app; the notification never has a field for it.
     public static func canAnswerLate(_ request: LinkRequest) -> Bool {
-        if case .input(let input) = request.request.prompt, input.secret { return false }
+        if case .input(let input) = request.request.prompt, input.secret, !takesSecretInApp(request) { return false }
         return LateMailbox.canAnswerLate(request.request)
     }
 
@@ -210,15 +225,18 @@ public enum LinkPresentation {
             if canExtend(request) { actions.append(moreTime) }
             return actions
         case .input(let input):
-            // A notification text field cannot hide what is typed, so a secret is
-            // entered on the Mac only. Neither choice for it needs Face ID: they only
-            // move the time, they answer nothing.
+            // A notification text field cannot hide what is typed, so a secret is never
+            // entered in one: on the Mac, or in the app's masked field. None of these
+            // needs Face ID: they open the app or move the time, they answer nothing.
             guard input.secret else {
                 let placeholder = input.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? "Your answer"
                 let reply = LinkNotificationAction(identifier: replyAction, title: "Reply", role: .reply, textPlaceholder: placeholder)
                 return canExtend(request) ? [reply, moreTime] : [reply]
             }
             var actions: [LinkNotificationAction] = []
+            if takesSecretInApp(request) {
+                actions.append(LinkNotificationAction(identifier: enterInAppAction, title: enterInAppTitle, role: .enterInApp))
+            }
             if canExtend(request) {
                 actions.append(LinkNotificationAction(identifier: enterSoonAction, title: enterSoonTitle, role: .enterSoon))
             }
@@ -290,7 +308,7 @@ public enum LinkPresentation {
             subtitleParts = [kindTitle(request.request.prompt), session.name]
             lines += needsLines(needs)
         case .input(let input):
-            lines += inputLines(input)
+            lines += inputLines(input, inApp: takesSecretInApp(request))
         }
         lines.append(timeLine(request, time: time))
         return LinkNotificationContent(
@@ -370,10 +388,11 @@ public enum LinkPresentation {
     }
 
     /// The question, why (both masked like a command), and for a secret where to enter it.
-    public static func inputLines(_ input: InputRequest) -> [String] {
+    /// `inApp`: the Mac also takes the secret typed in the app.
+    public static func inputLines(_ input: InputRequest, inApp: Bool = false) -> [String] {
         var lines = [CommandText.masked(input.question)]
         if let why = input.why, !why.isEmpty { lines.append("Why: " + CommandText.masked(why)) }
-        if input.secret { lines.append(InputRequest.enterOnMacMessage) }
+        if input.secret { lines.append(inApp ? InputRequest.enterOnMacOrAppMessage : InputRequest.enterOnMacMessage) }
         return lines
     }
 
@@ -478,7 +497,7 @@ public enum LinkRefusal {
         if let deadline = request.deadline, deadline <= now {
             let isAnswer: Bool
             switch choice {
-            case .approve, .deny, .answers, .text: isAnswer = true
+            case .approve, .deny, .answers, .text, .secret: isAnswer = true
             case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left: isAnswer = false
             }
             guard isAnswer, LinkPresentation.canAnswerLate(request) else {
@@ -500,6 +519,8 @@ public enum LinkRefusal {
             return needs.answers.contains(label) ? nil : unknownAnswer
         case (.text(let text), .input(let input)):
             return inputRefusal(text, for: input)
+        case (.secret(let text), .input(let input)):
+            return LinkPresentation.takesSecretInApp(request) ? secretRefusal(text, for: input) : secretOnMac
         case (.enterSoon, .input(let input)) where input.secret:
             if request.queued { return clockNotStarted }
             return request.deadline == nil ? noTimeLimit : nil
@@ -511,13 +532,26 @@ public enum LinkRefusal {
     }
 
     public static let emptyAnswer = "Type an answer first."
+    /// A secret sent as a plain reply, or to a Mac that does not take it from the app.
     public static let secretOnMac = "This is a secret. " + InputRequest.enterOnMacMessage
+    public static let notASecret = "This input is not a secret. Reply to it instead."
 
     /// Why a typed answer cannot be sent, or nil when it can. The phone checks first and
     /// the Mac checks again with the same rules.
     public static func inputRefusal(_ text: String, for input: InputRequest) -> String? {
         guard !input.secret else { return secretOnMac }
-        switch input.check(text) {
+        return checkRefusal(input.check(text), for: input)
+    }
+
+    /// The same for a secret typed in the app's masked field. The refusal never repeats
+    /// what was typed.
+    public static func secretRefusal(_ text: String, for input: InputRequest) -> String? {
+        guard input.secret else { return notASecret }
+        return checkRefusal(input.check(text), for: input)
+    }
+
+    private static func checkRefusal(_ check: InputRequest.Check, for input: InputRequest) -> String? {
+        switch check {
         case .empty: return emptyAnswer
         case .mismatch: return input.mismatchText
         case .valid: return nil

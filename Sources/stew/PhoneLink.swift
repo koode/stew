@@ -311,6 +311,14 @@ final class PhoneLink: ObservableObject {
             answeredBy[item.id] = pairingId
             coordinator.respond(item, StewResponse(status: .answered, text: answerText))
             return LinkResult(requestId: requestId, accepted: true, message: "Answered on \(macName).")
+        case (.secret(let text), .input(let input)):
+            // Exactly the panel's path for a secret: the same check, and the history and
+            // the log never hold it. The refusal says what was expected, never what came.
+            if let refusal = LinkRefusal.secretRefusal(text, for: input) { return refuse(refusal) }
+            guard case .valid(let secret) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
+            answeredBy[item.id] = pairingId
+            coordinator.respond(item, StewResponse(status: .answered, text: secret))
+            return LinkResult(requestId: requestId, accepted: true, message: "Entered on \(macName).")
         case (.enterLater, .input):
             answeredBy[item.id] = pairingId
             guard coordinator.enterLater(item) else {
@@ -395,7 +403,9 @@ final class PhoneLink: ObservableObject {
             default: outcome = .answeredOnMac
             }
         }
-        if outcome == .timedOut {
+        // A secret the user chose to enter later can come from the app too, like one
+        // that timed out.
+        if outcome == .timedOut || (outcome == .later && entry.sent.secretInApp == true) {
             lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date())
         }
         resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering)
@@ -435,10 +445,16 @@ final class PhoneLink: ObservableObject {
             let annotations = flow.annotations()
             response = StewResponse(status: .answered, answers: flow.answers(), annotations: annotations.isEmpty ? nil : annotations)
         case (.text(let text), .input(let input)):
-            // A secret is refused here too: the phone never sends one.
+            // A secret is refused here too: it comes as `.secret`, never as a reply.
             if let refusal = LinkRefusal.inputRefusal(text, for: input) { return refuse(refusal) }
             guard case .valid(let answerText) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
             response = StewResponse(status: .answered, text: answerText)
+        case (.secret(let text), .input(let input)):
+            // Stored like a secret entered late on the Mac: a placeholder in the file, the
+            // value in the daemon's memory until the session's next hook fetches it.
+            if let refusal = LinkRefusal.secretRefusal(text, for: input) { return refuse(refusal) }
+            guard case .valid(let secret) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
+            response = StewResponse(status: .answered, text: secret)
         default:
             return refuse(LinkRefusal.closed(.timedOut, macName: macName))
         }
@@ -512,7 +528,8 @@ final class PhoneLink: ObservableObject {
             hardDeny: item.isHardDeny,
             risk: item.risk.assessment,
             confirmation: confirmation(for: item),
-            viewingOn: coordinator.flatMap { $0.isViewing(item) ? item.viewing?.phoneName : nil }
+            viewingOn: coordinator.flatMap { $0.isViewing(item) ? item.viewing?.phoneName : nil },
+            secretInApp: item.input?.secret == true ? true : nil
         )
     }
 

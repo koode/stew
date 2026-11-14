@@ -17,6 +17,7 @@ stew-test-phone COMMAND [options]
       ACTION is approve, deny, moreTime, option.N, other, done, answer.N, notNow,
       reply (with --text), enterSoon or enterLater. Prints the Mac's result.
       ACTION viewing or left says the request opened or left the screen in the app.
+      ACTION secret sends --text as a secret typed in the app's masked field.
       ACTION answers sends --answers JSON, one {"selected":[N],"other":TEXT} per
       question, the way the app answers a question set.
       --force skips the phone's own checks, to prove the Mac refuses too. With it,
@@ -249,6 +250,9 @@ func answer(_ values: [String: String]) throws {
         choice = .viewing
     } else if action == "left" {
         choice = .left
+    } else if action == "secret" {
+        // The app's masked field: never a notification action.
+        choice = .secret(values["text"] ?? "")
     } else if let offered {
         choice = offered
     } else if forced, action == LinkPresentation.approveAction {
@@ -283,6 +287,7 @@ func answer(_ values: [String: String]) throws {
     var replay = ReplayGuard()
     let result = try channel.open(reply.result, as: LinkResult.self, replay: &replay)
     var output: [String: Any] = ["accepted": result.accepted, "message": result.message]
+    if let late = result.late { output["late"] = late }
     if let deadline = result.deadline { output["secondsLeft"] = Int(deadline.timeIntervalSinceNow.rounded()) }
     if values["twice"] == "yes" {
         output["secondStatus"] = try http("POST", pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope)).0

@@ -137,6 +137,8 @@ public struct InputRequest: Codable, Equatable, Sendable {
 
     /// What both the Mac and the phone say about a secret on a phone.
     public static let enterOnMacMessage = "Enter it on your Mac."
+    /// The same, for a Mac that also takes the secret typed in the stew app.
+    public static let enterOnMacOrAppMessage = "Enter it on your Mac or in the stew app."
 }
 
 extension StewRequest {

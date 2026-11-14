@@ -36,6 +36,9 @@ public struct LinkRequest: Codable, Equatable, Sendable {
     /// The name of the phone the request is open on, while its clock is paused for that.
     /// Nil from a Mac that does not pause for viewing.
     public var viewingOn: String?
+    /// True for a secret input from a Mac that takes the secret typed in the app
+    /// (`LinkChoice.secret`). Nil from an older Mac, so the app offers no field for it.
+    public var secretInApp: Bool?
 
     public init(
         requestId: String,
@@ -48,7 +51,8 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         hardDeny: Bool,
         risk: RiskAssessment?,
         confirmation: PhoneConfirmation? = nil,
-        viewingOn: String? = nil
+        viewingOn: String? = nil,
+        secretInApp: Bool? = nil
     ) {
         self.requestId = requestId
         self.macName = macName
@@ -61,6 +65,7 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         self.risk = risk
         self.confirmation = confirmation
         self.viewingOn = viewingOn
+        self.secretInApp = secretInApp
     }
 }
 
@@ -95,6 +100,11 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     case enterSoon
     /// A secret input: "I'll enter it later" ends Claude's wait with "later".
     case enterLater
+    /// The value of a secret input, typed in the app's masked field, never in a
+    /// notification. Only for a request with `secretInApp`: an older Mac cannot read it.
+    /// The Mac checks it against the pattern again and keeps it like a secret typed in
+    /// its own panel: never in a file, a late one in memory only.
+    case secret(String)
     /// The request is on screen in the app: the Mac pauses its clock. Not an answer.
     case viewing
     /// The request left the screen in the app: the clock runs again after a short grace
