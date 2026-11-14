@@ -75,6 +75,9 @@ struct SettingsTabBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // The selected tab already shows where you are; the focus ring would stay on
+                // the first tab after the window opens, whatever is selected.
+                .focusEffectDisabled()
                 .accessibilityLabel(tab.title)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
