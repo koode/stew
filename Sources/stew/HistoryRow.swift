@@ -59,18 +59,82 @@ struct ListRowSelection: View {
     }
 }
 
-/// The one form of the history filter: every request, or only the missed ones.
+/// The one form of the history filter, in the popover and in History: every request,
+/// or only the missed ones, with how many are missed. A capsule whose selected half is
+/// a capsule of Liquid Glass that slides between the two; before macOS 26 the selected
+/// half is a plain raised capsule. VoiceOver and the keyboard see a segmented picker.
 struct HistoryFilterPicker: View {
     @Binding var missedOnly: Bool
+    /// The requests the Missed filter shows; none shows no number.
+    var missedCount = 0
+    /// Draws the glass when the system has it. Off for the plain look, also in
+    /// snapshots that cannot draw glass.
+    var glass = PanelBackground.glassAvailable
+    @Namespace private var selectionSpace
 
     var body: some View {
-        Picker("Show", selection: $missedOnly) {
-            Text("All").tag(false)
-            Text("Missed").tag(true)
+        HStack(spacing: 0) {
+            segment("All", shows: false, count: 0)
+            segment("Missed", shows: true, count: missedCount)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        // The selected half sits behind both labels and takes the frame of the selected
+        // one, so it slides when the selection changes and never covers a label.
+        .background {
+            selectionCapsule.matchedGeometryEffect(id: missedOnly, in: selectionSpace, isSource: false)
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
         .fixedSize()
+        .accessibilityRepresentation {
+            Picker("Show", selection: $missedOnly) {
+                Text("All").tag(false)
+                Text(missedCount > 0 ? "Missed, \(missedCount)" : "Missed").tag(true)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private func segment(_ title: String, shows missed: Bool, count: Int) -> some View {
+        let selected = missedOnly == missed
+        return Button {
+            withAnimation(.snappy(duration: 0.25)) { missedOnly = missed }
+        } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(selected ? Brand.paprika : Color.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .contentShape(Capsule())
+            .matchedGeometryEffect(id: missed, in: selectionSpace)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The selected half: glass over a faint fill, so it still reads where the glass has
+    /// little behind it to bend.
+    @ViewBuilder
+    private var selectionCapsule: some View {
+        let shape = Capsule()
+        if glass, #available(macOS 26, *) {
+            shape
+                .fill(Color.primary.opacity(0.06))
+                .background { Color.clear.glassEffect(.regular, in: shape) }
+                .overlay(shape.strokeBorder(Color.primary.opacity(0.1)))
+        } else {
+            shape
+                .fill(Color(nsColor: .controlColor))
+                .shadow(color: .black.opacity(0.15), radius: 0.5, y: 0.5)
+                .overlay(shape.strokeBorder(Color.primary.opacity(0.1)))
+        }
     }
 }
 
