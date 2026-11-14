@@ -51,6 +51,9 @@ public struct LinkNotificationContent: Equatable, Sendable {
     /// Focus modes as a Time Sensitive notification; it would otherwise time out unseen.
     /// Needs items and notifications have no deadline and stay ordinary.
     public var timeSensitive: Bool = false
+    /// No sound and no screen wake: the notification of a closed request, which only
+    /// replaces what was on screen.
+    public var passive: Bool = false
 }
 
 /// What the phone shows for a request: the same facts as the Mac panel, in the same
@@ -299,6 +302,53 @@ public enum LinkPresentation {
             threadIdentifier: pairingId,
             requestId: request.requestId,
             timeSensitive: hasDeadline(request.request.prompt)
+        )
+    }
+
+    /// The category of a closed request's notification. It has no actions, so a stale
+    /// Approve can never remain. The relay's closed alert push names the same one.
+    public static let closedCategory = "stew.closed"
+
+    /// How a closed request's notification names the phone that shows it.
+    public static let thisPhone = "this iPhone"
+
+    /// One line for how a request ended, in the notification that replaces its own.
+    public static func closedLine(_ resolved: LinkResolved, macName: String, canAnswerLate: Bool = false) -> String {
+        let phone = resolved.answeredHere == true ? thisPhone : resolved.answeredOn
+        switch resolved.outcome {
+        case .approved, .denied, .answered:
+            // A Mac from before `answeredOn` does not say which phone answered.
+            return phone.map { "\(resolved.outcome.label) on \($0)" } ?? resolved.outcome.label
+        case .done:
+            return phone.map { "Marked done on \($0)" } ?? "Marked done"
+        case .answeredOnMac:
+            return "Answered on \(macName)"
+        case .timedOut:
+            return canAnswerLate ? "Timed out. Open stew to answer late." : "Timed out"
+        case .dismissed:
+            return "Dismissed on \(macName)"
+        case .later:
+            return "Waiting for you to enter it later"
+        case .resolvedByClaude, .answeredInSession, .movedOn:
+            return resolved.outcome.label
+        }
+    }
+
+    /// The notification that replaces a request's own once it is closed: the same title
+    /// and subtitle, how it ended, no actions, and passive, so it makes no sound. Without
+    /// the request (the phone never opened it) the title is "stew".
+    public static func closedNotification(_ resolved: LinkResolved, request: LinkRequest?, macName: String, pairingId: String) -> LinkNotificationContent {
+        let original = request.map { notification(for: $0, pairingId: pairingId) }
+        let lateAnswerPossible = resolved.outcome == .timedOut && request.map(canAnswerLate) == true
+        return LinkNotificationContent(
+            title: original?.title ?? "stew",
+            subtitle: original?.subtitle ?? macName,
+            body: closedLine(resolved, macName: macName, canAnswerLate: lateAnswerPossible),
+            categoryIdentifier: closedCategory,
+            actions: [],
+            threadIdentifier: pairingId,
+            requestId: resolved.requestId,
+            passive: true
         )
     }
 

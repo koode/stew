@@ -167,6 +167,7 @@ func waitPush(_ values: [String: String]) throws {
                 "kind": kind.rawValue,
                 "requestId": relayPush.requestId,
                 "pushType": headers["apns-push-type"] ?? "",
+                "collapseId": headers["apns-collapse-id"] ?? "",
                 "envelopeInPush": relayPush.envelope != nil,
             ]
             switch kind {
@@ -194,6 +195,24 @@ func waitPush(_ values: [String: String]) throws {
                 let resolved = try channel.open(envelope, as: LinkResolved.self, replay: &replay)
                 output["outcome"] = resolved.outcome.rawValue
                 output["label"] = resolved.outcome.label
+                output["answeredOn"] = resolved.answeredOn ?? ""
+                output["answeredHere"] = resolved.answeredHere ?? false
+                // What the notification extension puts in place of the request's notification.
+                let aps = payload["aps"] as? [String: Any] ?? [:]
+                output["priority"] = headers["apns-priority"] ?? ""
+                output["interruptionLevel"] = aps["interruption-level"] ?? ""
+                output["apsCategory"] = aps["category"] ?? ""
+                output["hasSound"] = aps["sound"] != nil
+                let closed = LinkPresentation.closedNotification(
+                    resolved,
+                    request: state.requests[resolved.requestId],
+                    macName: state.pairing.displayName,
+                    pairingId: state.pairing.code.pairingId
+                )
+                output["closedTitle"] = closed.title
+                output["closedBody"] = closed.body
+                output["closedCategory"] = closed.categoryIdentifier ?? ""
+                output["closedActions"] = closed.actions.map(\.identifier)
             case .unpair:
                 output["reason"] = try channel.open(envelope, as: LinkUnpair.self, replay: &replay).reason
             case .hello, .answer, .result:

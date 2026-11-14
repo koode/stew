@@ -453,9 +453,17 @@ final class PhoneLink: ObservableObject {
     private func resolve(_ requestId: String, pairingIds: Set<String>, outcome: LinkOutcome, answering: String?) {
         recentlyResolved[requestId] = (outcome, answering, Date())
         guard let store else { return }
+        // Each phone's notification says which phone answered, and "this iPhone" on that one.
+        let answeredOn = answering.flatMap { answeringId in paired.first { $0.pairingId == answeringId }?.phoneName ?? "iPhone" }
         for pairing in paired where pairingIds.contains(pairing.pairingId) {
+            let resolved = LinkResolved(
+                requestId: requestId,
+                outcome: outcome,
+                answeredOn: answeredOn,
+                answeredHere: answering == nil ? nil : answering == pairing.pairingId
+            )
             guard let channel = try? pairing.channel(identity: store.identity),
-                  let envelope = try? channel.seal(LinkResolved(requestId: requestId, outcome: outcome), kind: .resolved, requestId: requestId, expiresAt: Date().addingTimeInterval(Self.recentLifetime)) else { continue }
+                  let envelope = try? channel.seal(resolved, kind: .resolved, requestId: requestId, expiresAt: Date().addingTimeInterval(Self.recentLifetime)) else { continue }
             connections[pairing.pairingId]?.send(envelope)
         }
     }

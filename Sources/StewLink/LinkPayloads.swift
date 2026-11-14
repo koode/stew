@@ -194,11 +194,18 @@ public struct LinkResolved: Codable, Equatable, Sendable {
     public var requestId: String
     public var outcome: LinkOutcome
     public var resolvedAt: Date
+    /// The name of the phone that answered, as the Mac knows it. Nil when the Mac
+    /// answered, the request ended without an answer, or the Mac is older.
+    public var answeredOn: String?
+    /// True in the copy for the phone that answered, so it says "this iPhone".
+    public var answeredHere: Bool?
 
-    public init(requestId: String, outcome: LinkOutcome, resolvedAt: Date = Date()) {
+    public init(requestId: String, outcome: LinkOutcome, resolvedAt: Date = Date(), answeredOn: String? = nil, answeredHere: Bool? = nil) {
         self.requestId = requestId
         self.outcome = outcome
         self.resolvedAt = resolvedAt
+        self.answeredOn = answeredOn
+        self.answeredHere = answeredHere
     }
 }
 
