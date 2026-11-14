@@ -174,6 +174,16 @@ enum Daemon {
                     coordinator.onInstallUpdate?()
                 }
             }
+            menuBar.historyEntries = { coordinator.history?.read() ?? [] }
+            let popover = menuBar.popover.model
+            popover.onOpenNeeds = menuBar.onOpenNeeds
+            popover.onOpenEntry = { entryID in coordinator.openHistory(missedOnly: false, select: entryID) }
+            popover.onHistory = menuBar.onHistory
+            popover.onSettings = menuBar.onSettings
+            popover.onPause = menuBar.onPause
+            popover.onResume = menuBar.onResume
+            popover.onUpdate = menuBar.onUpdate
+            popover.onSeen = { coordinator.historySeen() }
             coordinator.onMenuBarChange = { state in menuBar.update(state) }
             awayWatcher.start { awaySince in coordinator.userReturned(awaySince: awaySince) }
         }

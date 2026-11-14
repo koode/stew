@@ -13,11 +13,16 @@ final class PauseModel: ObservableObject {
     }
 }
 
-/// The stew item in the menu bar: the app icon with what waits on the user, and a menu
-/// for the open needs items, History, Settings, the pause and a waiting update.
+/// The stew item in the menu bar: the app icon with what waits on the user. A click
+/// opens the popover with the open needs items and the recent requests; a right-click or
+/// control-click opens the menu for the open needs items, History, Settings, the pause
+/// and a waiting update.
 final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var state = MenuBarState()
+    let popover = MenuBarPopoverController()
+    /// The history for the popover, read when it opens.
+    var historyEntries: () -> [HistoryEntry] = { [] }
     var onOpenNeeds: (String) -> Void = { _ in }
     var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
@@ -28,7 +33,9 @@ final class MenuBarController: NSObject {
 
     func update(_ state: MenuBarState) {
         self.state = state
+        popover.model.state = state
         guard state.isVisible else {
+            popover.close()
             if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
             statusItem = nil
             return
@@ -40,8 +47,28 @@ final class MenuBarController: NSObject {
             button.imagePosition = .imageOnly
             button.title = ""
             button.toolTip = StatusIcon.description(of: state)
+            button.target = self
+            button.action = #selector(clicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        item.menu = menu(for: state)
+    }
+
+    @objc private func clicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            popover.close()
+            showMenu()
+        } else {
+            popover.toggle(from: sender, entries: historyEntries())
+        }
+    }
+
+    /// The menu opens the way a status item's own menu does, under the item.
+    private func showMenu() {
+        guard let statusItem else { return }
+        statusItem.menu = menu(for: state)
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     private func menu(for state: MenuBarState) -> NSMenu {

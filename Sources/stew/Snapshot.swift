@@ -92,6 +92,7 @@ enum Snapshot {
         }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         MenuBarSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
+        PopoverSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
     }
 

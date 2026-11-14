@@ -1,5 +1,35 @@
-import Foundation
+import AppKit
+import SwiftUI
 import StewCore
+
+/// The menu bar popover for `stew snapshot`, drawn offscreen like the menu.
+enum PopoverSnapshot {
+    static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
+        let sample = HistorySample.make()
+        let seen = sample.entries.filter { !$0.answerableLater || $0.late != nil }
+        let needs = [
+            NeedsItem(id: "3f9a1c2e", created: Date(), session: SessionInfo(name: "release", cwd: "~/code/web-app"), needs: NeedsRequest(title: "Log in to npm so I can publish 2.4.0")),
+            NeedsItem(id: "7b2d4e9f", created: Date(), session: SessionInfo(name: "mobile-app", cwd: "~/code/mobile-app"), needs: NeedsRequest(title: "Approve the build in App Store Connect")),
+        ]
+        let states: [(String, MenuBarState, [HistoryEntry], Bool, Set<UUID>)] = [
+            ("menubar-popover", MenuBarState(), seen, false, []),
+            ("menubar-popover-missed", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, false, sample.unseen),
+            ("menubar-popover-missed-only", MenuBarState(openNeeds: needs, missedCount: 2), sample.entries, true, sample.unseen),
+            ("menubar-popover-paused", MenuBarState(missedCount: 2, pausedUntil: Date().addingTimeInterval(42 * 60)), sample.entries, false, sample.unseen),
+            ("menubar-popover-update", MenuBarState(update: .ready("0.2.0")), seen, false, []),
+            ("menubar-popover-empty", MenuBarState(), [], false, []),
+        ]
+        for (name, state, entries, missedOnly, unseen) in states {
+            for dark in [false, true] {
+                let model = MenuBarPopoverModel()
+                model.showSample(state: state, entries: entries, missedOnly: missedOnly, unseen: unseen)
+                let path = "\(directory)/\(name)-\(dark ? "dark" : "light").png"
+                write(AnyView(MenuBarPopoverView(model: model).background(Color(nsColor: .windowBackgroundColor))), dark, path)
+                print(path)
+            }
+        }
+    }
+}
 
 /// Sample history for `stew snapshot`: one of each kind of request and ending, built
 /// the way the daemon records them.
