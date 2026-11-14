@@ -9,6 +9,8 @@ STEW="${STEW:-$ROOT/.build/debug/stew}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK="$(mktemp -d "${TMP_ROOT%/}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e" STEW_CACHE="$WORK/cache" STEW_STUB_LOG="$WORK/claude-stub.log"
+# Until I'm back begins 2 seconds after it is chosen, not a minute.
+export STEW_PAUSE_ARMING=2
 # Run from inside Claude Code, requests would carry that session's id; tests set their own.
 unset CLAUDE_CODE_SESSION_ID
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
@@ -814,7 +816,9 @@ expect "uninstall keeps only the other Stop hook" "$(python3 -c 'import json,sys
 # notifications and needs items still arrive, and needs items wait in the menu bar
 control history > /dev/null
 expect "opening History marks missed requests seen" "$(control menu)" "visible=true count=0 dot=false paused=false"
-expect "menu without anything waiting" "$(control menu)" "paused=false | History… | Settings… | - | Pause stew for 1 hour | - | Hide menu bar icon"
+menu=$(control menu)
+expect "menu without anything waiting" "$menu" "paused=false | History… | Settings… | - | Pause stew ▸ {For 1 hour; For 2 hours; Until "
+expect "the pause submenu ends with until back" "$menu" "; Until I'm back} | - | Hide menu bar icon"
 # The history keeps whole seconds: what follows ends after the second History opened.
 sleep 1
 out=$("$STEW" pause 0 2>&1); code=$?
@@ -887,6 +891,61 @@ expect "pause is back after a restart" "$(control menu)" "paused=true"
 expect "daemon-state.json is private" "$(stat -f %Lp "$WORK/daemon-state.json")" "600"
 "$STEW" resume > /dev/null
 expect "resumed" "$(control menu)" "paused=false"
+
+# stew pause --until HH:MM: until the next time the clock shows it, two hours from now.
+out=$("$STEW" pause --until 25:00 2>&1); code=$?
+expect "--until refuses a time that does not exist" "$code$out" "64stew: --until takes a local time: 08:00, 8:00, 20:30, 8am, 8 am, 8:30pm, 12am (midnight) or 12pm (noon)"
+out=$("$STEW" pause --until 13pm 2>&1); code=$?
+expect "--until refuses 13pm" "$code" "64"
+expect "midnight has passed today, so it means tomorrow" "$("$STEW" pause --until 12am)" " tomorrow. "
+"$STEW" resume > /dev/null
+out=$("$STEW" pause 30 --until-back 2>&1); code=$?
+expect "pause takes one way to end" "$code$out" "64stew: pause takes MINUTES, --until HH:MM or --until-back, only one of them"
+expect "pause --help names --until-back" "$("$STEW" pause --help)" "--until-back"
+expect "pause --until replies until when" "$("$STEW" pause --until "$(date -v+2H +%H:%M)")" "stew is paused until"
+expect "the menu shows the end" "$(control menu)" "paused=true | (Paused until "
+out=$("$STEW" permit --action "Deploy until the morning" --reason "release"); code=$?
+expect "the note names the clock time" "$out$code" "or ask again after stew resumes at "
+"$STEW" resume > /dev/null
+expect "resume sums up the pause until a time" "$(control title)" "1 request timed out while you were away"
+control press approve > /dev/null
+
+# stew pause --until-back: begins after the arming delay (STEW_PAUSE_ARMING, 2 s here),
+# then ends at the first input. Input in the arming delay does not end it.
+expect "--until-back replies when it begins" "$("$STEW" pause --until-back)" "stew pauses in 0:0"
+menu=$(control menu)
+expect "the menu counts down" "$menu" "paused=false | (Pausing in 0:0"
+expect "the menu offers to cancel" "$menu" "Cancel pause"
+control input > /dev/null
+expect "input in the arming delay leaves it" "$(control menu)" "(Pausing in 0:0"
+sleep 2.5
+menu=$(control menu)
+expect "the pause began" "$menu" "paused=true | (Paused until you're back)"
+expect "the menu offers resume while armed" "$menu" "Resume stew"
+out=$(CLAUDE_CODE_SESSION_ID=paused-2 "$STEW" permit --action "Deploy while away" --reason "release"); code=$?
+expect "the note says stew resumes when the user is back" "$out$code" "or ask again after stew resumes when the user is back."
+control input > /dev/null
+expect "input ends it" "$(control menu)" "paused=false | History…"
+expect "coming back shows what timed out" "$(control title)" "1 request timed out while you were away"
+control press approve > /dev/null
+
+# Locking the screen begins it at once; unlocking ends it. Input while locked does not.
+# The history keeps whole seconds: the next pause begins after the timeout above.
+sleep 1
+"$STEW" pause --until-back > /dev/null
+control screen locked > /dev/null
+expect "locking the screen begins it" "$(control menu)" "paused=true | (Paused until you're back)"
+control input > /dev/null
+expect "input on a locked screen leaves it" "$(control menu)" "paused=true"
+control screen unlocked > /dev/null
+expect "unlocking ends it" "$(control menu)" "paused=false"
+expect "nothing timed out while locked" "$(control state)" "items=0"
+
+# Cancel in the arming delay: nothing paused, nothing to sum up.
+"$STEW" pause --until-back > /dev/null
+expect "resume cancels it before it begins" "$("$STEW" resume)" "pause canceled"
+expect "canceled" "$(control menu)" "paused=false | History…"
+expect "no summary after a cancel" "$(control state)" "items=0"
 
 # Show in menu bar off: the item shows only while a needs item is open.
 set_config ',"menuBar":false'

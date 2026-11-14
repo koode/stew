@@ -46,12 +46,15 @@ USAGE
       Open the settings window on the history of finished requests. --missed
       shows only those that timed out, and secrets the user chose to enter later.
       --json prints them as a JSON array instead.
-  stew pause [MINUTES]
-      Pause stew for MINUTES (default 60, at most 1440) while the user is away:
-      permission requests, questions and inputs time out at once, and Claude is
-      told the user paused stew. Notifications and needs items still arrive.
-      Pausing again moves the end; the pause ends by itself.
-  stew resume        End a pause now.
+  stew pause [MINUTES] | --until HH:MM | --until-back
+      Pause stew while the user is away: permission requests, questions and
+      inputs time out at once, and Claude is told the user paused stew.
+      Notifications and needs items still arrive. The pause lasts MINUTES
+      (default 60, at most 1440), or until the next HH:MM local time with
+      --until. --until-back pauses after 1 minute, then until the first
+      keyboard or mouse input or until the screen is unlocked. Pausing again
+      replaces how the pause ends.
+  stew resume        End a pause now, or cancel one that has not begun.
   stew hooks install|uninstall|status
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json; a backup is written first).
@@ -113,6 +116,7 @@ struct Arguments {
         case "input": booleanFlags.union(["secret", "multiline"])
         case "setup": booleanFlags.union(["with-hooks", "no-skill", "no-completions"])
         case "uninstall": booleanFlags.union(["keep-app"])
+        case "pause": booleanFlags.union(["until-back"])
         default: booleanFlags
         }
     }
@@ -427,14 +431,13 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         print(Client.sendControl("stop") ?? "daemon not running")
 
     case "pause":
-        guard arguments.positional.count <= 1 else { throw UsageError("pause takes one number of minutes") }
-        let minutes: Int
+        let choice: PauseChoice
         do {
-            minutes = try PauseState.minutes(from: arguments.positional.first)
+            choice = try PauseChoice.parse(positional: arguments.positional, until: arguments.options["until"], untilBack: arguments.flags.contains("until-back"))
         } catch {
             throw UsageError("\(error)")
         }
-        guard let reply = Client.sendControl("pause \(minutes)", startDaemon: true) else {
+        guard let reply = Client.sendControl("pause \(choice.controlArgument)", startDaemon: true) else {
             FileHandle.standardError.write(Data("stew: could not reach the daemon\n".utf8))
             exit(4)
         }

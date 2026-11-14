@@ -92,7 +92,10 @@ public enum CommandTable {
             flag("missed", "Only timeouts and secrets to enter later"),
             flag("json", "Print them as a JSON array"),
         ]),
-        command("pause", "Time out requests at once while you are away", argument: .text),
+        command("pause", "Time out requests at once while you are away", options: [
+            option("until", "Pause until this local time, as HH:MM"),
+            flag("until-back", "Pause until the next keyboard or mouse input, after 1 minute"),
+        ], argument: .text),
         command("resume", "End a pause now"),
         command("hooks", "Ask in stew when auto mode blocks a call", subcommands: [
             command("install", "Add the hooks to Claude Code"),
