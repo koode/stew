@@ -174,7 +174,7 @@ All paths start with `/v1/pairings/{pairingId}`. The relay keeps one Durable Obj
 |---|---|
 | mac `request` | Stores it as pending, sends an alert push. 202, or 409 `no_device` |
 | mac `update` | Replaces the pending copy, sends a background push. 202 |
-| mac `resolved` | Drops the pending copy, keeps the envelope for an hour, sends a background push. 202 |
+| mac `resolved` | Drops the pending copy, keeps the envelope for an hour. Sends a closed alert push when the request was pending (so its alert went out), else a background push. 202 |
 | mac `result` | Hands it to the phone's waiting answer with that `replyTo`. 202 |
 | mac `unpair` | Sends a background push, then deletes the pairing. 202 |
 | phone `answer` | Sends `{"type":"envelope","envelope":…}` on the Mac's socket and waits up to 10 seconds for the result. 200 `{result: envelope}`, 503 `mac_offline`, 504 `mac_timeout` |
@@ -194,6 +194,19 @@ Alert push, for `request`:
 
 Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: <expiresAt>`, `apns-collapse-id: <requestId>`. When the payload would exceed 4 KB, `envelope` is left out and the notification extension fetches it from `GET /pending`.
 
-Background push, for `update`, `resolved` and `unpair`: `{"aps":{"content-available":1},"stew":{…}}` with `apns-push-type: background` and `apns-priority: 5`.
+Closed alert push, for `resolved` of a request that was pending:
+
+```json
+{ "aps": { "alert": { "title": "stew", "body": "This request is closed." },
+           "mutable-content": 1, "interruption-level": "passive", "category": "stew.closed",
+           "thread-id": "<pairingId>" },
+  "stew": { "pairingId": "…", "requestId": "…", "kind": "resolved", "envelope": { … } } }
+```
+
+Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: <expiresAt>`, `apns-collapse-id: <requestId>`. The collapse id is the request's, so iOS replaces the request's notification with this one: no sound, no screen wake, and a category without actions, so a stale Approve cannot remain. The notification extension fills in the outcome ("Answered on Mac", "Timed out", "Approved on Sam's iPhone"). A `resolved` for a request that is no longer pending (a second one, or one past its expiry) gets a background push instead, so a Mac cannot make more alerts than its requests.
+
+Background push, for `update`, `unpair` and a `resolved` without a pending request: `{"aps":{"content-available":1},"stew":{…}}` with `apns-push-type: background` and `apns-priority: 5`.
+
+Background pushes are not reliable: iOS throttles them, may hold them for hours, and never delivers them to an app the user force-quit. The phone therefore does not depend on them to clear a notification. Besides the closed alert push, the notification extension removes, on every push it handles, delivered notifications of requests it knows are resolved or past their deadline, and the app does the same when it opens or comes to the foreground, after it asked the relay which requests are still open.
 
 The notification extension decrypts the envelope and replaces the generic text with the request itself. If it cannot, the generic text stays.
