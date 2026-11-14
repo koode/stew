@@ -99,8 +99,9 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     private var lastBadFrameLog = Date.distantPast
 
     static let longestBackoff: TimeInterval = 60
-    /// Sends of envelopes that failed on the way get this many more tries, with the same
-    /// envelope: a v2 relay answers a repeat with the first outcome.
+    /// Sends of envelopes the relay itself did not answer (no response, or a proxy's page)
+    /// get this many more tries, with the same envelope: a v2 relay answers a repeat with
+    /// the first outcome.
     static let sendRetries = 2
 
     init(pairingId: String, relay: String, identity: LinkIdentity) {
@@ -365,6 +366,11 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         var duplicate = false
         var ok: Bool { (200..<300).contains(status) }
         var text: String { String(decoding: body, as: UTF8.self) }
+        /// The relay's error code; act on this, not on the status.
+        var errorCode: String? { RelayErrorCode.read(body) }
+        /// No response, or a proxy's page in place of the relay's: the post may or may not
+        /// have reached the relay.
+        var noRelayReply: Bool { RelayErrorCode.noRelayReply(status: status, body: body) }
     }
 
     /// Posts JSON to a pairing call and calls back on the main queue. The body may differ by
@@ -411,7 +417,7 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         guard let body = try? LinkJSON.encode(envelope) else { return }
         post("messages", signed: false, body: { _ in body }) { [weak self] result in
             // Only v2 answers a repeat with the first outcome; v1 would refuse it as a replay.
-            if result.status == 0, retriesLeft > 0, let self, self.version == .v2, !self.stopped {
+            if result.noRelayReply, retriesLeft > 0, let self, self.version == .v2, !self.stopped {
                 let wait = TimeInterval(2 * (Self.sendRetries - retriesLeft + 1))
                 DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                     guard let self, !self.stopped else {

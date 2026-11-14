@@ -73,6 +73,65 @@ public enum RelayProbe: Equatable, Sendable {
     }
 }
 
+/// The relay's HTTP errors are JSON, `{"error": "<code>"}`. A client acts on the code, not
+/// on the status: a proxy in front of the relay may put a page of its own in place of the
+/// relay's response. Cloudflare does so for an origin's 502 and 504, so v2 uses neither,
+/// and a 5xx without a code is a proxy's page, not the relay's answer.
+public enum RelayErrorCode {
+    /// The Mac has no socket to the relay; nothing was recorded.
+    public static let macOffline = "mac_offline"
+    /// The Mac did not return a result to an answer within `answerTimeoutSeconds`.
+    public static let macTimeout = "mac_timeout"
+    public static let rateLimited = "rate_limited"
+
+    private struct Body: Decodable {
+        let error: String
+    }
+
+    /// The code in a relay error body, or nil when the body is not one.
+    public static func read(_ body: Data) -> String? {
+        try? JSONDecoder().decode(Body.self, from: body).error
+    }
+
+    /// Whether no answer from the relay itself came back: no response at all (status 0), or
+    /// a 5xx without an error code, which a proxy in front of the relay sent. The request may
+    /// or may not have reached the relay, as with a dropped connection.
+    public static func noRelayReply(status: Int, body: Data) -> Bool {
+        status == 0 || ((500..<600).contains(status) && read(body) == nil)
+    }
+}
+
+/// What a phone's answer got back when it was not the Mac's result, read by error code.
+public enum RelayAnswerRefusal: Equatable, Sendable {
+    /// `mac_offline`: nothing was recorded, so the very same answer may go again.
+    case macOffline
+    /// `mac_timeout`: the answer is queued for the Mac, which did not return a result in
+    /// time. On v2 the very same envelope sent again waits again, and gets a late result.
+    case macTimeout
+    /// `rate_limited`: wait the seconds of Retry-After.
+    case rateLimited
+    /// No answer from the relay itself (see `RelayErrorCode.noRelayReply`): treat it like a
+    /// dropped connection.
+    case noRelayReply
+    /// Any other refusal, with the relay's code.
+    case other(code: String?)
+
+    public static func read(status: Int, body: Data) -> RelayAnswerRefusal {
+        switch RelayErrorCode.read(body) {
+        // 503 from current relays; 504 from v1 and from v2 relays before mac_timeout moved to 503.
+        case RelayErrorCode.macTimeout: return .macTimeout
+        case RelayErrorCode.macOffline: return .macOffline
+        case RelayErrorCode.rateLimited: return .rateLimited
+        case let code?: return .other(code: code)
+        case nil:
+            // Cloudflare's page in place of the 504 mac_timeout of a v2 relay from before the
+            // move to 503. Drop this once such relays have been gone for a TestFlight cycle.
+            if status == 504 { return .macTimeout }
+            return RelayErrorCode.noRelayReply(status: status, body: body) ? .noRelayReply : .other(code: nil)
+        }
+    }
+}
+
 extension RelayAuth {
     /// The scheme of the v2 `authorization` header.
     public static let scheme = "Stew-Ed25519"

@@ -140,6 +140,34 @@ struct RelayProtocolTests {
         #expect(RelayReconnect.afterRefusal(status: 500, retryAfter: nil) == .backoff)
     }
 
+    @Test func errorCodesComeFromTheBodyNotTheStatus() {
+        #expect(RelayErrorCode.read(Data("{\"error\":\"mac_timeout\"}".utf8)) == "mac_timeout")
+        #expect(RelayErrorCode.read(Data("<html>504: Gateway time-out</html>".utf8)) == nil)
+        #expect(RelayErrorCode.read(Data()) == nil)
+        #expect(RelayErrorCode.noRelayReply(status: 0, body: Data()))
+        #expect(RelayErrorCode.noRelayReply(status: 502, body: Data("<html>Bad gateway</html>".utf8)))
+        #expect(RelayErrorCode.noRelayReply(status: 522, body: Data()))
+        #expect(!RelayErrorCode.noRelayReply(status: 500, body: Data("{\"error\":\"internal_error\"}".utf8)))
+        #expect(!RelayErrorCode.noRelayReply(status: 404, body: Data()))
+    }
+
+    @Test func answerRefusalsAreReadByCode() {
+        let timeout = Data("{\"error\":\"mac_timeout\"}".utf8)
+        let page = Data("<!DOCTYPE html><title>stewcli.com | 504: Gateway time-out</title>".utf8)
+        #expect(RelayAnswerRefusal.read(status: 503, body: timeout) == .macTimeout)
+        #expect(RelayAnswerRefusal.read(status: 503, body: Data("{\"error\":\"mac_offline\"}".utf8)) == .macOffline)
+        #expect(RelayAnswerRefusal.read(status: 429, body: Data("{\"error\":\"rate_limited\"}".utf8)) == .rateLimited)
+        #expect(RelayAnswerRefusal.read(status: 409, body: Data("{\"error\":\"replayed\"}".utf8)) == .other(code: "replayed"))
+        // v1 relays, and v2 relays before mac_timeout moved to 503, answer 504; behind
+        // Cloudflare that 504 arrives as Cloudflare's page.
+        #expect(RelayAnswerRefusal.read(status: 504, body: timeout) == .macTimeout)
+        #expect(RelayAnswerRefusal.read(status: 504, body: page) == .macTimeout)
+        // A 503 is not mac_offline by its status alone.
+        #expect(RelayAnswerRefusal.read(status: 503, body: Data()) == .noRelayReply)
+        #expect(RelayAnswerRefusal.read(status: 502, body: page) == .noRelayReply)
+        #expect(RelayAnswerRefusal.read(status: 429, body: Data()) == .other(code: nil))
+    }
+
     @Test func claimBodiesDifferByVersion() throws {
         let identity = LinkIdentity()
         let code = PairingCode.generate(relay: "https://relay.example.com", macName: "Studio", macKeys: identity.publicKeys)

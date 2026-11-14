@@ -325,7 +325,15 @@ func answer(_ values: [String: String]) throws {
     let envelope = try channel.seal(answer, kind: .answer, requestId: requestId, expiresAt: max(expires, Date().addingTimeInterval(60)))
     let (status, body) = try http("POST", try pairingURL(state.pairing, "messages"), body: try LinkJSON.encode(envelope))
     guard status == 200 else {
-        printJSON(["accepted": false, "status": status, "error": String(decoding: body, as: UTF8.self)])
+        // The refusal by error code, as the app reads it; the status alone may be a proxy's.
+        let refusal: String = switch RelayAnswerRefusal.read(status: status, body: body) {
+        case .macOffline: RelayErrorCode.macOffline
+        case .macTimeout: RelayErrorCode.macTimeout
+        case .rateLimited: RelayErrorCode.rateLimited
+        case .noRelayReply: "no_relay_reply"
+        case .other(let code): code ?? "unknown"
+        }
+        printJSON(["accepted": false, "status": status, "refusal": refusal, "error": String(decoding: body, as: UTF8.self)])
         exit(6)
     }
     let reply = try LinkJSON.decode(RelayAnswerReply.self, from: body)

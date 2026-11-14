@@ -151,7 +151,7 @@ final class PhoneLink: ObservableObject {
                 switch result.status {
                 case 0: self.pairingError = "Cannot reach the relay at \(relay)."
                 case 426: self.pairingError = "The relay at \(relay) needs a newer stew. Update stew, then pair again."
-                default: self.pairingError = "The relay at \(relay) refused the pairing (\(result.status))."
+                default: self.pairingError = "The relay at \(relay) refused the pairing (\(result.errorCode ?? String(result.status)))."
                 }
                 return
             }
