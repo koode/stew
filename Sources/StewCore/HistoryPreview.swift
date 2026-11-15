@@ -9,6 +9,7 @@ extension StewRequest {
         switch prompt {
         case .permission(var permission):
             permission.command = permission.command.map { CommandText.masked($0) }
+            permission.blocked = permission.blocked?.forHistory
             copy.prompt = .permission(permission)
         case .input(var input):
             input.question = CommandText.masked(input.question)

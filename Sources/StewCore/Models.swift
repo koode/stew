@@ -368,14 +368,23 @@ public struct RiskAssessment: Codable, Equatable, Sendable {
     public var severity: Severity?
     /// One line on whether and how the action can be undone.
     public var reversibility: String?
+    /// The shortest part of the command that carries the risk, copied exactly from it, so
+    /// the panel can point at it in a long command. Nil when none does.
+    public var riskyPart: String?
 
-    public init(verdict: Verdict, risk: Level, rule: String?, summary: String, severity: Severity? = nil, reversibility: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case verdict, risk, rule, summary, severity, reversibility
+        case riskyPart = "risky_part"
+    }
+
+    public init(verdict: Verdict, risk: Level, rule: String?, summary: String, severity: Severity? = nil, reversibility: String? = nil, riskyPart: String? = nil) {
         self.verdict = verdict
         self.risk = risk
         self.rule = rule
         self.summary = summary
         self.severity = severity
         self.reversibility = reversibility
+        self.riskyPart = riskyPart
     }
 
     /// The reversibility line as the panel and the phone show it, or nil when empty.

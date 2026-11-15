@@ -4,7 +4,7 @@ import Foundation
 /// The check runs `claude -p` with the user's effective auto mode rules as policy.
 public enum RiskCheck {
     public static let schema = """
-    {"type":"object","properties":{"verdict":{"type":"string","enum":["allow","soft_deny","hard_deny"]},"risk":{"type":"string","enum":["low","medium","high"]},"rule":{"type":["string","null"]},"summary":{"type":"string"},"severity":{"type":"string","enum":["low","medium","high","critical"]},"reversibility":{"type":"string"}},"required":["verdict","risk","rule","summary","severity","reversibility"],"additionalProperties":false}
+    {"type":"object","properties":{"verdict":{"type":"string","enum":["allow","soft_deny","hard_deny"]},"risk":{"type":"string","enum":["low","medium","high"]},"rule":{"type":["string","null"]},"summary":{"type":"string"},"severity":{"type":"string","enum":["low","medium","high","critical"]},"reversibility":{"type":"string"},"risky_part":{"type":["string","null"]}},"required":["verdict","risk","rule","summary","severity","reversibility","risky_part"],"additionalProperties":false}
     """
 
     /// One worked example for the severity rubric in the prompt.
@@ -48,7 +48,11 @@ public enum RiskCheck {
         - An allow rule is an exception that lets an action through.
         - Use the environment section to decide what is trusted (repos, domains, buckets).
 
-        Judge only the given action, with the given working directory and the user's recent messages as context. Your own working directory and session are not the agent's: ignore them. Set "rule" to the name of the deciding rule (the text before its colon), or null when no rule applies. Write "summary" for the user in at most two short sentences, 40 words maximum: say what the command does that matters, and to which target. No advice to the agent.
+        Judge only the given action, with the given working directory and the user's recent messages as context. Your own working directory and session are not the agent's: ignore them. Set "rule" to the name of the deciding rule (the text before its colon), or null when no rule applies. Write "summary" for the user in at most two short sentences, 40 words maximum: say what the command does that matters, and to which target. When the risky part is something the user's recent messages did not ask for, say so. No advice to the agent.
+
+        Set "risky_part" to the shortest part of the command that carries the risk, copied character for character from the command, such as "git checkout -q -- ." or "dropdb \"$db\"". Use null when nothing in the command is risky, or when there is no command.
+
+        "git_status", when present, is `git status --porcelain --branch` for the working directory: the branch, then one line per changed or untracked file. Use it to say which uncommitted work a command would lose, and how many files. "auto_mode_blocked", when present, means Claude Code's auto mode already blocked this call under that rule: the user wants to know why, so make the summary name what in the command falls under that rule.
 
         Separately from the verdict, set "severity" to how bad it is if the action runs, judged by what the action itself does: how hard it is to undo, and whether it reaches other people or the outside world. Do not raise it for how sensitive the data it touches is: the user approves each action, so reading a secret on this machine is low or medium. It becomes high or critical only when the action also sends the secret somewhere outside (an unknown host, a post, a public repo) or uses it to do something irreversible.
         - low: local and easily undone.
@@ -70,20 +74,27 @@ public enum RiskCheck {
         public var reason: String
         public var cwd: String?
         public var recentUserMessages: [String]
+        /// The auto mode category of a call that auto mode already blocked.
+        public var autoModeBlocked: String?
+        public var gitStatus: String?
 
         enum CodingKeys: String, CodingKey {
             case action, command, reason, cwd
             case recentUserMessages = "recent_user_messages"
+            case autoModeBlocked = "auto_mode_blocked"
+            case gitStatus = "git_status"
         }
     }
 
-    public static func input(for permission: PermissionRequest, session: SessionInfo, recentUserMessages: [String]) throws -> String {
+    public static func input(for permission: PermissionRequest, session: SessionInfo, recentUserMessages: [String], gitStatus: String? = nil) throws -> String {
         let input = Input(
             action: permission.action,
             command: permission.command,
             reason: permission.reason,
             cwd: session.cwd,
-            recentUserMessages: recentUserMessages
+            recentUserMessages: recentUserMessages,
+            autoModeBlocked: permission.blocked.map { $0.category ?? $0.reason },
+            gitStatus: gitStatus
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -112,6 +123,34 @@ public enum RiskCheck {
         } catch {
             throw CheckError(description: "unexpected verdict shape")
         }
+    }
+
+    /// `git status --porcelain --branch` output for the check: the branch line and at most
+    /// `maxFiles` file lines, then a count of the rest. Nil when there is nothing to say.
+    public static func gitStatus(porcelain: String, maxFiles: Int = 40) -> String? {
+        let lines = porcelain.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard !lines.isEmpty else { return nil }
+        let branch = lines.first(where: { $0.hasPrefix("## ") })
+        let files = lines.filter { !$0.hasPrefix("## ") }
+        var kept = (branch.map { [$0] } ?? []) + files.prefix(maxFiles)
+        if files.count > maxFiles { kept.append("… and \(files.count - maxFiles) more files") }
+        if files.isEmpty { kept.append("(no uncommitted changes)") }
+        return kept.joined(separator: "\n")
+    }
+
+    /// The risky part only when it is really in the command, so the panel never points at
+    /// text the model made up. Nil for an empty part or one the command does not contain.
+    public static func riskyPart(_ part: String?, in command: String?) -> String? {
+        guard let part = part?.trimmingCharacters(in: .whitespacesAndNewlines), !part.isEmpty,
+              let command, command.contains(part) else { return nil }
+        return part
+    }
+
+    /// The risky part worth pointing at: nil when it is the whole command, since marking
+    /// all of it only repeats the command.
+    public static func partToPoint(_ part: String?, in command: String?) -> String? {
+        guard let part, let command else { return nil }
+        return part.trimmingCharacters(in: .whitespacesAndNewlines) == command.trimmingCharacters(in: .whitespacesAndNewlines) ? nil : part
     }
 
     /// The user's last messages in a Claude Code transcript (JSONL), oldest first.

@@ -355,6 +355,8 @@ struct SectionLabel: View {
 
 struct CommandBox: View {
     let command: String
+    /// The part the risk check found risky, marked where it sits in the command.
+    var highlight: String? = nil
     @State private var revealed = false
     @Environment(\.panelTextWidth) private var textWidth
 
@@ -373,7 +375,7 @@ struct CommandBox: View {
     }
 
     private func box(_ command: String) -> some View {
-        let text = Text(command)
+        let text = Text(marked(command))
             .font(.system(size: 12, design: .monospaced))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,10 +390,28 @@ struct CommandBox: View {
         }
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
+
+    /// Every place the risky part appears. With secrets hidden it may not match; then
+    /// nothing is marked.
+    private func marked(_ command: String) -> AttributedString {
+        var attributed = AttributedString(command)
+        guard let highlight, !highlight.isEmpty else { return attributed }
+        var searchStart = attributed.startIndex
+        while searchStart < attributed.endIndex,
+              let range = attributed[searchStart...].range(of: highlight) {
+            attributed[range].backgroundColor = Tone.orange.color.opacity(0.3)
+            searchStart = range.upperBound
+        }
+        return attributed
+    }
 }
 
 struct RiskBanner: View {
     let state: RiskState
+    /// stew's own check of a blocked call is still running.
+    var explaining = false
+    /// The command the risky part comes from.
+    var command: String? = nil
 
     var body: some View {
         switch state {
@@ -402,17 +422,29 @@ struct RiskBanner: View {
         case .failed(let reason):
             banner(tint: Ink.secondary, symbol: "questionmark.diamond", title: "Risk check unavailable", detail: reason)
         case .blocked(let blocked):
-            banner(
-                tint: blocked.hardDeny ? Tone.red.color : Tone.orange.color,
-                symbol: blocked.hardDeny ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
-                title: ["Auto mode blocked this", blocked.category].compactMap { $0 }.joined(separator: " · "),
-                detail: blocked.hardDeny
-                    ? "This rule blocks even when you ask. Approving lets Claude retry this exact call once."
-                    : "Approving lets Claude retry this exact call once."
-            )
+            let red = blocked.hardDeny || blocked.explanation?.severity == .critical
+            let retry = blocked.hardDeny
+                ? "This rule blocks even when you ask. Approving lets Claude retry this exact call once."
+                : "Approving lets Claude retry this exact call once."
+            let title = ["Auto mode blocked this", blocked.category].compactMap { $0 }.joined(separator: " · ")
+            if let explanation = blocked.explanation {
+                banner(
+                    tint: red ? Tone.red.color : Tone.orange.color,
+                    symbol: red ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
+                    title: title, detail: explanation.summary, severity: explanation.severity,
+                    reversibility: explanation.reversibilityLine, riskyPart: RiskCheck.partToPoint(explanation.riskyPart, in: command), footnote: retry
+                )
+            } else {
+                banner(
+                    tint: red ? Tone.red.color : Tone.orange.color,
+                    symbol: red ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
+                    title: title, detail: retry,
+                    footnote: explaining ? "Checking what in this call is risky…" : nil
+                )
+            }
         case .done(let assessment):
             let look = Look(assessment)
-            banner(tint: look.tint, symbol: look.symbol, title: title(look.title, assessment), detail: assessment.summary, severity: assessment.severity, reversibility: assessment.reversibilityLine)
+            banner(tint: look.tint, symbol: look.symbol, title: title(look.title, assessment), detail: assessment.summary, severity: assessment.severity, reversibility: assessment.reversibilityLine, riskyPart: RiskCheck.partToPoint(assessment.riskyPart, in: command))
         }
     }
 
@@ -447,7 +479,7 @@ struct RiskBanner: View {
         return "\(base) · \(rule)"
     }
 
-    private func banner(tint: Color, symbol: String?, title: String, detail: String?, severity: Severity? = nil, reversibility: String? = nil) -> some View {
+    private func banner(tint: Color, symbol: String?, title: String, detail: String?, severity: Severity? = nil, reversibility: String? = nil, riskyPart: String? = nil, footnote: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Group {
                 if let symbol {
@@ -471,8 +503,25 @@ struct RiskBanner: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .lineLimit(5)
                 }
+                if let riskyPart {
+                    Text(riskyPart)
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(tint.opacity(0.18)))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
+                        .padding(.vertical, 2)
+                }
                 if let reversibility {
                     Text(reversibility)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Ink.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+                if let footnote {
+                    Text(footnote)
                         .font(.system(size: 11))
                         .foregroundStyle(Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -544,11 +593,11 @@ struct PermissionBody: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .help(permission.action)
             }
-            RiskBanner(state: item.risk)
+            RiskBanner(state: item.risk, explaining: item.explaining, command: permission.command)
             if let command = permission.command, !command.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     SectionLabel(text: "Command")
-                    CommandBox(command: command)
+                    CommandBox(command: command, highlight: RiskCheck.partToPoint(item.risk.riskyPart, in: command))
                 }
             }
             VStack(alignment: .leading, spacing: 4) {

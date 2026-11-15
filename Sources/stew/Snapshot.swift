@@ -178,14 +178,15 @@ enum Snapshot {
         }
     }
 
-    private static func blockedItem(command: String, description: String, reason: String) -> Item {
+    private static func blockedItem(command: String, description: String, reason: String, explanation: RiskAssessment? = nil) -> Item {
         let blocked = BlockedCall(
             toolName: "Bash",
             category: "Destructive or Unwanted Actions",
             reason: "[Destructive or Unwanted Actions]",
             hardDeny: false,
             projectRoot: "/Users/you/code/web-app",
-            suggestions: CommandText.ruleSuggestions(for: command)
+            suggestions: CommandText.ruleSuggestions(for: command),
+            explanation: explanation
         )
         let item = Item(
             request: StewRequest(
@@ -286,7 +287,39 @@ enum Snapshot {
             coordinator.show(blockedItem(
                 command: "git push --force origin main",
                 description: "Force-push the rebased main branch",
+                reason: "The rebase rewrote three commits on main, so a normal push is rejected. Force-pushing replaces the remote history with the rebased one.",
+                explanation: RiskAssessment(
+                    verdict: .softDeny, risk: .high, rule: "Git Destructive",
+                    summary: "Replaces main on origin with your local branch, so the three commits others already pulled change. You asked for a rebase, not a push to main.",
+                    severity: .high, reversibility: "Others can restore main from their own clones or the reflog.",
+                    riskyPart: "git push --force origin main"
+                )
+            ))
+        }),
+        ("auto-mode-blocked-checking", { coordinator in
+            let item = blockedItem(
+                command: "git push --force origin main",
+                description: "Force-push the rebased main branch",
                 reason: "The rebase rewrote three commits on main, so a normal push is rejected. Force-pushing replaces the remote history with the rebased one."
+            )
+            item.explaining = true
+            coordinator.show(item)
+        }),
+        ("auto-mode-blocked-long", { coordinator in
+            coordinator.show(blockedItem(
+                command: """
+                    python3 scripts/loosen_tolerance.py specs/picker.spec.ts --px 4
+                    export DB_SUFFIX=_pick && E2E_WEB_PORT=5960 pnpm --filter web e2e specs/picker.spec.ts 2>&1 | grep -E 'passed|failed' | head -5
+                    for db in $(psql -lqt | cut -d'|' -f1 | grep -E '_pick$'); do dropdb "$db"; done; git checkout -q -- .; git status --short
+                    """,
+                description: "Loosen the height check and rerun",
+                reason: "The height differs by 0.2 px, which is the popover's open animation, not a wrap. Loosening to a 4 px tolerance and re-running.",
+                explanation: RiskAssessment(
+                    verdict: .softDeny, risk: .high, rule: "Unverifiable Deletion Scope",
+                    summary: "After the test it drops every local database ending in _pick, then throws away uncommitted changes in 5 files. You asked to rerun the test, not to clean up.",
+                    severity: .high, reversibility: "The dropped databases and the discarded changes cannot be restored.",
+                    riskyPart: #"for db in $(psql -lqt | cut -d'|' -f1 | grep -E '_pick$'); do dropdb "$db"; done; git checkout -q -- ."#
+                )
             ))
         }),
         ("auto-mode-grant", { coordinator in

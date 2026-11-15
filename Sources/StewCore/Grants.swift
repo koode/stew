@@ -13,14 +13,27 @@ public struct BlockedCall: Codable, Equatable, Sendable {
     public var projectRoot: String
     /// Allow-rule candidates for a Bash command, secrets already wildcarded.
     public var suggestions: [RuleSuggestion]
+    /// stew's own risk check of the call: auto mode tells only the category, so this says
+    /// what in the call is risky. Nil while it runs, when it failed, or when it is off.
+    public var explanation: RiskAssessment?
 
-    public init(toolName: String, category: String?, reason: String, hardDeny: Bool, projectRoot: String, suggestions: [RuleSuggestion]) {
+    public init(toolName: String, category: String?, reason: String, hardDeny: Bool, projectRoot: String, suggestions: [RuleSuggestion], explanation: RiskAssessment? = nil) {
         self.toolName = toolName
         self.category = category
         self.reason = reason
         self.hardDeny = hardDeny
         self.projectRoot = projectRoot
         self.suggestions = suggestions
+        self.explanation = explanation
+    }
+
+    /// The call as History keeps it: secrets in the explanation replaced by ••••, like
+    /// the command.
+    public var forHistory: BlockedCall {
+        var copy = self
+        copy.explanation?.summary = CommandText.masked(explanation?.summary ?? "")
+        copy.explanation?.riskyPart = explanation?.riskyPart.map { CommandText.masked($0) }
+        return copy
     }
 
     /// Scopes the user can grant, in panel order: rule suggestions, then the category.

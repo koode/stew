@@ -90,7 +90,7 @@ Open Claude Code in this folder and paste:
 With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
-2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason.
+2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason. Auto mode tells only the category, so stew's own risk check (see below) then adds what in the call is risky, such as "drops every database ending in _pend, which you did not ask for", and marks that part of the command. This check only informs: it does not change how a blocked call is approved.
 3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.). If the time to answer runs out, Claude is told you did not respond in time; you can still answer it later from History (see Late answers).
 4. On approval, stew tells Claude Code that Claude may retry. The `PreToolUse` hook lets that identical call through once. A changed call goes back to auto mode.
 
@@ -199,7 +199,7 @@ Permission requests, questions and inputs get 1 minute by default (`responseTime
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
-For a direct `stew permit`, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session as context. The verdict shows above the command after approximately 5 seconds. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
+For a direct `stew permit`, and for a call auto mode blocked, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session and the `git status` of the session folder as context, so it can say which uncommitted work a command would lose. The verdict shows above the command after approximately 5 seconds, with the risky part of a longer command marked. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
 
 #### Severity
 

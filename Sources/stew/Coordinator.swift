@@ -14,6 +14,15 @@ enum RiskState: Equatable {
         if case .done(let assessment) = self { return assessment }
         return nil
     }
+
+    /// The part of the command the risk check found risky, for a checked or a blocked call.
+    var riskyPart: String? {
+        switch self {
+        case .done(let assessment): assessment.riskyPart
+        case .blocked(let blocked): blocked.explanation?.riskyPart
+        case .off, .checking, .failed: nil
+        }
+    }
 }
 
 /// One request on screen or waiting for its turn.
@@ -28,6 +37,8 @@ final class Item: ObservableObject, Identifiable {
     var grantedSeconds: Double = 0
     /// Running clock. Nil while waiting behind another request or while paused.
     @Published var deadline: Date?
+    /// stew's own risk check of a blocked call is still running.
+    @Published var explaining = false
     /// Time left, kept while the clock is paused for typing a note or picking a grant.
     @Published var pausedRemaining: TimeInterval?
     var timer: DispatchWorkItem?
@@ -94,6 +105,16 @@ final class Item: ObservableObject, Identifiable {
     var blocked: BlockedCall? {
         if case .permission(let permission) = request.prompt { return permission.blocked }
         return nil
+    }
+
+    /// The request with the explanation of a blocked call, which comes after the request.
+    var requestWithExplanation: StewRequest {
+        guard case .blocked(let blocked) = risk, blocked.explanation != nil,
+              case .permission(var permission) = request.prompt else { return request }
+        var copy = request
+        permission.blocked = blocked
+        copy.prompt = .permission(permission)
+        return copy
     }
 }
 
@@ -339,6 +360,7 @@ final class Coordinator: ObservableObject {
         item.timeLimit = request.timeLimit(defaultTimeout: config.responseTimeout)
         if case .permission(let permission) = request.prompt, let blocked = permission.blocked {
             item.risk = .blocked(blocked)
+            if config.classifier.enabled { explain(blocked, permission, of: item) }
         } else if case .permission(let permission) = request.prompt, config.classifier.enabled {
             item.risk = .checking
             RiskChecker(config: config.classifier).check(permission, session: request.session) { [weak self, weak item] result in
@@ -359,6 +381,26 @@ final class Coordinator: ObservableObject {
             ArrivalSound.play(config.sound)
         }
         changed()
+    }
+
+    /// Auto mode tells only the category of a call it blocked. stew's own risk check says
+    /// what in the call is risky; the panel shows it under the category when it comes.
+    /// It only informs: the approval rules for blocked calls stay as they are.
+    private func explain(_ blocked: BlockedCall, _ permission: PermissionRequest, of item: Item) {
+        item.explaining = true
+        RiskChecker(config: config.classifier).check(permission, session: item.request.session) { [weak self, weak item] result in
+            guard let item else { return }
+            item.explaining = false
+            switch result {
+            case .success(let assessment):
+                var explained = blocked
+                explained.explanation = assessment
+                item.risk = .blocked(explained)
+            case .failure(let error):
+                Log.append("risk check of a blocked call: \(error)")
+            }
+            self?.changed()
+        }
     }
 
     /// Needs items wait behind everything else; see `PanelQueue`.
@@ -704,13 +746,13 @@ final class Coordinator: ObservableObject {
         guard let history, item.source == .caller, !item.isNeeds else { return }
         let device = byUser ? answeringPhone?(item) ?? Self.macName : nil
         let entry = HistoryEntry.record(
-            item.request, received: item.received, response: response, ended: Date(), id: item.id, answeredOn: device
+            item.requestWithExplanation, received: item.received, response: response, ended: Date(), id: item.id, answeredOn: device
         )
         history.append(entry)
         let answerableLater = (response?.status == .timeout && LateMailbox.canAnswerLate(item.request))
             || (response?.status == .later && item.request.offersEnterLater)
         if answerableLater {
-            LateAnswerFile.update { $0.addWaiting(item.request, entryID: entry.id, now: entry.ended) }
+            LateAnswerFile.update { $0.addWaiting(item.requestWithExplanation, entryID: entry.id, now: entry.ended) }
         }
         if entry.answerableLater { refreshMissed() }
     }

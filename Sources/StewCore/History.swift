@@ -144,7 +144,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             summary = permission.action
             command = permission.command.map { CommandText.masked($0) }
             detail = permission.reason
-            blocked = permission.blocked
+            blocked = permission.blocked?.forHistory
         case .question(let set):
             summary = set.questions.first?.question ?? ""
             if set.questions.count > 1 { summary += " (+\(set.questions.count - 1) more)" }
@@ -169,7 +169,8 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             kind: request.prompt.kind, summary: summary, command: command, detail: detail,
             outcome: outcome(of: response), answers: response?.answers, grant: response?.grant,
             note: response?.note, blocked: blocked, text: text, secret: secret,
-            severity: response?.risk?.severity, reversibility: response?.risk?.reversibilityLine,
+            severity: response?.risk?.severity ?? blocked?.explanation?.severity,
+            reversibility: response?.risk?.reversibilityLine ?? blocked?.explanation?.reversibilityLine,
             request: request.forHistory, answeredOn: response.flatMap { $0.status == .timeout ? nil : answeredOn }
         )
     }

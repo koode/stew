@@ -40,7 +40,10 @@ final class RiskChecker {
         let workingDirectory = expand(session.cwd) ?? Paths.home
         let promptFile = try systemPromptFile(claude: claude, workingDirectory: workingDirectory)
         let recent = recentUserMessages(sessionID: session.id, limit: config.recentUserMessages)
-        let input = try RiskCheck.input(for: permission, session: session, recentUserMessages: recent)
+        let input = try RiskCheck.input(
+            for: permission, session: session, recentUserMessages: recent,
+            gitStatus: gitStatus(workingDirectory: workingDirectory)
+        )
 
         // Runs from the cache folder so no project CLAUDE.md is read, with no tools,
         // no settings sources (so no hooks) and no saved session.
@@ -60,7 +63,20 @@ final class RiskChecker {
             directory: Paths.cacheDirectory,
             timeout: config.timeoutSeconds
         )
-        return try RiskCheck.parse(cliOutput: output)
+        var assessment = try RiskCheck.parse(cliOutput: output)
+        assessment.riskyPart = RiskCheck.riskyPart(assessment.riskyPart, in: permission.command)
+        return assessment
+    }
+
+    /// The uncommitted work in the call's folder, so the check can say what a command
+    /// would lose. Nil outside a git repo or when git does not answer quickly.
+    private static func gitStatus(workingDirectory: String) -> String? {
+        // No optional locks: the agent may be using the repo at the same moment.
+        guard let output = try? runProcess(
+            "/usr/bin/git", ["--no-optional-locks", "status", "--porcelain=v1", "--branch", "--untracked-files=normal"],
+            stdin: nil, directory: workingDirectory, timeout: 5
+        ) else { return nil }
+        return RiskCheck.gitStatus(porcelain: String(decoding: output, as: UTF8.self))
     }
 
     /// The check must run on the user's Claude plan, never on pay-per-token API billing.

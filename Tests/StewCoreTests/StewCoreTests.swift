@@ -307,6 +307,101 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         )
         #expect(text.contains(#""recent_user_messages":["rebase it"]"#))
         #expect(text.contains(#""cwd":"~/app""#))
+        #expect(!text.contains("auto_mode_blocked"))
+        #expect(!text.contains("git_status"))
+    }
+
+    @Test func inputOfBlockedCallCarriesCategoryAndGitStatus() throws {
+        let blocked = BlockedCall(
+            toolName: "Bash", category: "Destructive or Unwanted Actions", reason: "[Destructive or Unwanted Actions]",
+            hardDeny: false, projectRoot: "/app", suggestions: []
+        )
+        let text = try RiskCheck.input(
+            for: PermissionRequest(action: "Rerun", command: "git checkout -- .", reason: "rerun", blocked: blocked),
+            session: SessionInfo(name: "x", cwd: "/app"),
+            recentUserMessages: [],
+            gitStatus: "## main\n M a.swift"
+        )
+        #expect(text.contains(#""auto_mode_blocked":"Destructive or Unwanted Actions""#))
+        #expect(text.contains(###""git_status":"## main\n M a.swift""###))
+    }
+
+    @Test func parsesRiskyPart() throws {
+        let output = #"{"is_error":false,"structured_output":{"verdict":"soft_deny","risk":"high","rule":null,"summary":"Throws away changes.","severity":"medium","reversibility":"No undo.","risky_part":"git checkout -q -- ."}}"#
+        #expect(try RiskCheck.parse(cliOutput: Data(output.utf8)).riskyPart == "git checkout -q -- .")
+        // Results from before the field existed still parse.
+        let old = #"{"is_error":false,"structured_output":{"verdict":"allow","risk":"low","rule":null,"summary":"Lists files."}}"#
+        #expect(try RiskCheck.parse(cliOutput: Data(old.utf8)).riskyPart == nil)
+    }
+
+    @Test func keepsOnlyARiskyPartTheCommandContains() {
+        let command = #"pnpm e2e; for db in $(psql -lqt); do dropdb "$db"; done; git checkout -q -- ."#
+        #expect(RiskCheck.riskyPart("git checkout -q -- .", in: command) == "git checkout -q -- .")
+        #expect(RiskCheck.riskyPart("  dropdb \"$db\" ", in: command) == #"dropdb "$db""#)
+        #expect(RiskCheck.riskyPart("git reset --hard", in: command) == nil)
+        #expect(RiskCheck.riskyPart("", in: command) == nil)
+        #expect(RiskCheck.riskyPart("rm", in: nil) == nil)
+    }
+
+    @Test func pointsOnlyAtPartOfTheCommand() {
+        #expect(RiskCheck.partToPoint("git checkout -- .", in: "pnpm test; git checkout -- .") == "git checkout -- .")
+        #expect(RiskCheck.partToPoint("git push --force origin main", in: " git push --force origin main\n") == nil)
+        #expect(RiskCheck.partToPoint(nil, in: "ls") == nil)
+    }
+
+    @Test func shortensGitStatus() {
+        let files = (1...45).map { " M file\($0).swift" }
+        let status = RiskCheck.gitStatus(porcelain: (["## main...origin/main"] + files).joined(separator: "\n") + "\n", maxFiles: 40)
+        let lines = status?.split(separator: "\n").map(String.init) ?? []
+        #expect(lines.first == "## main...origin/main")
+        #expect(lines.count == 42)
+        #expect(lines.last == "… and 5 more files")
+        #expect(RiskCheck.gitStatus(porcelain: "## main\n") == "## main\n(no uncommitted changes)")
+        #expect(RiskCheck.gitStatus(porcelain: "") == nil)
+    }
+}
+
+@Suite struct BlockedCallExplanationTests {
+    private let token = "ghp_abcdefghijklmnopqrstuvwxyz0123" // gitleaks:allow (test fixture)
+
+    private func blocked(explanation: RiskAssessment?) -> BlockedCall {
+        BlockedCall(
+            toolName: "Bash", category: "Destructive or Unwanted Actions", reason: "[Destructive or Unwanted Actions]",
+            hardDeny: false, projectRoot: "/app", suggestions: [], explanation: explanation
+        )
+    }
+
+    @Test func decodesCallsFromBeforeExplanations() throws {
+        let json = #"{"toolName":"Bash","reason":"[X]","hardDeny":false,"projectRoot":"/app","suggestions":[]}"#
+        #expect(try JSONDecoder().decode(BlockedCall.self, from: Data(json.utf8)).explanation == nil)
+    }
+
+    @Test func historyMasksSecretsInTheExplanation() {
+        let explanation = RiskAssessment(
+            verdict: .softDeny, risk: .high, rule: nil, summary: "Sends GITHUB_TOKEN=\(token) to a new host.",
+            severity: .critical, reversibility: "No undo.", riskyPart: "GITHUB_TOKEN=\(token) curl"
+        )
+        let kept = blocked(explanation: explanation).forHistory.explanation
+        #expect(kept?.summary.contains(token) == false)
+        #expect(kept?.riskyPart?.contains(token) == false)
+        #expect(blocked(explanation: nil).forHistory.explanation == nil)
+    }
+
+    @Test func historyEntryTakesSeverityFromTheExplanation() {
+        let explanation = RiskAssessment(
+            verdict: .softDeny, risk: .high, rule: nil, summary: "Drops the _pend databases.",
+            severity: .high, reversibility: "Gone unless a backup exists.", riskyPart: "dropdb"
+        )
+        let request = StewRequest(
+            session: SessionInfo(name: "x", cwd: "/app"),
+            prompt: .permission(PermissionRequest(action: "Rerun", command: "dropdb x", reason: "r", blocked: blocked(explanation: explanation)))
+        )
+        let entry = HistoryEntry.record(request, received: Date(), response: StewResponse(status: .denied), ended: Date())
+        #expect(entry.severity == .high)
+        #expect(entry.reversibility == "Gone unless a backup exists.")
+        #expect(entry.blocked?.explanation?.summary == "Drops the _pend databases.")
+        guard case .permission(let kept)? = entry.request?.prompt else { Issue.record("no request kept"); return }
+        #expect(kept.blocked?.explanation?.riskyPart == "dropdb")
     }
 }
 
