@@ -14,6 +14,10 @@ enum PhoneSnapshot {
         var error: String?
         var plan: RelayPlanRequired?
         var sample = PhonePaneSample()
+        /// phone.relay as config.json sets it; nil keeps the default.
+        var relay: String?
+        /// Tall enough to show the relay row at the bottom of the pane.
+        var tall = false
     }
 
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
@@ -46,6 +50,8 @@ enum PhoneSnapshot {
             Scenario(name: "paired", pairings: [paired, second], statuses: connected, sample: PhonePaneSample(justPaired: "Work iPhone")),
             Scenario(name: "plan", pairings: [paired, second], statuses: ["samplepaired": .connected, "samplesecond": .stopped(.planRequired(samplePlan))]),
             Scenario(name: "plan-pairing", plan: samplePlan),
+            Scenario(name: "relay", pairings: [paired], statuses: connected, tall: true),
+            Scenario(name: "relay-own", pairings: [paired], statuses: connected, relay: "http://localhost:4000", tall: true),
         ]
         let link = PhoneLink.shared
         for scenario in scenarios {
@@ -53,12 +59,13 @@ enum PhoneSnapshot {
             for dark in [false, true] {
                 let model = SettingsModel()
                 model.load()
+                if let relay = scenario.relay { model.showSample { $0.phone.relay = relay } }
                 model.tab = .phone
                 let path = "\(directory)/settings-phone-\(scenario.name)-\(dark ? "dark" : "light").png"
                 let view = SettingsView(
                     model: model, approvals: ApprovalsModel(), history: HistoryModel(), updater: Updater(log: { _ in }), phoneSample: scenario.sample
                 )
-                write(AnyView(view.frame(width: Snapshot.settingsSize.width, height: Snapshot.settingsSize.height)), dark, path)
+                write(AnyView(view.frame(width: Snapshot.settingsSize.width, height: scenario.tall ? 760 : Snapshot.settingsSize.height)), dark, path)
                 print(path)
                 // Also in the window as wide as History makes it.
                 if scenario.name == "paired" {

@@ -48,7 +48,9 @@ The `phone` object in `~/.config/stew/config.json`. Every field is optional.
 - `push`: `away`, `always` or `never`. An unknown value counts as `away`.
 - `after`: seconds a request must be open before it is sent. `0` sends it at once (stew checks every second). Settings offers Instantly, 3, 5, 10 and 30 seconds, 1 and 2 minutes.
 - `idleAfter`: seconds without keyboard or mouse input before the Mac counts as away.
-- `relay`: the relay for new pairings, `https://relay.stewcli.com` by default. Each pairing keeps the relay it was made with, so change this before pairing.
+- `relay`: the relay for new pairings, `https://relay.stewcli.com` by default. Each pairing keeps the relay it was made with, so change this before pairing. Settings offers `https://relay.stewcli.com` and `https://relay-next.stewcli.com`, which gets new relay versions first. Any other URL, such as a relay of your own, goes here and shows in Settings as set in config.json.
+
+![Settings ▸ iPhone with the relay picker](images/settings-phone-relay-light.png)
 
 ## iPhone app
 

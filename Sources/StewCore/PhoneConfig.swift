@@ -3,6 +3,18 @@ import Foundation
 /// The "phone" object in config.json: when an open request goes to the paired iPhones.
 public struct PhoneConfig: Codable, Equatable, Sendable {
     public static let defaultRelay = "https://relay.stewcli.com"
+    /// Gets new relay versions before the default relay does. Until one is under test,
+    /// it is the same relay under a second name.
+    public static let nextRelay = "https://relay-next.stewcli.com"
+    /// The relays Settings offers. config.json takes any other, such as a relay of your own.
+    public static let offeredRelays = [defaultRelay, nextRelay]
+
+    /// The offered relay `relay` names, ignoring a trailing slash. Nil for any other.
+    public static func offeredRelay(_ relay: String) -> String? {
+        var trimmed = relay.trimmingCharacters(in: .whitespaces)
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+        return offeredRelays.first { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
+    }
 
     /// "away" (the Mac is idle or locked), "always" or "never".
     public var push: String

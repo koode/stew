@@ -16,6 +16,19 @@ import Testing
         #expect(config.phone.relay == "https://relay.stewcli.com")
     }
 
+    @Test func offersTheDefaultAndTheNextRelay() {
+        #expect(PhoneConfig.offeredRelays == ["https://relay.stewcli.com", "https://relay-next.stewcli.com"])
+        #expect(PhoneConfig.offeredRelay("https://relay-next.stewcli.com") == PhoneConfig.nextRelay)
+        #expect(PhoneConfig.offeredRelay(" https://Relay.stewcli.com/ ") == PhoneConfig.defaultRelay)
+    }
+
+    @Test func otherRelaysAreNotOfferedButStillLoad() throws {
+        #expect(PhoneConfig.offeredRelay("http://localhost:4000") == nil)
+        #expect(PhoneConfig.offeredRelay("https://relay.stewcli.com.example.org") == nil)
+        let config = try JSONDecoder().decode(StewConfig.self, from: Data(#"{"phone":{"relay":"http://localhost:4000"}}"#.utf8))
+        #expect(config.phone.relay == "http://localhost:4000")
+    }
+
     @Test func partialPhoneObjectKeepsOtherDefaults() throws {
         let config = try JSONDecoder().decode(StewConfig.self, from: Data(#"{"phone":{"push":"always"}}"#.utf8))
         #expect(config.phone.mode == .always)

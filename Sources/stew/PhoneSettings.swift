@@ -24,6 +24,11 @@ struct PhoneSettingsTab: View {
     private static let modes: [(String, PhonePushMode)] = [("When I'm away", .away), ("Always", .always), ("Never", .never)]
     private static let viewingCaps: [(String, Double)] = [("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800), ("1 hour", 3600)]
     private static let awayAfters: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300), ("10 minutes", 600), ("15 minutes", 900)]
+    /// An offered relay by its host: "relay.stewcli.com".
+    private static func relayName(_ relay: String) -> String {
+        URL(string: relay)?.host ?? relay
+    }
+
     private static let waits: [(String, Double)] = [("Instantly", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
     private static let pairHint = "Requests that stay open while you are away arrive as notifications you can answer. Everything is end-to-end encrypted; the relay cannot read requests or answers."
 
@@ -115,9 +120,17 @@ struct PhoneSettingsTab: View {
                             ForEach(Self.viewingCaps, id: \.1) { Text($0.0).tag($0.1) }
                         }
                     }
-                    SettingRow(hint: "Used for new pairings. To run your own relay, set phone.relay in config.json.") {
-                        LabeledContent("Relay") {
-                            Text(model.config.phone.relay).textSelection(.enabled).foregroundStyle(Ink.secondary)
+                    SettingRow(hint: "Used for new pairings. A paired iPhone keeps the relay it paired with. relay-next gets new relay versions first. For another relay, such as your own, set phone.relay in config.json.") {
+                        let relay = model.config.phone.relay
+                        let offered = PhoneConfig.offeredRelay(relay)
+                        Picker("Relay", selection: Binding(
+                            get: { offered ?? relay },
+                            set: { value in model.update { $0.phone.relay = value } }
+                        )) {
+                            ForEach(PhoneConfig.offeredRelays, id: \.self) { Text(Self.relayName($0)).tag($0) }
+                            if offered == nil {
+                                Text("\(relay) (set in config.json)").tag(relay)
+                            }
                         }
                     }
                 }

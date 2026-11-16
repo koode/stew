@@ -50,6 +50,11 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    /// Changes the config without saving it, for `stew snapshot`.
+    func showSample(_ change: (inout StewConfig) -> Void) {
+        change(&config)
+    }
+
     func setShortcut(_ shortcut: Shortcut, for action: HotkeyAction) {
         update { $0.keys[action.rawValue] = shortcut.spec }
     }
