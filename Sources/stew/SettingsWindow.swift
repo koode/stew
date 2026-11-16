@@ -159,8 +159,11 @@ final class SettingsWindowController {
             // Like other Settings windows, the title names the pane that is showing.
             tabTitle = model.$tab.sink { [weak window] tab in window?.title = tab.title }
             historyTab = model.$tab.sink { [weak self] tab in
-                guard let self, !self.changingTab else { return }
-                if tab == .history, self.window?.isVisible == true { self.historyShown() }
+                guard let self, !self.changingTab, tab == .history, self.window?.isVisible == true else { return }
+                // `$tab` sends before the tab is stored, and the animated resize runs the
+                // run loop: SwiftUI would draw the old tab then and miss the change. The
+                // pane opens first, the window widens after.
+                DispatchQueue.main.async { [weak self] in self?.historyShown() }
             }
         }
         NSApp.activate(ignoringOtherApps: true)
