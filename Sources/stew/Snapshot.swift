@@ -6,6 +6,10 @@ import StewCore
 enum Snapshot {
     static func render(to directory: String) -> Never {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        // The default settings, not the user's config.json: a glass panel look there would
+        // leave the card transparent, since cacheDisplay draws no glass, and changed keys
+        // would show in the README's images.
+        setenv("STEW_CONFIG", NSTemporaryDirectory() + "stew-snapshot-\(UUID().uuidString)/config.json", 1)
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         for (name, build) in scenarios {
             for dark in [false, true] {
