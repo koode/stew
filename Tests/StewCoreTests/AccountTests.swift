@@ -633,6 +633,13 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(shorterGift.hint == "Renews D20.")
     }
 
+    @Test func aGiftBesideATrialShowsOnlyWhenItOutlastsIt() {
+        let shorterGift = summary(AccountPlan(status: .trial, trialEndsAt: now.addingTimeInterval(9 * 86_400), giftEndsAt: now.addingTimeInterval(5 * 86_400)))
+        #expect(shorterGift.hint == "The trial ends D9. Subscribe to keep the iPhone relay after that.")
+        let longerGift = summary(AccountPlan(status: .trial, trialEndsAt: now.addingTimeInterval(9 * 86_400), giftEndsAt: now.addingTimeInterval(30 * 86_400)))
+        #expect(longerGift.hint == "The trial ends D9. Subscribe to keep the iPhone relay after that.\nGift until D30.")
+    }
+
     @Test func anEndedGiftShowsAsTheGiftWithItsEnd() {
         let ended = summary(AccountPlan(status: .gift, trialEndsAt: now.addingTimeInterval(-30 * 86_400), giftEndsAt: now.addingTimeInterval(-86_400)))
         #expect(ended.name == "stew Pro (gift)")

@@ -369,9 +369,9 @@ public struct AccountPlanSummary: Equatable, Sendable {
             tone = .neutral
             hint = "Update stew to see more about this plan."
         }
-        // A gift beside a paid plan: the paid plan shows, and the gift only when it
-        // reaches past the paid period.
-        if plan.status != .gift, liveGift, let giftEnd = plan.giftEndsAt, giftEnd > (plan.currentPeriodEnd ?? .distantPast) {
+        // A gift beside a trial or a paid plan: that plan shows, and the gift only when it
+        // reaches past the trial and the paid period.
+        if plan.status != .gift, liveGift, let giftEnd = plan.giftEndsAt, giftEnd > (otherEnd ?? .distantPast) {
             hint += "\nGift until \(dateText(giftEnd))."
         }
     }
