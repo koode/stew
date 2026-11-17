@@ -5,13 +5,13 @@ description: Reach the user on their desktop through a floating panel (the `stew
 
 # stew
 
-`stew` shows a panel on the user's screen without taking keyboard focus, waits for the answer and prints it as one JSON line. The panel names this session automatically (the job name, or the folder).
+`stew` shows a panel on the user's screen without taking keyboard focus, waits for the answer and prints it as one JSON line. It works the same from Claude Code and from Codex. The panel names this session automatically (the job name, or the folder) and says which agent asks.
 
 The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 options), so plain typing in their terminal never answers by accident. They can always dismiss without answering.
 
 ## When to use it
 
-- A decision blocks you: ask with the normal AskUserQuestion tool. With stew's hooks installed, it shows in stew whenever nobody is at the terminal (background and remote sessions), and the answer comes back as usual. Use `stew ask` only when AskUserQuestion is not available to you.
+- A decision blocks you: in Claude Code, ask with the normal AskUserQuestion tool. With stew's hooks installed, it shows in stew whenever nobody is at the terminal (background and remote sessions), and the answer comes back as usual. Use `stew ask` when AskUserQuestion is not available to you, as in Codex.
 - You need permission for something outside your tools' own prompts: `stew permit`.
 - You need one free-text value from the user that you cannot choose from a list: a domain, a name, a verification code, a password or token: `stew input`. See below. Use `ask` when the answer is one of a few choices, and `needs` when the user must do something (log in, buy, approve) rather than tell you something.
 - Long work finished, failed or needs attention: `stew notify`.
@@ -20,9 +20,9 @@ The user answers with Command shortcuts (⌘↩ approve, ⌘D deny, ⌘1-⌘4 op
 
 If AskUserQuestion comes back denied with a note that the user did not answer in time, or closed the question, they are probably away: continue with a safe choice that does not need the answer, and say which choice you made.
 
-`stew permit` adds a human check; it does not replace or bypass Claude Code's own permission system. Never use it to get around a denied tool call.
+`stew permit` adds a human check; it does not replace or bypass your agent's own permission system (Claude Code's permissions, Codex's approvals and sandbox). Never use it to get around a denied tool call.
 
-## When auto mode blocks a call
+## When auto mode blocks a call (Claude Code)
 
 If the user installed stew's hooks, a call that auto mode blocks goes to the user in stew. You see the normal denial first.
 
@@ -30,6 +30,16 @@ If the user installed stew's hooks, a call that auto mode blocks goes to the use
   - The retry runs: the user approved it.
   - The retry is refused with a note: the user denied it with that note, or did not respond in time (the note says so). Follow the note; do not tell the user they approved.
 - If no retry message comes, the user denied or dismissed it. Find another way, or stop and say what you needed.
+
+## When Codex asks for approval (Codex)
+
+If the user installed stew's Codex hooks, an approval Codex would ask in the terminal goes to the user in stew first. Your justification for the escalation is the reason they read, so make it say why you need it.
+
+- Approved: the call runs, as if they approved it in the terminal.
+- Denied: you get a denial that starts "The user denied this in stew", with their note when they wrote one. Follow the note.
+- No answer in time, or closed: Codex asks in the terminal as usual.
+
+Codex's sandbox can keep `stew` from reaching the panel's socket, so a `stew` command may fail with a connection error. Run it again with escalated permissions (outside the sandbox); that approval reaches the user in stew too.
 
 ## Commands
 
@@ -100,11 +110,11 @@ stew needs "Sign in to App Store Connect in the open Chrome window" \
 - To wait for the user instead: `--wait` (with the Bash tool's `run_in_background: true`). It returns `"done"` with the user's note, `"answered"` when they picked one of your `--answer` labels, or `"dismissed"` if they declined. With `--done` or `--answer`, `answer` holds the label they picked: the `--done` label with `"done"`, or the `--answer` label with `"answered"`. Act on that label and the note. `--timeout SECONDS` limits only how long you wait: on `"timeout"` the item stays open.
 - `stew needs list --json` shows what is open.
 
-Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote sessions (a numbered list after it becomes the steps, code blocks in the message become commands, and web addresses outside them become links), and it goes away when the user next writes to you or when a later reply of yours has no `needs input:` line. When you already called `stew needs`, the line adds no second item.
+Also end your reply with the usual `needs input:` line saying what you need, on a line of its own. With stew's hooks installed, that line becomes a needs item by itself in background and remote Claude Code sessions, and in Codex when the user set stew to always show them (a numbered list after it becomes the steps, code blocks in the message become commands, and web addresses outside them become links), and it goes away when the user next writes to you or when a later reply of yours has no `needs input:` line. When you already called `stew needs`, the line adds no second item.
 
 ## Waiting
 
-`permit`, `ask` and `input` block until the user answers or the time to answer runs out (1 minute by default, but the user can extend it). Run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. If the Bash call is killed, the request disappears from the panel.
+`permit`, `ask` and `input` block until the user answers or the time to answer runs out (1 minute by default, but the user can extend it). In Claude Code, run them with the Bash tool's `run_in_background: true` and carry on with other work; you get notified when the command exits. For a short wait in the foreground, set the Bash `timeout` to 600000. In Codex, give the command a timeout of at least 10 minutes, or keep polling it until it exits. If the command is killed, the request disappears from the panel.
 
 ## Reading the answer
 
@@ -127,8 +137,8 @@ Also end your reply with the usual `needs input:` line saying what you need, on 
 
 ### Late answers
 
-The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result, at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` or after a timeout arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
-- `risk` is an automatic check of the command against the user's auto mode rules, shown to them above the command. `severity` (`low`, `medium`, `high`, `critical`) says how bad the action is if it runs, and `reversibility` whether it can be undone. A critical action takes the user a stronger shortcut to approve, so expect a slower answer.
+The user can still answer a request after it timed out. The answer then reaches you later, as context next to a tool result (Claude Code only), at the end of your turn, or with their next message. It starts with "Late answer from the user, through stew." and names the request: approved (you may run it now, or for a call auto mode blocked, retry it once), declined (with their note), or the question with its answers as `"question"="answer"` (also for a `stew input`). A secret entered after `later` or after a timeout arrives the same way, with the secret in the message: use it only for what you asked it for. If stew restarted before it reached you, the message says the secret is gone; ask again only if you still need it. A late answer overrides the earlier timeout: act on it if the work still needs it, and say so if you already went another way.
+- `risk` is an automatic check of the command against the user's Claude Code auto mode rules, shown to them above the command. `severity` (`low`, `medium`, `high`, `critical`) says how bad the action is if it runs, and `reversibility` whether it can be undone. A critical action takes the user a stronger shortcut to approve, so expect a slower answer.
 
 ## Writing a good request
 

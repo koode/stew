@@ -1,11 +1,12 @@
 # stew
 
-A macOS panel that lets Claude Code ask you for permission, ask you a question or tell you something, without taking keyboard focus from what you are typing.
+A macOS panel that lets Claude Code and Codex ask you for permission, ask you a question or tell you something, without taking keyboard focus from what you are typing.
 
 ![A call that auto mode blocked, waiting for an answer in stew](docs/images/auto-mode-blocked-light.png)
 
 - **Auto mode, with you as the fallback.** Claude Code's auto mode decides as usual. When it blocks a call, stew asks you. Approve, and Claude retries that exact call. You can also allow it for an hour, or for good, without being asked again.
-- **Permission, questions, notifications.** Claude can call `stew` itself: a permission request with the exact command and the reason, a question in the same format as Claude Code's AskUserQuestion tool, or a notification.
+- **Codex approvals, in stew first.** When Codex is about to ask for approval, stew asks you. Approve or deny with a note; if you don't answer in time, Codex asks in the terminal as usual.
+- **Permission, questions, notifications.** Claude and Codex can call `stew` themselves: a permission request with the exact command and the reason, a question in the same format as Claude Code's AskUserQuestion tool, or a notification.
 - **Needs you.** When Claude is stuck on something only you can do (log in, buy, approve in a web page, plug something in), stew shows the steps, the commands to copy and the links to open. It stays open until it is done, with a count in the menu bar.
 - **Safe while you type.** Nothing answers on plain keys, Space or Return. Every answer is ⌘ plus a key, and only while a panel is visible.
 - **Every session in one place.** Each panel names the session it comes from. Several requests queue as "1 of N". You can always dismiss.
@@ -15,7 +16,8 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 ## Requirements
 
 - macOS 14 or later
-- [Claude Code](https://code.claude.com), for the skill, the auto mode hooks and the risk check
+- [Claude Code](https://code.claude.com), for its skill and auto mode hooks, and for the risk check
+- [Codex](https://learn.chatgpt.com/docs/codex/cli) 0.122 or later, for its skill and approval hooks (0.129 or later asks you to trust new hooks in `/hooks`; see [Codex](#codex-approvals-in-stew))
 - To build from source: a Swift 6 toolchain (Xcode 16 or later, or the Command Line Tools: `xcode-select --install`)
 
 ## Install
@@ -24,10 +26,11 @@ A macOS panel that lets Claude Code ask you for permission, ask you a question o
 brew trust --cask koode/apps/stew && brew install --cask koode/apps/stew
 ```
 
-Homebrew loads casks from a tap other than its own only after you trust them, hence `brew trust` first. This installs `/Applications/Stew.app`, links the `stew` command and its shell completion, starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill if `~/.claude` exists (the cask runs `stew setup`). stew then updates itself; `brew upgrade` leaves it alone unless you pass `--greedy`. To also ask in stew when auto mode blocks a call:
+Homebrew loads casks from a tap other than its own only after you trust them, hence `brew trust` first. This installs `/Applications/Stew.app`, links the `stew` command and its shell completion, starts the daemon as the LaunchAgent `nl.koode.stew` and installs the Claude Code skill if `~/.claude` exists and the Codex skill if `~/.codex` exists (the cask runs `stew setup`). stew then updates itself; `brew upgrade` leaves it alone unless you pass `--greedy`. To also ask in stew when Claude Code's auto mode blocks a call, or before Codex asks for approval:
 
 ```bash
-stew hooks install
+stew hooks install                 # Claude Code
+stew hooks install --agent codex   # Codex; then trust the hooks in Codex's /hooks
 ```
 
 `brew uninstall --cask stew` stops the daemon and removes the app, but keeps the hooks, the skill and stew's data; run `stew hooks uninstall` first, or add `--zap` to remove all of it.
@@ -38,7 +41,7 @@ stew hooks install
 curl -fsSL https://releases.stewcli.com/install.sh | bash
 ```
 
-To also ask in stew when auto mode blocks a call:
+To also ask in stew when auto mode blocks a call (add `--agent codex` for Codex's hooks, or `--agent all` for both):
 
 ```bash
 curl -fsSL https://releases.stewcli.com/install.sh | bash -s -- --with-hooks
@@ -49,14 +52,14 @@ The script downloads the latest release and checks it before it changes anything
 - `~/Applications/Stew.app`: the daemon and the command line tool. No admin rights needed.
 - `~/.local/bin/stew`: a link to the tool inside the app.
 - The LaunchAgent `nl.koode.stew`, which starts the daemon at login.
-- The Claude Code skill in `~/.claude/skills/stew`, if `~/.claude` exists.
+- The Claude Code skill in `~/.claude/skills/stew`, if `~/.claude` exists, and the Codex skill in `~/.agents/skills/stew`, if `~/.codex` exists.
 - Shell completion: `~/.config/fish/completions/stew.fish` when fish is installed, and `_stew` in a zsh folder that needs no `.zshrc` change (a writable `site-functions` folder on your fpath, such as Homebrew's; otherwise `~/.zsh/completions`, and the installer prints the one `fpath` line to add). `stew completions install` redoes it, for example after you install Homebrew.
 
-Other options: `--no-skill`, `--no-completions`, `--bin-dir DIR`, `--app-dir DIR`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place, and Claude Code hooks keep working because they call that path.
+Other options: `--agent claude|codex|all` (with `--with-hooks`), `--no-skill`, `--no-completions`, `--bin-dir DIR`, `--app-dir DIR`. An older install with a plain binary at `~/.local/bin/stew` is replaced in place, and the hooks keep working because they call that path.
 
 Moving to Homebrew later works without uninstalling first: the cask removes the completion files the script wrote, `stew setup` points `~/.local/bin/stew` at the new app (so the hooks keep working) and names the old `~/Applications/Stew.app`, which you can then delete.
 
-`stew setup` is the per-user part of both installs, for a Stew.app that is already in place. Run it again after you move the app, or to repair the LaunchAgent: `stew setup [--with-hooks] [--no-skill] [--no-completions] [--bin-dir DIR]`.
+`stew setup` is the per-user part of both installs, for a Stew.app that is already in place. Run it again after you move the app, or to repair the LaunchAgent: `stew setup [--with-hooks [--agent claude|codex|all]] [--no-skill] [--no-completions] [--bin-dir DIR]`.
 
 ### From source
 
@@ -75,19 +78,21 @@ Check that it works:
 stew notify "stew works" --body "Close this with ⌘. or ⌘↩"
 ```
 
-### Let Claude Code set it up
+### Let your agent set it up
 
-Open Claude Code in this folder and paste:
+Open Claude Code or Codex in this folder and paste:
 
 > Set up stew for me by following docs/AGENT_SETUP.md. Ask me before you change any settings.
 
 [docs/AGENT_SETUP.md](docs/AGENT_SETUP.md) gives the agent the checks, the two questions to ask you, the install command and the steps to verify.
 
-## How Claude Code uses it
+## How agents use it
+
+stew works with Claude Code and Codex. Both use the skill to call stew themselves (permission requests, questions, typed answers, notifications and needs items), and the panel names the agent that asks: "Claude wants to", "Codex wants to". The hooks differ, because the agents do: Claude Code's hooks catch the calls its auto mode blocks, and Codex's hooks catch its approval prompts.
 
 ### When auto mode blocks a call
 
-With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
+This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason. Auto mode tells only the category, so stew's own risk check (see below) then adds what in the call is risky, such as "drops every database ending in _pend, which you did not ask for", and marks that part of the command. This check only informs: it does not change how a blocked call is approved.
@@ -114,9 +119,24 @@ What hooks cannot change:
 - **Protected paths** (`.git`, `.claude`, shell profiles) stay blocked even with an allow rule.
 - Denials without a verdict ("Classifier unavailable") cannot be retried, so stew does not ask.
 
+### Codex: approvals in stew
+
+`stew hooks install --agent codex` (or `--with-hooks --agent codex` at install) adds hooks to `~/.codex/hooks.json` (`$CODEX_HOME/hooks.json` when you set that), next to any hooks of your own, and writes a backup first. stew writes `hooks.json` rather than inline `[hooks]` tables in `config.toml`, which stays yours. If `config.toml` also has inline hooks, Codex runs both and warns at startup.
+
+1. When Codex is about to ask for approval (a command outside the sandbox, a file edit through `apply_patch`, an MCP tool call), its `PermissionRequest` hook shows the request in stew: what Codex wants to do, the command or patch, and Codex's own reason for asking when it gives one.
+2. Approve (⌘↩) and Codex goes ahead without its own prompt. Deny (⌘D, optionally with a note) and Codex gets "The user denied this in stew", with your note.
+3. If the time to answer runs out, you close the panel, or stew is not running, stew decides nothing and Codex shows its own approval prompt in the terminal. Answer it there; such a request is not answered late from History.
+4. The `Stop` and `UserPromptSubmit` hooks do what they do for Claude Code: needs items from a `needs input:` line, and late answers to `stew` calls from that session.
+
+**Trust the hooks in Codex.** Codex runs a new or changed hook only after you review and trust it ([Codex hooks](https://learn.chatgpt.com/docs/hooks)). After installing, open `/hooks` in Codex and trust the stew hooks. Codex asks again when a hook changes, for example after the path to stew changes. `stew hooks status --agent codex` reminds you, and warns when `[features] hooks = false` in `~/.codex/config.toml` turns all hooks off.
+
+What Codex does not have, so stew does not do for it: auto mode and its retry after a block, standing approvals (Allow more…), and the AskUserQuestion tool. Codex does not say whether anyone is at the terminal either, so its needs items appear only with "Needs you from agents" set to Always in stew. Codex needs 0.122 or later for `PermissionRequest` hooks; versions before 0.129 run hooks without the trust step.
+
+When Codex runs `stew` from its sandbox, the sandbox may keep it from reaching stew's socket. Codex then asks for approval to run it outside the sandbox, which goes through the hook like any other approval. To skip that, allow `stew` in a Codex [rule](https://learn.chatgpt.com/docs/agent-configuration/rules).
+
 ### Questions in stew
 
-Claude Code's own question tool (AskUserQuestion) can show in stew too, through a third hook. By default this happens only in **unattended** sessions: background jobs and remote sessions, where nobody is at the terminal to answer. A session you are typing in keeps asking in the terminal. Change it in `stew settings` → Claude Code → Questions, or with `"routeQuestions"` in the config: `"unattended"`, `"always"` or `"never"`.
+Claude Code's own question tool (AskUserQuestion) can show in stew too, through a third hook. By default this happens only in **unattended** sessions: background jobs and remote sessions, where nobody is at the terminal to answer. A session you are typing in keeps asking in the terminal. Change it in `stew settings` → Agents → Questions, or with `"routeQuestions"` in the config: `"unattended"`, `"always"` or `"never"`.
 
 The answer goes back to Claude as if you had answered in the terminal. If the time to answer runs out, or you close the question, Claude is told so and continues with a safe choice. If stew is not running, the terminal asks as usual.
 
@@ -136,7 +156,7 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 - When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
 - Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
 
-Claude can make one with `stew needs` (the skill tells it when). With the hooks, Claude Code also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, code blocks in the message into commands, and up to 4 web addresses outside the code blocks into links. A session has at most one of these at a time, and none while it has an open item from `stew needs`. The `UserPromptSubmit` hook clears it as soon as you send that session a message, and a later turn that ends without a `needs input:` line clears it too (Moved on in the history). Claude Code also runs `UserPromptSubmit` for scheduled tasks, background agents reporting back and messages from other sessions, so those clear the item as well. By default this happens only in unattended sessions (background and remote). Change it in `stew settings` → Claude Code → "Needs you from Claude Code", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
+Claude or Codex can make one with `stew needs` (the skill tells it when). With the hooks, the agent also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, code blocks in the message into commands, and up to 4 web addresses outside the code blocks into links. A session has at most one of these at a time, and none while it has an open item from `stew needs`. The `UserPromptSubmit` hook clears it as soon as you send that session a message, and a later turn that ends without a `needs input:` line clears it too (Moved on in the history). Claude Code also runs `UserPromptSubmit` for scheduled tasks, background agents reporting back and messages from other sessions, so those clear the item as well. By default this happens only in unattended Claude Code sessions (background and remote); Codex does not say whether anyone is watching, so for Codex it needs `"always"`. Change it in `stew settings` → Agents → "Needs you from agents", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
 
 ### Typed answers
 
@@ -155,7 +175,7 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 
 ### The skill
 
-The skill in `~/.claude/skills/stew` tells Claude Code sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Edit `~/.claude/skills/stew/SKILL.md` to change when sessions use it.
+The skill tells agent sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Claude Code reads it from `~/.claude/skills/stew`, Codex from `~/.agents/skills/stew`. Edit its `SKILL.md` to change when sessions use it; `stew setup` writes it again.
 
 ### Calling it directly
 
@@ -199,7 +219,7 @@ Permission requests, questions and inputs get 1 minute by default (`responseTime
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
-For a direct `stew permit`, and for a call auto mode blocked, stew runs its own risk check: `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session and the `git status` of the session folder as context, so it can say which uncommitted work a command would lose. The verdict shows above the command after approximately 5 seconds, with the risky part of a longer command marked. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
+For a direct `stew permit`, a Codex approval and a call auto mode blocked, stew runs its own risk check (it needs Claude Code): `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session and the `git status` of the session folder as context, so it can say which uncommitted work a command would lose. The verdict shows above the command after approximately 5 seconds, with the risky part of a longer command marked. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
 
 #### Severity
 
@@ -214,11 +234,11 @@ The same check also rates how bad the action is if it runs, and says in one line
 | High risk | `rm -rf` outside the project, a force-push to a shared branch, `DROP TABLE`, deleting cloud resources | The warning look, and 1 more minute to answer |
 | Critical risk | Sending money or emails to customers, deleting production data or backups, publishing a release | The red look, Approve needs ⇧⌘↩ like a hard deny, and 1 more minute to answer |
 
-The panel shows the level as a chip in the risk banner, with the reversibility line under the summary, such as "Can be undone with git reflog." or "Deletes files permanently; no undo." History and the menu bar popover show the level as a pill next to the outcome. On the iPhone, high and critical need an extra confirmation before Approve (see [docs/PHONE.md](docs/PHONE.md)). When the risk check is off or fails, there is no severity and nothing changes. Each rule is a setting under Settings ▸ Claude Code ▸ Risk check.
+The panel shows the level as a chip in the risk banner, with the reversibility line under the summary, such as "Can be undone with git reflog." or "Deletes files permanently; no undo." History and the menu bar popover show the level as a pill next to the outcome. On the iPhone, high and critical need an extra confirmation before Approve (see [docs/PHONE.md](docs/PHONE.md)). When the risk check is off or fails, there is no severity and nothing changes. Each rule is a setting under Settings ▸ Agents ▸ Risk check.
 
 ### History: what you missed
 
-Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended, where you answered it (the Mac or an iPhone) and what Claude was told. The menu bar popover lists them on the left, newest first, with the title, the session and time, and the outcome and risk; the History tab in Settings shows the same. The newest request is selected when it opens and when you switch between All and Missed, and the count on Missed says how many it lists. Click a request, or after a click in the list use up and down, to select another. On the right, the selected request shows the way the panel showed it, with how it ended in place of the buttons, and below it when it was asked and ended and what Claude was told. A secret shows as dots: stew never keeps it. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude, Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
+Every request is kept for 30 days (`historyDays`) once it ends: when, the session, the request, the command with secrets masked, how it ended, where you answered it (the Mac or an iPhone) and what the agent was told. The menu bar popover lists them on the left, newest first, with the title, the session and time, and the outcome and risk; the History tab in Settings shows the same. The newest request is selected when it opens and when you switch between All and Missed, and the count on Missed says how many it lists. Click a request, or after a click in the list use up and down, to select another. On the right, the selected request shows the way the panel showed it, with how it ended in place of the buttons, and below it when it was asked and ended and what Claude was told. A secret shows as dots: stew never keeps it. A request that ran out of time is **missed**; one you closed yourself is not. Missed only (and `stew history --missed`) also lists secrets you chose to enter later, labeled Enter later. A needs item is recorded when it ends: Done, Answered (one of its other answers), Dismissed (declined), Resolved by Claude (or Codex), Answered in session, or Moved on. For an item with answers of its own, the detail shows the one you picked. Not now is not an ending, so it is not recorded.
 
 When you come back to the Mac after at least 2 minutes away and requests timed out meanwhile, stew shows one notice, "3 requests timed out while you were away", with **Open history** (⌘↩). The same notice counts secrets you chose to enter later ("1 secret to enter") and open needs items ("2 things need you"), and shows on its own when only those are open.
 
@@ -398,7 +418,7 @@ The window has seven panes, picked from its toolbar:
 
 ## Security model
 
-- **stew never runs commands.** Claude runs them through its own tools, so Claude Code's permissions, sandbox and transcript still apply.
+- **stew never runs commands.** The agent runs them through its own tools, so Claude Code's or Codex's permissions, sandbox and transcript still apply.
 - **One retry, one call.** An approval lets one identical call through, in the session that asked, within 15 minutes.
 - **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session. It runs only on a Claude subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login.
 - **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
