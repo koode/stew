@@ -243,10 +243,13 @@ final class AccountModel: ObservableObject {
         paymentTimer = Timer.scheduledTimer(withTimeInterval: PaymentWait.pollInterval, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
+    /// Ends the wait for a payment, however it ended. The voucher code goes too: it
+    /// belonged to that checkout, and must not ride along with the next one.
     func stopWaitingForPayment() {
         paymentTimer?.invalidate()
         paymentTimer = nil
         paymentWait = nil
+        voucher = ""
     }
 
     private func paymentStep() {
