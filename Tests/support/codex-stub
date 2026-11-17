@@ -1,0 +1,33 @@
+#!/bin/bash
+# Stands in for the codex CLI in the risk check tests, so no test runs the real one.
+# `login status` reports a ChatGPT login, or what STEW_CODEX_STUB_STATE's file says
+# ("apikey" or "none"). `exec` writes a fixed verdict to the --output-last-message file
+# and to stdout, rating the command by a few words in it. STEW_CODEX_STUB_LOG, when
+# set, collects each argument of each exec on a line of its own, then the input.
+state=""
+[[ -n "${STEW_CODEX_STUB_STATE:-}" && -f "$STEW_CODEX_STUB_STATE" ]] && state=$(cat "$STEW_CODEX_STUB_STATE")
+if [[ "$1" == "login" && "$2" == "status" ]]; then
+  case "$state" in
+    apikey) echo "Logged in using an API key - sk-***" >&2; exit 0 ;;
+    none) echo "Not logged in" >&2; exit 1 ;;
+    *) echo "Logged in using ChatGPT" >&2; exit 0 ;;
+  esac
+fi
+[[ "$1" == "exec" ]] || { echo "codex-stub: unexpected $*" >&2; exit 2; }
+input=$(cat)
+output=""
+previous=""
+for argument in "$@"; do
+  [[ "$previous" == "--output-last-message" ]] && output="$argument"
+  previous="$argument"
+done
+if [[ -n "${STEW_CODEX_STUB_LOG:-}" ]]; then
+  { echo "--- exec in $PWD"; printf '%s\n' "$@"; echo "--- input"; printf '%s\n' "$input"; } >> "$STEW_CODEX_STUB_LOG"
+fi
+severity=low; reversibility="Codex stub: can be undone with git reset."
+case "$input" in
+  *"--force"*) severity=high; reversibility="Codex stub: rewrites history others have pulled." ;;
+esac
+verdict=$(printf '{"verdict":"allow","risk":"low","rule":null,"summary":"Codex stub verdict.","severity":"%s","reversibility":"%s","risky_part":null}' "$severity" "$reversibility")
+[[ -n "$output" ]] && printf '%s\n' "$verdict" > "$output"
+printf '%s\n' "$verdict"

@@ -1,13 +1,15 @@
 import Foundation
 import StewCore
 
-/// Runs the auto mode style check through `claude -p`, with the user's effective auto mode rules.
+/// Runs the auto mode style check through `claude -p` or `codex exec`, with the user's
+/// effective auto mode rules when Claude Code has them, else stew's default rules.
 final class RiskChecker {
     private let config: StewConfig.ClassifierConfig
     private static let policyCacheLifetime: TimeInterval = 600
     private static let queue = DispatchQueue(label: "stew.risk", attributes: .concurrent)
     private static let policyLock = NSLock()
     private static var subscriptionVerifiedAt = Date.distantPast
+    private static var codexLoginVerifiedAt = Date.distantPast
 
     init(config: StewConfig.ClassifierConfig) {
         self.config = config
@@ -33,10 +35,50 @@ final class RiskChecker {
     static var mainLoopRunning = false
 
     private static func runCheck(_ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig) throws -> RiskAssessment {
-        guard let claude = Paths.claudeBinary(configured: config.claudePath) else {
-            throw CheckFailure(description: "claude CLI not found; set classifier.claudePath")
+        let engines = RiskCheckBackend(configValue: config.backend).engines(for: session.codingAgent)
+        var tools: [RiskCheckEngine: String] = [:]
+        let chosen = RiskCheckBackend.choose(engines) { engine in
+            do {
+                tools[engine] = try usableTool(engine, config: config)
+                return nil
+            } catch {
+                return "\(error)"
+            }
         }
-        try requireSubscription(claude: claude)
+        switch chosen {
+        case .success(let engine):
+            let tool = tools[engine]!
+            switch engine {
+            case .claude: return try runClaudeCheck(permission, session: session, config: config, claude: tool)
+            case .codex: return try runCodexCheck(permission, session: session, config: config, codex: tool)
+            }
+        case .failure(let error):
+            throw CheckFailure(description: error.description)
+        }
+    }
+
+    /// The tool's path when it is installed and logged in the way the check needs, or an
+    /// error that names what is missing.
+    private static func usableTool(_ engine: RiskCheckEngine, config: StewConfig.ClassifierConfig) throws -> String {
+        switch engine {
+        case .claude:
+            guard let claude = Paths.claudeBinary(configured: config.claudePath) else {
+                throw CheckFailure(description: "claude CLI not found; set classifier.claudePath")
+            }
+            try requireSubscription(claude: claude)
+            return claude
+        case .codex:
+            guard let codex = Paths.codexBinary(configured: config.codexPath) else {
+                throw CheckFailure(description: "codex CLI not found; set classifier.codexPath")
+            }
+            try requireCodexLogin(codex: codex)
+            return codex
+        }
+    }
+
+    private static func runClaudeCheck(
+        _ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig, claude: String
+    ) throws -> RiskAssessment {
         let workingDirectory = expand(session.cwd) ?? Paths.home
         let promptFile = try systemPromptFile(claude: claude, workingDirectory: workingDirectory)
         let recent = recentUserMessages(sessionID: session.id, limit: config.recentUserMessages)
@@ -66,6 +108,70 @@ final class RiskChecker {
         var assessment = try RiskCheck.parse(cliOutput: output)
         assessment.riskyPart = RiskCheck.riskyPart(assessment.riskyPart, in: permission.command)
         return assessment
+    }
+
+    /// The same check through `codex exec`: the same input and the same verdict shape, so
+    /// the panel and the iPhone show it the same way.
+    private static func runCodexCheck(
+        _ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig, codex: String
+    ) throws -> RiskAssessment {
+        let workingDirectory = expand(session.cwd) ?? Paths.home
+        // Claude Code's rules when it is there to give them, else stew's defaults.
+        let claude = Paths.claudeBinary(configured: config.claudePath)
+        let policy = claude.flatMap { try? policyJSON(workingDirectory: workingDirectory, claude: $0) }
+            .map { String(decoding: $0, as: UTF8.self) } ?? RiskCheck.defaultPolicyJSON
+        let instructions = try cacheFile(named: "codex-policy", contents: RiskCheck.systemPrompt(policyJSON: policy), suffix: "txt")
+        let schema = try cacheFile(named: "risk-schema", contents: RiskCheck.schema, suffix: "json")
+        let recent = recentUserMessages(sessionID: session.id, agent: session.codingAgent, limit: config.recentUserMessages)
+        let input = try RiskCheck.input(
+            for: permission, session: session, recentUserMessages: recent,
+            gitStatus: gitStatus(workingDirectory: workingDirectory)
+        )
+        let outputPath = Paths.cacheDirectory + "/codex-verdict-\(UUID().uuidString).json"
+        defer { try? FileManager.default.removeItem(atPath: outputPath) }
+        // Runs from the cache folder, so no project AGENTS.md or config is read.
+        let printed = try runProcess(
+            codex,
+            RiskCheck.codexArguments(model: config.codexModel, instructionsPath: instructions, schemaPath: schema, outputPath: outputPath),
+            stdin: Data(input.utf8),
+            directory: Paths.cacheDirectory,
+            timeout: config.timeoutSeconds,
+            environment: codexChildEnvironment()
+        )
+        // The final message goes to the output file and to stdout; the file holds it alone.
+        let output = FileManager.default.contents(atPath: outputPath).flatMap { $0.isEmpty ? nil : $0 } ?? printed
+        var assessment = try RiskCheck.parse(codexOutput: output)
+        assessment.riskyPart = RiskCheck.riskyPart(assessment.riskyPart, in: permission.command)
+        return assessment
+    }
+
+    /// A file in the cache folder named after its contents, so concurrent checks never
+    /// race on one file and a changed prompt gets a new file.
+    private static func cacheFile(named name: String, contents: String, suffix: String) throws -> String {
+        let path = Paths.cacheDirectory + "/\(name)-\(stableHash(contents)).\(suffix)"
+        if !FileManager.default.fileExists(atPath: path) {
+            try contents.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        return path
+    }
+
+    /// The check must run on the user's ChatGPT plan, never on API billing: the child
+    /// environment has no API key variables, and `codex login status` must agree.
+    private static func requireCodexLogin(codex: String) throws {
+        policyLock.lock()
+        let verified = Date().timeIntervalSince(codexLoginVerifiedAt) < policyCacheLifetime
+        policyLock.unlock()
+        if verified { return }
+        let result = try runProcessResult(
+            codex, ["login", "status"], stdin: nil, directory: Paths.cacheDirectory, timeout: 20, environment: codexChildEnvironment()
+        )
+        let output = String(decoding: result.output + result.errors, as: UTF8.self)
+        guard RiskCheck.codexUsesChatGPTLogin(exitStatus: result.status, output: output) else {
+            throw CheckFailure(description: "codex is not logged in with ChatGPT; skipped to avoid API billing")
+        }
+        policyLock.lock()
+        codexLoginVerifiedAt = Date()
+        policyLock.unlock()
     }
 
     /// The uncommitted work in the call's folder, so the check can say what a command
@@ -149,6 +255,47 @@ final class RiskChecker {
         return path.hasPrefix("~") ? Paths.home + path.dropFirst() : path
     }
 
+    /// The user's recent messages in the asking agent's session file.
+    static func recentUserMessages(sessionID: String?, agent: CodingAgent, limit: Int) -> [String] {
+        switch agent {
+        case .claudeCode: return recentUserMessages(sessionID: sessionID, limit: limit)
+        case .codex: return recentCodexUserMessages(sessionID: sessionID, limit: limit)
+        }
+    }
+
+    /// Codex keeps sessions in `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl` under its
+    /// home. Only the last few days are searched, newest first.
+    static func recentCodexUserMessages(sessionID: String?, limit: Int) -> [String] {
+        guard let sessionID, !sessionID.isEmpty, limit > 0 else { return [] }
+        let sessions = Hooks.codexHome + "/sessions"
+        let calendar = Calendar(identifier: .gregorian)
+        let fileManager = FileManager.default
+        for daysAgo in 0..<7 {
+            guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) else { continue }
+            let parts = calendar.dateComponents([.year, .month, .day], from: day)
+            let folder = String(format: "%@/%04d/%02d/%02d", sessions, parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            guard let names = try? fileManager.contentsOfDirectory(atPath: folder),
+                  let name = names.first(where: { $0.hasSuffix("-\(sessionID).jsonl") }),
+                  let data = tail(of: folder + "/" + name) else { continue }
+            return RiskCheck.recentUserMessages(codexSession: data, limit: limit)
+        }
+        return []
+    }
+
+    /// The last 2 MB of a file, from the first whole line.
+    private static func tail(of path: String) -> Data? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        let tailSize: UInt64 = 2_000_000
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > tailSize ? size - tailSize : 0)
+        var data = handle.readDataToEndOfFile()
+        if size > tailSize, let firstNewline = data.firstIndex(of: 0x0A) {
+            data = data[(firstNewline + 1)...]
+        }
+        return data
+    }
+
     /// Reads the tail of the session transcript; transcripts can grow to hundreds of MB.
     static func recentUserMessages(sessionID: String?, limit: Int) -> [String] {
         guard let sessionID, limit > 0 else { return [] }
@@ -169,12 +316,35 @@ final class RiskChecker {
         return RiskCheck.recentUserMessages(transcript: data, limit: limit)
     }
 
-    private static func runProcess(_ tool: String, _ arguments: [String], stdin: Data?, directory: String, timeout: TimeInterval) throws -> Data {
+    private static func runProcess(
+        _ tool: String, _ arguments: [String], stdin: Data?, directory: String, timeout: TimeInterval,
+        environment: [String: String]? = nil
+    ) throws -> Data {
+        let result = try runProcessResult(tool, arguments, stdin: stdin, directory: directory, timeout: timeout, environment: environment)
+        if result.output.isEmpty {
+            let message = String(decoding: result.errors.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = URL(fileURLWithPath: tool).lastPathComponent
+            throw CheckFailure(description: message.isEmpty ? "\(name) exited with \(result.status)" : message)
+        }
+        return result.output
+    }
+
+    struct ProcessResult {
+        var status: Int32
+        var output: Data
+        var errors: Data
+    }
+
+    /// Runs a tool with no shell in between: each argument reaches it as it is.
+    private static func runProcessResult(
+        _ tool: String, _ arguments: [String], stdin: Data?, directory: String, timeout: TimeInterval,
+        environment: [String: String]? = nil
+    ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.environment = childEnvironment()
+        process.environment = environment ?? childEnvironment()
         let output = Pipe()
         let errors = Pipe()
         let input = Pipe()
@@ -204,11 +374,7 @@ final class RiskChecker {
         if process.terminationReason == .uncaughtSignal {
             throw CheckFailure(description: "timed out after \(Int(timeout)) s")
         }
-        if outputData.isEmpty {
-            let message = String(decoding: errorData.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CheckFailure(description: message.isEmpty ? "claude exited with \(process.terminationStatus)" : message)
-        }
-        return outputData
+        return ProcessResult(status: process.terminationStatus, output: outputData, errors: errorData)
     }
 
     /// Variables that would switch `claude` from the subscription login to API billing.
@@ -229,5 +395,21 @@ final class RiskChecker {
         let extraPath = [Paths.home + "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
         environment["PATH"] = (extraPath + [environment["PATH"] ?? ""]).joined(separator: ":")
         return environment
+    }
+
+    /// Variables that would switch `codex` from the ChatGPT login to API billing or
+    /// another endpoint.
+    static let codexBillingOverrides: Set<String> = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+
+    /// Codex variables that are not about the session the daemon may have been started
+    /// from: where Codex keeps its state and login, and its certificate bundle.
+    static let codexKeptVariables: Set<String> = ["CODEX_HOME", "CODEX_SQLITE_HOME", "CODEX_CA_CERTIFICATE"]
+
+    /// The Claude child environment without API keys or the variables of a Codex session
+    /// the daemon may have started in, so the nested run is a session of its own.
+    private static func codexChildEnvironment() -> [String: String] {
+        childEnvironment().filter { key, _ in
+            !codexBillingOverrides.contains(key) && !(key.hasPrefix("CODEX_") && !codexKeptVariables.contains(key))
+        }
     }
 }

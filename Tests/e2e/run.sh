@@ -9,6 +9,8 @@ STEW="${STEW:-$ROOT/.build/debug/stew}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK="$(mktemp -d "${TMP_ROOT%/}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e" STEW_CACHE="$WORK/cache" STEW_STUB_LOG="$WORK/claude-stub.log"
+# The codex stub's log and login state; the daemon runs the stub, so they are set before it starts.
+export STEW_CODEX_STUB_LOG="$WORK/codex-stub.log" STEW_CODEX_STUB_STATE="$WORK/codex-stub-state"
 # Until I'm back begins 2 seconds after it is chosen, not a minute.
 export STEW_PAUSE_ARMING=2
 # Run from inside Claude Code or Codex, requests would carry that session's id and agent;
@@ -1456,6 +1458,86 @@ echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 wait_items 1
 expect "no severity while the check is off" "$(control state)" "risk=off severity=-"
 control press deny > /dev/null; wait $client
+
+# The risk check with Codex: by default the asking agent's tool checks, with a stub for
+# each CLI. A request from a Codex shell or a Codex approval goes to the codex stub, a
+# Claude Code request still to the claude stub.
+CODEX_STUB="$ROOT/Tests/support/codex-stub"
+risk_config() { echo "{\"classifier\":{\"enabled\":true,\"claudePath\":\"$STUB\",\"codexPath\":\"$CODEX_STUB\"$1},\"sound\":\"\",\"responseTimeout\":60}" > "$STEW_CONFIG"; }
+codex_permit() { CODEX_SESSION_ID=codex-risk "$STEW" permit --action "Force-push main" --command "git push --force origin main" --reason "rebased" "$@"; }
+risk_config ""
+
+# Codex on an API key or logged out: a Codex request falls back to Claude, and a check
+# that must use Codex says why it cannot. Login failures are not cached, so these go first.
+echo "apikey" > "$STEW_CODEX_STUB_STATE"
+codex_permit > "$WORK/out" & client=$!
+wait_items 1; wait_checked > /dev/null
+control press deny > /dev/null; wait $client
+expect "risk: Codex on an API key falls back to Claude" "$(cat "$WORK/out")" '"summary":"Stub verdict."'
+risk_config ',"backend":"codex"'
+echo "none" > "$STEW_CODEX_STUB_STATE"
+codex_permit > "$WORK/out" & client=$!
+wait_items 1
+expect "risk: Codex only, logged out, is unavailable and says why" "$(wait_checked)" "risk=failed: codex is not logged in with ChatGPT; skipped to avoid API billing"
+control press deny > /dev/null; wait $client
+echo '{"classifier":{"enabled":true,"backend":"codex","codexPath":"/nonexistent/codex"},"sound":"","responseTimeout":60}' > "$STEW_CONFIG"
+codex_permit > "$WORK/out" & client=$!
+wait_items 1
+state=$(wait_checked)
+if command -v codex > /dev/null; then
+  echo "skip  risk: a missing codex CLI is named (codex is on PATH here)"
+else
+  expect "risk: a missing codex CLI is named" "$state" "risk=failed: codex CLI not found; set classifier.codexPath"
+fi
+control press deny > /dev/null; wait $client
+rm -f "$STEW_CODEX_STUB_STATE"
+
+risk_config ""
+: > "$STEW_STUB_LOG"
+codex_permit > "$WORK/out" & client=$!
+wait_items 1
+expect "risk: Codex's verdict sets the severity" "$(wait_checked)" "risk=allow severity=high"
+control press deny > /dev/null; wait $client
+expect "risk: a Codex request is checked by Codex" "$(cat "$WORK/out")" '"summary":"Codex stub verdict."'
+expect "risk: Codex's reversibility line" "$(cat "$WORK/out")" '"reversibility":"Codex stub: rewrites history others have pulled."'
+expect "risk: the claude stub was not asked" "[$(cat "$STEW_STUB_LOG")]" "[]"
+codex_log=$(cat "$STEW_CODEX_STUB_LOG")
+for argument in "--sandbox" "read-only" "--ephemeral" "--ignore-user-config" "--skip-git-repo-check" "features.shell_tool=false" \
+  'web_search="disabled"' 'approval_policy="never"' "features.hooks=false" "--output-schema" "--output-last-message" "gpt-6-luna"; do
+  grep -qxF -- "$argument" <<< "$codex_log" || fail "risk: codex exec gets $argument" "$codex_log"
+done
+pass "risk: codex exec runs read-only, tool-free and unsaved"
+expect "risk: codex exec runs from the cache folder" "$codex_log" "$(basename "$WORK")/cache"
+expect "risk: Codex gets the same input as Claude" "$codex_log" '"command":"git push --force origin main"'
+policy_prompt=$(cat "$WORK"/cache/codex-policy-*.txt)
+[[ "$policy_prompt" == *'"hard_deny":['* && "$policy_prompt" != *"these are stew's defaults"* ]] \
+  && pass "risk: the rules are Claude Code's when it has them" || fail "risk: the rules are Claude Code's when it has them" "$policy_prompt"
+[[ -z "$(ls "$WORK"/cache/codex-verdict-* 2>/dev/null)" ]] && pass "risk: the verdict file is removed" || fail "risk: the verdict file is removed" "$(ls "$WORK/cache")"
+
+"$STEW" permit --action "Force-push main" --command "git push --force origin main" --reason "rebased" > "$WORK/out" & client=$!
+wait_items 1; wait_checked > /dev/null
+control press deny > /dev/null; wait $client
+expect "risk: a Claude Code request still uses Claude" "$(cat "$WORK/out")" '"summary":"Stub verdict."'
+
+: > "$STEW_CODEX_STUB_LOG"
+codex_bash "git push --force origin release" > "$WORK/out" & hook=$!
+wait_items 1
+expect "risk: a Codex approval is checked by Codex" "$(wait_checked)" "risk=allow severity=high"
+control press deny > /dev/null; wait $hook
+expect "risk: History keeps Codex's reversibility for the approval" "$(codex_entry "Run a shell command")" '"reversibility":"Codex stub: rewrites history others have pulled."'
+
+risk_config ',"backend":"claude"'
+codex_permit > "$WORK/out" & client=$!
+wait_items 1; wait_checked > /dev/null
+control press deny > /dev/null; wait $client
+expect "risk: Check with Claude Code checks a Codex request with Claude" "$(cat "$WORK/out")" '"summary":"Stub verdict."'
+risk_config ',"backend":"codex","codexModel":"gpt-6.1-terra"'
+"$STEW" permit --action "Force-push main" --command "git push --force origin main" --reason "rebased" > "$WORK/out" & client=$!
+wait_items 1; wait_checked > /dev/null
+control press deny > /dev/null; wait $client
+expect "risk: Check with Codex checks a Claude Code request with Codex" "$(cat "$WORK/out")" '"summary":"Codex stub verdict."'
+grep -qxF "gpt-6.1-terra" "$STEW_CODEX_STUB_LOG" && pass "risk: classifier.codexModel picks the model" || fail "risk: classifier.codexModel picks the model" "$(cat "$STEW_CODEX_STUB_LOG")"
+echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 
 if [[ "${RISK_CHECK:-0}" == "1" ]]; then
   echo '{"classifier":{"enabled":true,"model":"haiku"},"sound":""}' > "$STEW_CONFIG"

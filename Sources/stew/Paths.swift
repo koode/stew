@@ -64,6 +64,11 @@ enum Paths {
         return command("claude")
     }
 
+    static func codexBinary(configured: String?) -> String? {
+        if let configured, FileManager.default.isExecutableFile(atPath: configured) { return configured }
+        return command("codex")
+    }
+
     /// A command in the usual install places, then PATH. The daemon starts from launchd
     /// with a short PATH, so the install places come first.
     static func command(_ name: String) -> String? {
