@@ -164,7 +164,7 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 
 ![Claude asks which domain to use](docs/images/input-light.png)
 
-- The field shows what it holds but does not take the keyboard. Click it or press ⌘O to type; Esc leaves it. The clock pauses while you type, as for a note.
+- The field shows what it holds but does not take the keyboard. Click it or press ⌘O to type; Esc leaves it. The clock pauses while the field is open, as for a note, and stops once you type (see Time to answer).
 - ⌘↩ sends, also from inside the field. Plain Return never sends: in a one-line field it does nothing, and with `--multiline` it adds a line.
 - With `--pattern`, ⌘↩ and Send stay off until the whole answer matches, and a line under the field says what form it needs: the `--format` text ("Expected: 6 digits") when Claude gave one, else the pattern itself. `--format` without `--pattern` is refused.
 - ⌘. dismisses it without an answer. A plain input that timed out can be answered later from the History, like a question.
@@ -215,7 +215,11 @@ Answers print as one JSON line. `stew --help` lists every command and flag.
 
 ### Time to answer
 
-Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while you type a note or pick what to allow. Once you type into a request (a note, an answer, an input's value), its clock stops for good and the panel shows "No time limit": it waits for you, and it is not sent to your iPhone. A caller's hard limit (`maxWait`) still applies. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while the note field or "Allow more…" is open. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
+
+Once you start answering a request, its clock stops for good: when you type into it (a note, an answer, an input's value), move between its questions (⌘] and ⌘[, or a click on a tab), pick an option that does not send the answer yet (one question of several, a multiple choice, a scope under "Allow more…"), or press ⌘↩ before it can be sent. The request then waits for you and is not sent to your iPhone. The panel shows "No time limit", or "Waits up to 29:40" when the caller has a hard limit (`maxWait`): Claude Code's hooks set one to stay inside Claude Code's own hook timeout, and stew cannot extend it.
+
+While you answer one request, the ones that arrive meanwhile wait behind it, and their clocks do not run. When you answer or close it, the next one's clock starts fresh with the full time, or with what is left of its hard limit when that is less. A request whose hard limit runs out while it waits times out where it is, and Claude is told you were answering another request.
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
