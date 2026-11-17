@@ -226,6 +226,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var classifier: ClassifierConfig
     /// When open requests go to paired iPhones.
     public var phone: PhoneConfig
+    /// Where the stew account lives.
+    public var account: AccountConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
         public var enabled: Bool
@@ -309,6 +311,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         pauseMorningHour = PauseChoice.defaultMorningHour
         classifier = ClassifierConfig()
         phone = PhoneConfig()
+        account = AccountConfig()
     }
 
     public init(from decoder: Decoder) throws {
@@ -337,6 +340,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         pauseMorningHour = (0...23).contains(morningHour) ? morningHour : defaults.pauseMorningHour
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
+        account = try container.decodeIfPresent(AccountConfig.self, forKey: .account) ?? defaults.account
     }
 }
 
