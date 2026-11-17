@@ -633,12 +633,29 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(shorterGift.hint == "Renews D20.")
     }
 
-    @Test func anEndedGiftFallsBackToTheNormalStatus() {
-        let ended = summary(AccountPlan(status: .gift, giftEndsAt: now.addingTimeInterval(-86_400)))
+    @Test func anEndedGiftShowsAsTheGiftWithItsEnd() {
+        let ended = summary(AccountPlan(status: .gift, trialEndsAt: now.addingTimeInterval(-30 * 86_400), giftEndsAt: now.addingTimeInterval(-86_400)))
+        #expect(ended.name == "stew Pro (gift)")
         #expect(ended.status == "Expired")
-        #expect(ended.name == "Trial")
-        #expect(ended.hint == "Subscribe to use the iPhone relay again.")
+        #expect(ended.tone == .attention)
+        #expect(ended.hint == "Ended D-1. Subscribe to use the iPhone relay again.")
         #expect(ended.subscribeHint == "Checkout opens in your browser.")
+        let reportedExpired = summary(AccountPlan(status: .expired, trialEndsAt: now.addingTimeInterval(-30 * 86_400), giftEndsAt: now.addingTimeInterval(-86_400)))
+        #expect(reportedExpired.name == "stew Pro (gift)")
+        #expect(reportedExpired.hint == "Ended D-1. Subscribe to use the iPhone relay again.")
+    }
+
+    @Test func aGiftThatEndedBeforeTheLastPlanLeavesThatPlan() {
+        let trialAfterGift = summary(AccountPlan(status: .expired, trialEndsAt: now.addingTimeInterval(-86_400), giftEndsAt: now.addingTimeInterval(-10 * 86_400)))
+        #expect(trialAfterGift.name == "Trial")
+        #expect(trialAfterGift.hint == "Subscribe to use the iPhone relay again.")
+        let paidAfterGift = summary(AccountPlan(
+            status: .expired, currentPeriodEnd: now.addingTimeInterval(-86_400), interval: .month, giftEndsAt: now.addingTimeInterval(-10 * 86_400)
+        ))
+        #expect(paidAfterGift.name == "stew Pro, monthly")
+    }
+
+    @Test func anEndedGiftBesideAPaidPlanAddsNothing() {
         let paidAfterGift = summary(AccountPlan(
             status: .active, currentPeriodEnd: now.addingTimeInterval(20 * 86_400), interval: .year, giftEndsAt: now.addingTimeInterval(-86_400)
         ))

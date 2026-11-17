@@ -291,7 +291,13 @@ public struct AccountPlanSummary: Equatable, Sendable {
     public init(plan: AccountPlan, now: Date, dateText: (Date) -> String) {
         var plan = plan
         let liveGift = plan.giftEndsAt.map { $0 > now } ?? (plan.status == .gift)
-        // A gift that has ended no longer counts: the plan shows as it would without it.
+        /// When the trial or the paid period ends, whichever is later.
+        let otherEnd = [plan.trialEndsAt, plan.currentPeriodEnd].compactMap { $0 }.max()
+        // The gift is what ended when it was the last thing that entitled: it shows as the
+        // gift with its end date, not as the trial or plan from before it.
+        let endedGift = plan.giftEndsAt.flatMap { giftEnd in
+            giftEnd <= now && (plan.status == .gift || (plan.status == .expired && giftEnd >= (otherEnd ?? .distantPast))) ? giftEnd : nil
+        }
         if plan.status == .gift, !liveGift { plan.status = .expired }
         let paidName: String
         switch plan.interval {
@@ -342,10 +348,15 @@ public struct AccountPlanSummary: Equatable, Sendable {
                 hint = "Subscribe to use the iPhone relay again."
             }
         case .expired:
-            name = plan.interval == nil ? "Trial" : paidName
             status = "Expired"
             tone = .attention
-            hint = "Subscribe to use the iPhone relay again."
+            if let endedGift {
+                name = "stew Pro (gift)"
+                hint = "Ended \(dateText(endedGift)). Subscribe to use the iPhone relay again."
+            } else {
+                name = plan.interval == nil ? "Trial" : paidName
+                hint = "Subscribe to use the iPhone relay again."
+            }
         case .gift:
             name = "stew Pro (gift)"
             status = "Active"
