@@ -358,8 +358,9 @@ public enum RelayStop: Equatable, Sendable {
     case unknownPairing
     /// 4026 or HTTP 426: the relay needs a newer stew.
     case unsupportedProtocol
-    /// HTTP 402 on the upgrade, or `plan_required` on a post: the pairing needs a plan. The
-    /// pairing is kept, and the link waits for the user.
+    /// HTTP 402 on the upgrade, 4002 on an open socket whose lease ran out, or
+    /// `plan_required` on a post: the pairing needs a plan. The pairing is kept, and the
+    /// link waits for the user.
     case planRequired(RelayPlanRequired)
 }
 
@@ -387,6 +388,7 @@ public enum RelayReconnect: Equatable, Sendable {
         case 1001: .soon
         case 4000: .after(replacedWait)
         case 4001: .authFailed
+        case 4002: .stop(.planRequired(.socketRefusal))
         case 4004: .stop(.unknownPairing)
         case 4008: .now
         case 4010: .stop(.unpaired)

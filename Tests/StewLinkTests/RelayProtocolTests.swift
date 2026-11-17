@@ -128,6 +128,7 @@ struct RelayProtocolTests {
         #expect(RelayReconnect.afterClose(code: 4010, reason: "unpaired") == .stop(.unpaired))
         #expect(RelayReconnect.afterClose(code: 4011, reason: "expired") == .stop(.claimExpired))
         #expect(RelayReconnect.afterClose(code: 4026, reason: nil) == .stop(.unsupportedProtocol))
+        #expect(RelayReconnect.afterClose(code: 4002, reason: nil) == .stop(.planRequired(.socketRefusal)))
         #expect(RelayReconnect.afterClose(code: 4029, reason: "12") == .after(12))
         #expect(RelayReconnect.afterClose(code: 4029, reason: nil) == .after(10))
     }
