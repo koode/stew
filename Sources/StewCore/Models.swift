@@ -246,6 +246,25 @@ public struct StewRequest: Codable, Equatable, Sendable {
         }
     }
 
+    /// The note Claude gets when the caller's hard limit passed while the request still
+    /// waited behind another one the user was answering, so the user never saw it.
+    public func queuedTimeoutNote(after seconds: Double) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        let span = seconds < 60 ? "\(Int(seconds)) s" : "\(minutes) min"
+        let late = LateMailbox.canAnswerLate(self)
+            ? " If they answer later, stew passes their answer on to you as a late answer, which replaces this timeout."
+            : ""
+        let busy = "The user was answering another request in stew and didn't get to this one within \(span)."
+        switch prompt {
+        case .question, .input:
+            return "\(busy) Continue with a safe choice that does not need this answer, or ask again later.\(late)"
+        case .permission, .notify:
+            return "\(busy) Treat this as denied and continue another way, or ask again later.\(late)"
+        case .needs:
+            return timeoutNote(after: seconds)
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         session = try container.decode(SessionInfo.self, forKey: .session)

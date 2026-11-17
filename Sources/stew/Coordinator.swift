@@ -35,7 +35,8 @@ final class Item: ObservableObject, Identifiable {
     var timeLimit: Double?
     /// The limit plus every extension, for the note Claude gets on timeout.
     var grantedSeconds: Double = 0
-    /// Running clock. Nil while waiting behind another request or while paused.
+    /// Running clock. Nil while waiting behind another request or while paused. While it
+    /// waits, `timer` fires at the caller's hard limit instead.
     @Published var deadline: Date?
     /// stew's own risk check of a blocked call is still running.
     @Published var explaining = false
@@ -1184,7 +1185,12 @@ final class Coordinator: ObservableObject {
     /// Requests behind it wait with no clock of their own; theirs starts fresh when they
     /// reach the front, cut short by their own hard limit when less of it is left.
     private func syncTimer() {
-        guard let item = current, let limit = item.timeLimit else { return }
+        for waiting in items.dropFirst() { scheduleHardLimit(waiting) }
+        guard let item = current else { return }
+        guard let limit = item.timeLimit else {
+            scheduleHardLimit(item)
+            return
+        }
         if item.engaged {
             item.pausedRemaining = nil
             item.deadline = item.latestDeadline
@@ -1204,7 +1210,10 @@ final class Coordinator: ObservableObject {
         }
         item.timer?.cancel()
         item.timer = nil
-        guard let deadline = item.deadline else { return }
+        guard let deadline = item.deadline else {
+            scheduleHardLimit(item)
+            return
+        }
         let timer = DispatchWorkItem { [weak self, weak item] in
             guard let self, let item else { return }
             self.expire(item)
@@ -1213,10 +1222,27 @@ final class Coordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
     }
 
+    /// A request with no running clock still ends at the caller's hard limit, such as one
+    /// waiting behind a request the user is answering: it times out with a note that says
+    /// why, rather than Claude Code cutting its hook off without one.
+    private func scheduleHardLimit(_ item: Item) {
+        guard item.timer == nil, item.deadline == nil, let latest = item.latestDeadline else { return }
+        let timer = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item else { return }
+            self.expire(item)
+        }
+        item.timer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, latest.timeIntervalSinceNow), execute: timer)
+    }
+
     /// Times the request out now. Also used when a phone answer arrives the moment the
     /// time ran out, before the timer fired, so it can go as a late answer.
     func expire(_ item: Item, reason: String? = nil) {
-        let note = [item.request.timeoutNote(after: item.grantedSeconds), reason].compactMap { $0 }.joined(separator: " ")
+        // At the caller's hard limit Claude has waited all of it, whatever the clock showed.
+        let atHardLimit = item.latestDeadline.map { $0.timeIntervalSinceNow <= 1 } ?? false
+        let waited = atHardLimit ? item.request.maxWait ?? item.grantedSeconds : item.grantedSeconds
+        let timeout = item === current ? item.request.timeoutNote(after: waited) : item.request.queuedTimeoutNote(after: waited)
+        let note = [timeout, reason].compactMap { $0 }.joined(separator: " ")
         respond(item, StewResponse(status: .timeout, note: note, risk: item.risk.assessment))
     }
 

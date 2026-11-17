@@ -667,6 +667,16 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(request.timeoutNote(after: 20).contains("within 20 s"))
     }
 
+    @Test func queuedNoteSaysTheUserWasBusyElsewhere() {
+        let permission = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")))
+        let question = StewRequest(session: session, prompt: .question(QuestionSet(questions: [
+            Question(question: "Q?", header: "Q", options: [QuestionOption(label: "A", description: "")]),
+        ])))
+        #expect(permission.queuedTimeoutNote(after: 1780).hasPrefix("The user was answering another request in stew and didn't get to this one within 30 min."))
+        #expect(permission.queuedTimeoutNote(after: 1780).contains("Treat this as denied"))
+        #expect(question.queuedTimeoutNote(after: 3).contains("within 3 s. Continue with a safe choice"))
+    }
+
     @Test func answeringKeysEngageButTimeAndModeKeysDoNot() {
         #expect(HotkeyAction.next.engages)
         #expect(HotkeyAction.previous.engages)

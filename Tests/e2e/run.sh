@@ -336,6 +336,16 @@ control press dismiss > /dev/null; wait $client
 
 # answering stops the clock: a key press, one answered question, and the queue behind it
 TWO_QUESTIONS='{"questions":[{"question":"Q1?","header":"Q1","options":[{"label":"A","description":""},{"label":"B","description":""}]},{"question":"Q2?","header":"Q2","options":[{"label":"C","description":""},{"label":"D","description":""}]}]}'
+# A request straight on the socket, for the hard limit (maxWait) that only hooks set.
+raw_request() { # kind, timeout, maxWait
+  python3 -c 'import json,socket,sys
+kind,timeout,max_wait,path=sys.argv[1],float(sys.argv[2]),float(sys.argv[3]),sys.argv[4]
+body={"permission":{"action":"x","reason":"y"}} if kind=="permission" else {"question":json.loads(sys.argv[5])}
+request={"kind":kind,"session":{"name":"e2e"},"timeout":timeout,"maxWait":max_wait,"wait":True,**body}
+connection=socket.socket(socket.AF_UNIX); connection.connect(path)
+connection.sendall((json.dumps(request)+"\n").encode())
+print(connection.makefile().readline().strip())' "$1" "$2" "$3" "$STEW_SOCKET" "$TWO_QUESTIONS"
+}
 "$STEW" ask --timeout 2 --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
 wait_items 1
 expect "a question's clock runs before any key" "$(control state)" "clock=running:"
@@ -360,6 +370,28 @@ expect "the waiting request's clock starts fresh at the front" "$(control state)
 expect "with its full limit" "$(control state)" "clock=running:2"
 wait $second
 expect "and then it can time out" "$(cat "$WORK/second")" '"status":"timeout"'
+raw_request question 60 3 > "$WORK/out" & client=$!
+wait_items 1
+control choose 1 > /dev/null
+[[ "$(control state)" =~ clock=running:[23]\  ]] && pass "answering a hook question leaves only its hard limit" || fail "answering a hook question leaves only its hard limit" "$(control state)"
+wait $client
+expect "the hard limit still ends it" "$(cat "$WORK/out")" "didn't answer within 3 s"
+"$STEW" ask --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
+wait_items 1
+control choose 1 > /dev/null
+raw_request permission 60 2 > "$WORK/second" & second=$!
+wait_items 2
+wait $second
+expect "a waiting request times out at its hard limit" "$(cat "$WORK/second")" '"status":"timeout"'
+expect "and Claude hears the user was busy" "$(cat "$WORK/second")" "answering another request in stew"
+expect "the request being answered stays" "$(control state)" "items=1 kind=question question=1"
+raw_request permission 60 4 > "$WORK/second" & second=$!
+wait_items 2
+sleep 2
+control choose 1 > /dev/null; wait $client
+clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)
+[[ "${clock:-99}" -le 2 ]] && pass "a request that waited shows the hard limit it has left" || fail "a request that waited shows the hard limit it has left" "clock=$clock"
+wait $second
 out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
 expect "question timeout note" "$out" "didn't answer within 1 s"
 echo '{"classifier":{"enabled":false},"sound":"","responseTimeout":1}' > "$STEW_CONFIG"
