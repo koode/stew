@@ -167,6 +167,10 @@ struct AccountSettingsTab: View {
                 }
             }
         } else if !account.offers.isEmpty {
+            SettingRow(hint: "Applied at checkout. Leave empty if you have none.") {
+                TextField("Voucher code", text: $account.voucher, prompt: Text("Code"))
+                    .autocorrectionDisabled()
+            }
             SettingRow(hint: summary.subscribeHint) {
                 LabeledContent("Subscribe") {
                     HStack(spacing: 8) {

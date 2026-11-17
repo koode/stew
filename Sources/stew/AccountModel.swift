@@ -21,6 +21,8 @@ final class AccountModel: ObservableObject {
     @Published var signIn = SignInFlow()
     /// The digits typed in the code field.
     @Published var code = ""
+    /// A voucher code for the checkout, as typed.
+    @Published var voucher = ""
     @Published private(set) var signedIn = false
     @Published private(set) var account: Account?
     /// Why the last refresh or action failed, while signed in.
@@ -63,10 +65,11 @@ final class AccountModel: ObservableObject {
     /// Sample state for `stew snapshot`, which never starts the model.
     func showSample(
         signIn: SignInFlow = SignInFlow(), code: String = "", account: Account? = nil, problem: String? = nil,
-        paymentWait: PaymentWait? = nil, paymentOutcome: PaymentOutcome? = nil
+        paymentWait: PaymentWait? = nil, paymentOutcome: PaymentOutcome? = nil, voucher: String = ""
     ) {
         self.signIn = signIn
         self.code = code
+        self.voucher = voucher
         self.account = account
         signedIn = account != nil
         self.problem = problem
@@ -228,10 +231,12 @@ final class AccountModel: ObservableObject {
         account?.openableOffers(server: config.account.serverURL) ?? []
     }
 
-    /// Opens the checkout in the browser and waits for the payment.
+    /// Opens the checkout in the browser, with the voucher code when there is one, and
+    /// waits for the payment.
     func subscribe(_ offer: AccountOffer) {
-        guard AccountOffer.mayOpen(offer.url, server: config.account.serverURL) else { return }
-        NSWorkspace.shared.open(offer.url)
+        let checkout = offer.checkoutURL(voucher: voucher)
+        guard AccountOffer.mayOpen(checkout, server: config.account.serverURL) else { return }
+        NSWorkspace.shared.open(checkout)
         paymentWait = PaymentWait(startedAt: Date())
         paymentOutcome = nil
         paymentTimer?.invalidate()
@@ -328,6 +333,7 @@ final class AccountModel: ObservableObject {
         signIn = SignInFlow()
         code = ""
         signedOutNotice = notice
+        voucher = ""
         // Pairings keep the lease their relay already has until it runs out; new
         // pairings go without one.
         onLease?(nil)

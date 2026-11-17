@@ -149,6 +149,27 @@ public struct AccountOffer: Codable, Equatable, Sendable {
         self.url = url
     }
 
+    /// The query key Stripe's checkout reads a promotion code from.
+    public static let promoCodeKey = "prefilled_promo_code"
+
+    /// The checkout URL with a voucher code for the checkout to apply. The code is trimmed
+    /// and otherwise kept as typed (Stripe matches codes without regard to case); an empty
+    /// one leaves the URL as it is. The checkout checks the code, so the Mac does not.
+    public func checkoutURL(voucher: String) -> URL {
+        let code = voucher.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        // Encoded by hand: URLComponents leaves "+" and other characters a query value
+        // needs encoded as they are.
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        let encoded = code.addingPercentEncoding(withAllowedCharacters: allowed) ?? code
+        let kept = (components.percentEncodedQuery ?? "").split(separator: "&").filter {
+            !$0.hasPrefix(Self.promoCodeKey + "=") && $0 != Substring(Self.promoCodeKey)
+        }
+        components.percentEncodedQuery = (kept.map(String.init) + ["\(Self.promoCodeKey)=\(encoded)"]).joined(separator: "&")
+        return components.url ?? url
+    }
+
     /// Hosts whose pages the Mac opens for checkout and billing, with their subdomains.
     public static let allowedHosts = ["stripe.com", "stewcli.com"]
 

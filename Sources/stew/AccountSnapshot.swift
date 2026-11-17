@@ -11,6 +11,7 @@ enum AccountSnapshot {
         var code = ""
         var account: Account?
         var paymentWait: PaymentWait?
+        var voucher = ""
     }
 
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
@@ -41,6 +42,7 @@ enum AccountSnapshot {
             Scenario(name: "wrong-code", signIn: wrongCode, code: "418207"),
             Scenario(name: "codes-locked", signIn: codesLocked, code: "418207"),
             Scenario(name: "trial", account: trial),
+            Scenario(name: "voucher", account: trial, voucher: "LAUNCH20"),
             Scenario(name: "waiting-for-payment", account: trial, paymentWait: PaymentWait(startedAt: now)),
             Scenario(name: "active-monthly", account: account(
                 AccountPlan(status: .active, currentPeriodEnd: now.addingTimeInterval(23 * day), interval: .month), entitled: true, offers: []
@@ -60,7 +62,7 @@ enum AccountSnapshot {
         ]
         let model = AccountModel.shared
         for scenario in scenarios {
-            model.showSample(signIn: scenario.signIn, code: scenario.code, account: scenario.account, paymentWait: scenario.paymentWait)
+            model.showSample(signIn: scenario.signIn, code: scenario.code, account: scenario.account, paymentWait: scenario.paymentWait, voucher: scenario.voucher)
             for dark in [false, true] {
                 let settings = SettingsModel()
                 settings.load()

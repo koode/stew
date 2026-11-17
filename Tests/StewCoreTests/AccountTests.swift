@@ -166,6 +166,29 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(!AccountOffer.mayOpen(URL(string: "http://localhost:4000/x")!, server: server))
     }
 
+    @Test func addsTheVoucherCodeToTheCheckout() {
+        let offer = AccountOffer(interval: .month, label: "Monthly", url: URL(string: "https://buy.stripe.com/test_month?client_reference_id=acc_1&prefilled_email=abby%40example.com")!)
+        #expect(offer.checkoutURL(voucher: " Launch20 ").absoluteString
+            == "https://buy.stripe.com/test_month?client_reference_id=acc_1&prefilled_email=abby%40example.com&prefilled_promo_code=Launch20")
+        #expect(AccountOffer.mayOpen(offer.checkoutURL(voucher: "Launch20"), server: server))
+    }
+
+    @Test func encodesTheVoucherCode() {
+        let offer = AccountOffer(interval: .year, label: "Yearly", url: URL(string: "https://buy.stripe.com/y")!)
+        #expect(offer.checkoutURL(voucher: "A+B&C=D é").absoluteString == "https://buy.stripe.com/y?prefilled_promo_code=A%2BB%26C%3DD%20%C3%A9")
+    }
+
+    @Test func anEmptyVoucherLeavesTheCheckoutAsItIs() {
+        let offer = AccountOffer(interval: .year, label: "Yearly", url: URL(string: "https://buy.stripe.com/y?client_reference_id=acc_1")!)
+        #expect(offer.checkoutURL(voucher: "") == offer.url)
+        #expect(offer.checkoutURL(voucher: "   ") == offer.url)
+    }
+
+    @Test func aVoucherReplacesOneAlreadyInTheURL() {
+        let offer = AccountOffer(interval: .year, label: "Yearly", url: URL(string: "https://buy.stripe.com/y?prefilled_promo_code=OLD&x=1")!)
+        #expect(offer.checkoutURL(voucher: "NEW").absoluteString == "https://buy.stripe.com/y?x=1&prefilled_promo_code=NEW")
+    }
+
     @Test func showsNoOffersWhileAPaymentFailed() throws {
         var account = try AccountClient.decodeAccount(Data(accountJSON.utf8))
         #expect(account.openableOffers(server: server).count == 2)
