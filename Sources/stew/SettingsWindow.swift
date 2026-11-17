@@ -286,7 +286,7 @@ struct GeneralSettings: View {
                                         .buttonStyle(.borderedProminent)
                                 } else {
                                     TimelineView(.everyMinute) { context in
-                                        Menu("Pause stew") {
+                                        Menu("Pause stew…") {
                                             ForEach(PauseChoice.menu(morningHour: model.config.pauseMorningHour), id: \.self) { choice in
                                                 Button(choice.title(now: context.date, calendar: .current, timeText: Coordinator.clockText)) { pause.onPause(choice) }
                                             }

@@ -6,6 +6,8 @@ import StewCore
 enum Snapshot {
     static func render(to directory: String) -> Never {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        // The scenarios fill real panels nobody sees; their arrival sounds would still play.
+        ArrivalSound.isMuted = true
         // The default settings, not the user's config.json: a glass panel look there would
         // leave the card transparent, since cacheDisplay draws no glass, and changed keys
         // would show in the README's images.

@@ -146,7 +146,7 @@ struct MenuBarPopoverView: View {
                             }
                         }
                     } label: {
-                        HeaderControl(title: "Pause stew", menu: true)
+                        HeaderControl(title: "Pause stew…", menu: true)
                     }
                     .menuStyle(.button)
                     .buttonStyle(.plain)

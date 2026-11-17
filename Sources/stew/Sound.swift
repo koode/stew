@@ -9,9 +9,13 @@ import Foundation
 enum ArrivalSound {
     private static var cache: [String: SystemSoundID] = [:]
 
+    /// Silences every arrival sound. `stew snapshot` and the headless test daemon build real
+    /// panels nobody sees, so a sound from them would reach the user with nothing on screen.
+    static var isMuted = Paths.headless
+
     /// Plays the named system sound ("Glass"). Nil or empty means no sound.
     static func play(_ name: String?) {
-        guard let name, !name.isEmpty, let soundID = soundID(for: name) else { return }
+        guard !isMuted, let name, !name.isEmpty, let soundID = soundID(for: name) else { return }
         AudioServicesPlaySystemSound(soundID)
     }
 
