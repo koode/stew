@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where a request came from inside Claude Code, beyond the session: kept so a late
+/// Where a request came from inside the agent, beyond the session: kept so a late
 /// answer reaches the right agent and an approved blocked call can be retried.
 public struct RequestOrigin: Codable, Equatable, Sendable {
     /// The subagent that asked, from the hook input's `agent_id`. Nil for the main agent.
@@ -10,11 +10,15 @@ public struct RequestOrigin: Codable, Equatable, Sendable {
     /// Canonical JSON of the blocked call's input, the key of its one-shot retry grant.
     /// Raw, like the grants: it never goes into the history.
     public var callKey: String?
+    /// True when the agent asks in its own prompt once stew gives no answer, as Codex
+    /// does for an approval. The user answers there, so stew keeps no late answer.
+    public var agentAsksOnTimeout: Bool?
 
-    public init(agentID: String? = nil, toolName: String? = nil, callKey: String? = nil) {
+    public init(agentID: String? = nil, toolName: String? = nil, callKey: String? = nil, agentAsksOnTimeout: Bool? = nil) {
         self.agentID = agentID
         self.toolName = toolName
         self.callKey = callKey
+        self.agentAsksOnTimeout = agentAsksOnTimeout
     }
 }
 
@@ -81,7 +85,7 @@ public struct LateAnswer: Codable, Equatable, Sendable {
 }
 
 /// late-answers.json: timed-out requests that can still be answered, and answers given
-/// late, per Claude Code session. Pure: callers load and save it under a lock.
+/// late, per agent session. Pure: callers load and save it under a lock.
 public struct LateMailbox: Codable, Equatable, Sendable {
     /// A timed-out request can be answered for this long, and an answer that no hook
     /// picked up is dropped after it. Delivered answers stay as long, for the history.
@@ -114,7 +118,7 @@ public struct LateMailbox: Codable, Equatable, Sendable {
     /// answer needs a session to go to. Permission requests, questions and inputs; a
     /// secret's late answer is held in the daemon's memory, never in this file.
     public static func canAnswerLate(_ request: StewRequest) -> Bool {
-        guard let id = request.session.id, !id.isEmpty else { return false }
+        guard let id = request.session.id, !id.isEmpty, request.origin?.agentAsksOnTimeout != true else { return false }
         switch request.prompt {
         case .permission, .question, .input: return true
         case .notify, .needs: return false

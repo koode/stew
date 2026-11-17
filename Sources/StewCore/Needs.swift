@@ -308,7 +308,7 @@ public enum NeedsParser {
     /// Few enough that the links stay a short list under the steps.
     public static let maxLinks = 4
 
-    public static func parse(_ message: String) -> NeedsRequest? {
+    public static func parse(_ message: String, agent: CodingAgent = .claudeCode) -> NeedsRequest? {
         let lines = message.components(separatedBy: .newlines)
         var inFence = false
         var markerIndex: Int?
@@ -331,7 +331,7 @@ public enum NeedsParser {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .first { !$0.isEmpty && !isFence($0) && numberedItem($0) == nil } ?? ""
         }
-        if title.isEmpty { title = "Claude needs your input" }
+        if title.isEmpty { title = "\(agent.name) needs your input" }
         if title.count > NeedsRequest.maxTitle { title = String(title.prefix(NeedsRequest.maxTitle - 1)) + "…" }
         return NeedsRequest(
             title: title,

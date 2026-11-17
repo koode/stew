@@ -74,10 +74,10 @@ extension HistoryEntry {
     /// 09:02 on Sam's iPhone".
     public func outcomeLine(timeText: (Date) -> String) -> String {
         if let late {
-            return [late.outcome.label + " late", timeText(late.answered), late.answeredOn.map { "on \($0)" }]
+            return [late.outcome.label(for: agent) + " late", timeText(late.answered), late.answeredOn.map { "on \($0)" }]
                 .compactMap { $0 }.joined(separator: " ")
         }
-        return [outcome.label, timeText(ended), answeredOn.map { "on \($0)" }].compactMap { $0 }.joined(separator: " ")
+        return [outcome.label(for: agent), timeText(ended), answeredOn.map { "on \($0)" }].compactMap { $0 }.joined(separator: " ")
     }
 }
 

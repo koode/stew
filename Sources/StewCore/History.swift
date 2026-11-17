@@ -12,7 +12,10 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         /// A secret input the user chose to enter later: answerable from the history.
         case later
 
-        public var label: String {
+        /// The label for a Claude Code request, the agent of entries without one.
+        public var label: String { label(for: .claudeCode) }
+
+        public func label(for agent: CodingAgent) -> String {
             switch self {
             case .approved: "Approved"
             case .denied: "Denied"
@@ -22,7 +25,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
             case .dismissed: "Dismissed"
             case .callerGone: "Caller gone"
             case .done: "Done"
-            case .resolvedByClaude: "Resolved by Claude"
+            case .resolvedByClaude: "Resolved by \(agent.name)"
             case .answeredInSession: "Answered in session"
             case .movedOn: "Moved on"
             case .later: "Enter later"
@@ -84,8 +87,11 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
 
     /// The outcome as the history shows it: a late answer wins over the timeout.
     public var outcomeLabel: String {
-        late.map { "\($0.outcome.label) late" } ?? outcome.label
+        late.map { "\($0.outcome.label(for: agent)) late" } ?? outcome.label(for: agent)
     }
+
+    /// The agent that asked: Claude Code for entries written before stew kept the request.
+    public var agent: CodingAgent { request?.session.codingAgent ?? .claudeCode }
 
     /// Records a late answer on the timed-out entry. `message` is what Claude will read.
     /// The text of a secret input is left out.

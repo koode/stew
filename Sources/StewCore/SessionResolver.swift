@@ -1,6 +1,7 @@
 import Foundation
 
-/// Works out which Claude session is calling, from flags and the environment Claude Code sets.
+/// Works out which agent session is calling, from flags and the environment Claude Code
+/// and Codex set for the commands they run.
 public enum SessionResolver {
     public static func resolve(
         explicitName: String?,
@@ -9,13 +10,14 @@ public enum SessionResolver {
         home: String,
         readFile: (String) -> Data?
     ) -> SessionInfo {
-        let id = environment["CLAUDE_CODE_SESSION_ID"]
+        let agent = CodingAgent.detect(environment: environment)
+        let id = agent == .codex ? CodingAgent.codexSessionID(environment: environment) : environment["CLAUDE_CODE_SESSION_ID"]
         let displayCwd = abbreviate(cwd, home: home)
         let name = nonEmpty(explicitName)
             ?? nonEmpty(environment["STEW_SESSION"])
             ?? jobName(jobDir: environment["CLAUDE_JOB_DIR"], readFile: readFile)
             ?? projectName(cwd: cwd, home: home)
-        return SessionInfo(name: name, id: id, cwd: displayCwd)
+        return SessionInfo(name: name, id: id, cwd: displayCwd, agent: agent)
     }
 
     /// Background jobs record their `--name` in the job's state file.

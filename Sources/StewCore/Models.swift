@@ -1,16 +1,37 @@
 import Foundation
 
-/// Identifies the Claude session a request comes from, so several sessions can share one panel.
+/// Identifies the agent session a request comes from, so several sessions can share one panel.
 public struct SessionInfo: Codable, Equatable, Sendable {
     public var name: String
     public var id: String?
     public var cwd: String?
+    /// The agent that runs the session. Nil from callers and stores that predate it, and
+    /// from a shell outside any agent; `codingAgent` reads it as Claude Code.
+    public var agent: CodingAgent?
 
-    public init(name: String, id: String? = nil, cwd: String? = nil) {
+    public init(name: String, id: String? = nil, cwd: String? = nil, agent: CodingAgent? = nil) {
         self.name = name
         self.id = id
         self.cwd = cwd
+        self.agent = agent
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, id, cwd, agent
+    }
+
+    /// An agent this version does not know reads as none, so a request from a newer stew
+    /// still shows instead of failing to decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        agent = (try? container.decodeIfPresent(String.self, forKey: .agent)).flatMap { $0.flatMap(CodingAgent.init(rawValue:)) }
+    }
+
+    /// The agent the panel names: Claude Code when the request does not say.
+    public var codingAgent: CodingAgent { agent ?? .claudeCode }
 
     /// First block of the session UUID, enough to tell sessions apart at a glance.
     public var shortID: String? {
