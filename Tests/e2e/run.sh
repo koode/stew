@@ -430,6 +430,32 @@ control view > /dev/null
 wait $client
 expect "an unanswered one still ends at the viewing cap" "$(cat "$WORK/out")" '"status":"timeout"'
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
+# The pointer resting on the card pauses the clock; leaving resumes it.
+"$STEW" permit --action "hovered" --reason "y" --timeout 3 > "$WORK/out" & client=$!
+wait_items 1
+expect "a pointer just arrived on the card does not pause yet" "$(control hover on)" "clock=running:"
+sleep 0.7
+expect "resting on the card pauses the clock" "$(control state)" "clock=paused:"
+sleep 3
+expect "a hovered request does not time out" "$(control state)" "items=1"
+expect "hovering is no answer" "$(control state)" "keys=⌘. ⌘E"
+expect "leaving the card resumes the clock" "$(control hover off)" "clock=running:"
+wait $client
+expect "and the request still times out" "$(cat "$WORK/out")" '"status":"timeout"'
+"$STEW" permit --action "passed over" --reason "y" --timeout 2 > "$WORK/out" & client=$!
+wait_items 1
+control hover on > /dev/null; control hover off > /dev/null
+sleep 0.7
+expect "a pointer passing over leaves the clock running" "$(control state)" "clock=running:"
+wait $client
+raw_request permission 60 2 > "$WORK/out" & client=$!
+wait_items 1
+control hover on > /dev/null
+sleep 0.7
+expect "hovered with a hard limit" "$(control state)" "clock=paused:"
+wait $client
+expect "the hard limit still ends a hovered request" "$(cat "$WORK/out")" '"status":"timeout"'
+control hover off > /dev/null
 out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
 expect "question timeout note" "$out" "didn't answer within 1 s"
 echo '{"classifier":{"enabled":false},"sound":"","responseTimeout":1}' > "$STEW_CONFIG"

@@ -672,6 +672,10 @@ final class Coordinator: ObservableObject {
             // A pause of a few seconds, to see it end by itself.
             guard let seconds = Double(argument), seconds > 0 else { return "bad seconds" }
             pause(seconds: seconds)
+        case "hover":
+            // The pointer on the front card ("on") or off it ("off").
+            guard ["on", "off"].contains(argument) else { return "bad hover" }
+            hoverCard(argument == "on")
         case "view":
             // A paired phone opens the request on screen and never says it left.
             guard let item = current else { return "nothing on screen" }
@@ -1245,6 +1249,32 @@ final class Coordinator: ObservableObject {
         if isIdle { onIdle?() }
     }
 
+    /// The pointer on the front request's card; see `HoverPause`.
+    private var cardHover = HoverPause()
+    /// Re-checks the clock when a resting pointer starts to count as a pause.
+    private var hoverCheck: DispatchWorkItem?
+
+    /// The pointer came onto the front request's card, or left it. Leaving resumes the
+    /// clock at once; coming on pauses it only after `HoverPause.delay`. Hovering is no
+    /// answer: the request is not engaged and still goes to a phone.
+    func hoverCard(_ inside: Bool) {
+        guard historyPreview == nil else { return }
+        let now = Date()
+        if inside, let item = current {
+            cardHover.entered(at: now, requestID: item.id)
+        } else {
+            cardHover.exited()
+        }
+        hoverCheck?.cancel()
+        hoverCheck = nil
+        if let begins = cardHover.pausesAt(after: now) {
+            let work = DispatchWorkItem { [weak self] in self?.changed() }
+            hoverCheck = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + begins.timeIntervalSince(now), execute: work)
+        }
+        changed()
+    }
+
     /// The front item is on screen; the others wait unseen.
     private func trackScreenTime() {
         let now = Date()
@@ -1285,13 +1315,14 @@ final class Coordinator: ObservableObject {
                 item.grantedSeconds = limit
                 item.deadline = item.capped(Date().addingTimeInterval(limit))
             }
-            let shouldPause = textMode || grantMode || isViewing(item)
+            let now = Date()
+            let shouldPause = textMode || grantMode || isViewing(item) || cardHover.isPausing(item.id, at: now)
             if shouldPause, let deadline = item.deadline {
-                item.pausedRemaining = max(0, deadline.timeIntervalSinceNow)
+                item.pausedRemaining = RequestClock.remaining(until: deadline, at: now)
                 item.deadline = nil
             } else if !shouldPause, let remaining = item.pausedRemaining {
                 item.pausedRemaining = nil
-                item.deadline = item.capped(Date().addingTimeInterval(remaining))
+                item.deadline = RequestClock.resumed(remaining: remaining, at: now, hardLimit: item.latestDeadline)
             }
         }
         item.timer?.cancel()

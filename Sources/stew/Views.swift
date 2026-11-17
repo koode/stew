@@ -30,6 +30,8 @@ struct RootView: View {
             if let item = coordinator.current {
                 ItemCard(item: item, coordinator: coordinator, interactive: interactive)
                     .padding(16)
+                    // The pointer resting on the card pauses its clock; see `HoverPause`.
+                    .onHover { inside in if interactive { coordinator.hoverCard(inside) } }
             }
             if coordinator.items.count > 1 {
                 Divider()
