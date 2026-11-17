@@ -9,11 +9,13 @@ import StewCore
 /// When the Homebrew cask installed the app (see `InstallLocation.isHomebrewCask`),
 /// Homebrew links the command and the shell completion scripts itself, so setup adds no
 /// `stew` link and no completion files, and removes the completion files an earlier
-/// install from the script wrote. It touches `~/.claude/settings.json` only with
-/// `--with-hooks`.
+/// install from the script wrote. It touches an agent's hook file (`~/.claude/settings.json`,
+/// `~/.codex/hooks.json`) only with `--with-hooks`, for the agents `--agent` names.
 enum Setup {
     struct Options {
         var withHooks = false
+        /// The agents `withHooks` installs hooks for: Claude Code unless `--agent` says.
+        var hookAgents: [CodingAgent] = [.claudeCode]
         var withSkill = true
         var withCompletions = true
         var binDirectory = Paths.home + "/.local/bin"
@@ -44,7 +46,9 @@ enum Setup {
         if !startDaemon(executable: tool, domain: domain) { failures += 1 }
 
         if options.withSkill {
-            installSkill(from: app, &failures)
+            for agent in CodingAgent.allCases {
+                installSkill(from: app, for: agent, &failures)
+            }
         }
 
         if homebrew {
@@ -58,12 +62,14 @@ enum Setup {
         }
 
         if options.withHooks {
-            step("Installing the Claude Code hooks")
-            do {
-                try Hooks.install()
-            } catch {
-                print("could not install the hooks: \(error)")
-                failures += 1
+            for agent in options.hookAgents {
+                step("Installing the \(agent.productName) hooks")
+                do {
+                    try Hooks.install(agent: agent)
+                } catch {
+                    print("could not install the \(agent.productName) hooks: \(error)")
+                    failures += 1
+                }
             }
         }
 
@@ -138,23 +144,35 @@ enum Setup {
         return false
     }
 
-    private static func installSkill(from app: String, _ failures: inout Int) {
-        let claudeFolder = Paths.home + "/.claude"
-        guard directoryExists(claudeFolder) else {
-            note("No ~/.claude folder, so the Claude Code skill was skipped.")
+    /// The folder an agent reads the stew skill from, and the folder whose presence says
+    /// the agent is installed. Codex reads user skills from ~/.agents/skills.
+    static func skillLocation(for agent: CodingAgent) -> (agentFolder: String, displayFolder: String, skillFolder: String) {
+        switch agent {
+        case .claudeCode:
+            (Paths.home + "/.claude", "~/.claude", Paths.home + "/.claude/skills/stew")
+        case .codex:
+            (Hooks.codexHome, SessionResolver.abbreviate(Hooks.codexHome, home: Paths.home), Paths.home + "/.agents/skills/stew")
+        }
+    }
+
+    /// The skill goes only to an agent that is installed: one whose folder exists.
+    private static func installSkill(from app: String, for agent: CodingAgent, _ failures: inout Int) {
+        let location = skillLocation(for: agent)
+        guard directoryExists(location.agentFolder) else {
+            note("No \(location.displayFolder) folder, so the \(agent.productName) skill was skipped.")
             return
         }
         let source = app + "/Contents/Resources/skill/SKILL.md"
-        let folder = claudeFolder + "/skills/stew"
+        let folder = location.skillFolder
         let fileManager = FileManager.default
         do {
             guard let skill = fileManager.contents(atPath: source) else { throw SetupError("\(source) is missing") }
             try fileManager.createDirectory(atPath: folder, withIntermediateDirectories: true)
             try skill.write(to: URL(fileURLWithPath: folder + "/SKILL.md"), options: .atomic)
             try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: folder + "/SKILL.md")
-            step("Installed the Claude Code skill in ~/.claude/skills/stew")
+            step("Installed the \(agent.productName) skill in \(SessionResolver.abbreviate(folder, home: Paths.home))")
         } catch {
-            print("could not install the Claude Code skill: \(error)")
+            print("could not install the \(agent.productName) skill: \(error)")
             failures += 1
         }
     }

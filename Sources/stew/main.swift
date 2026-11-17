@@ -40,7 +40,7 @@ USAGE
   stew check --action TEXT --reason TEXT [--command TEXT|-]
       Run only the auto mode risk check and print its verdict.
   stew keys          Show the shortcuts in effect.
-  stew settings      Open the settings window (time limit, keys, hooks, risk check).
+  stew settings      Open the settings window (time limit, keys, agents, risk check).
   stew approvals     Open the settings window on the list of standing approvals.
   stew history [--missed] [--json]
       Open the menu bar popover on the history of finished requests, with the
@@ -48,31 +48,37 @@ USAGE
       user chose to enter later. --json prints them as a JSON array instead.
   stew pause [MINUTES] | --until HH:MM | --until-back
       Pause stew while the user is away: permission requests, questions and
-      inputs time out at once, and Claude is told the user paused stew.
+      inputs time out at once, and the agent is told the user paused stew.
       Notifications and needs items still arrive. The pause lasts MINUTES
       (default 60, at most 1440), or until the next HH:MM local time with
       --until. --until-back pauses after 1 minute, then until the first
       keyboard or mouse input or until the screen is unlocked. Pausing again
       replaces how the pause ends.
   stew resume        End a pause now, or cancel one that has not begun.
-  stew hooks install|uninstall|status
+  stew hooks install|uninstall|status [--agent claude|codex|all]
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
-      ~/.claude/settings.json; a backup is written first).
-  stew hook denied|pre|question|stop|prompt
-      The hook commands Claude Code runs. Not for direct use.
+      ~/.claude/settings.json), or before Codex asks for approval (hooks in
+      ~/.codex/hooks.json). A backup is written first. --agent picks the
+      agent: claude (the default), codex or all. Codex runs new hooks only
+      after you trust them in its /hooks view.
+  stew hook denied|pre|question|permission|stop|prompt [--agent claude|codex]
+      The hook commands Claude Code and Codex run. Not for direct use.
   stew stop          Stop the daemon.
   stew daemon        Run the daemon (the LaunchAgent does this).
   stew version       Print the version and build (also --version).
   stew update [--check]
       Install the latest version now (the daemon also checks daily), or with
       --check only report whether there is one.
-  stew setup [--with-hooks] [--no-skill] [--no-completions] [--bin-dir DIR]
+  stew setup [--with-hooks [--agent claude|codex|all]] [--no-skill] [--no-completions]
+             [--bin-dir DIR]
       Set up the Stew.app this stew runs from, wherever it is, for the current
       user: the LaunchAgent that starts the daemon (restarted if it runs), the
-      Claude Code skill if ~/.claude exists, the stew link in ~/.local/bin and
-      shell completion. When Homebrew installed the app, it provides the
-      command and shell completion, so setup adds neither. Safe to run again.
-      Changes ~/.claude/settings.json only with --with-hooks.
+      skill for Claude Code if ~/.claude exists and for Codex if ~/.codex
+      exists (in ~/.agents/skills), the stew link in ~/.local/bin and shell
+      completion. When Homebrew installed the app, it provides the command and
+      shell completion, so setup adds neither. Safe to run again. Changes an
+      agent's hook file only with --with-hooks: Claude Code's unless --agent
+      names codex or all.
   stew uninstall [--bin-dir DIR] [--app-dir DIR] [--keep-app]
       Remove the hooks, daemon, Stew.app, the stew link, skill, caches and
       stored approvals. Keeps ~/.config/stew. --keep-app leaves Stew.app in
@@ -84,11 +90,11 @@ USAGE
       them. The installers do this.
 
 COMMON
-  --session NAME     Label for the panel. Default: the Claude job name or folder.
+  --session NAME     Label for the panel. Default: the Claude Code job name or folder.
   --timeout SECONDS  Time to answer once on screen (default: responseTimeout in
                      the config, 1 min, for permit, ask and input). 0 means
                      no limit. When it runs out the answer is "timeout" with a
-                     note for Claude. The user can add time with ⌘E.
+                     note for the agent. The user can add time with ⌘E.
 
 EXIT CODES
   0 approved / answered / acknowledged / shown / done / resolved, 1 denied, 2 dismissed,
@@ -175,6 +181,23 @@ func currentSession(_ arguments: Arguments) -> SessionInfo {
         home: Paths.home,
         readFile: { FileManager.default.contents(atPath: $0) }
     )
+}
+
+/// `stew hook --agent NAME`: the agent whose hook runs. Claude Code when absent, as the
+/// hooks installed before Codex support call it.
+func hookAgent(_ arguments: Arguments) throws -> CodingAgent {
+    guard let text = arguments.options["agent"] else { return .claudeCode }
+    guard let agent = CodingAgent.parse(text) else { throw UsageError("unknown --agent \(text); use claude or codex") }
+    return agent
+}
+
+/// `--agent claude|codex|all` for `stew hooks` and `stew setup`. Claude Code when absent,
+/// so the commands keep doing what they did before Codex support.
+func hookAgents(_ arguments: Arguments) throws -> [CodingAgent] {
+    guard let text = arguments.options["agent"] else { return [.claudeCode] }
+    if text.lowercased() == "all" { return CodingAgent.allCases }
+    guard let agent = CodingAgent.parse(text) else { throw UsageError("unknown --agent \(text); use claude, codex or all") }
+    return [agent]
 }
 
 func permissionRequest(_ arguments: Arguments) throws -> PermissionRequest {
@@ -397,21 +420,24 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         print(Client.sendControl(arguments.positional.joined(separator: " ")) ?? "daemon not running")
 
     case "hook":
+        let agent = try hookAgent(arguments)
         switch arguments.positional.first {
         case "denied": Hooks.denied()
         case "pre": Hooks.pre()
         case "question": Hooks.question()
-        case "stop": Hooks.stop()
-        case "stop-late": Hooks.stopLate()
+        case "permission": Hooks.permission(agent: agent)
+        case "stop": Hooks.stop(agent: agent)
+        case "stop-late": Hooks.stopLate(agent: agent)
         case "prompt": Hooks.prompt()
-        default: throw UsageError("hook needs denied, pre, question, stop, stop-late or prompt")
+        default: throw UsageError("hook needs denied, pre, question, permission, stop, stop-late or prompt")
         }
 
     case "hooks":
+        let agents = try hookAgents(arguments)
         switch arguments.positional.first {
-        case "install": try Hooks.install()
-        case "uninstall": try Hooks.uninstall()
-        case "status", nil: Hooks.status()
+        case "install": for agent in agents { try Hooks.install(agent: agent) }
+        case "uninstall": for agent in agents { try Hooks.uninstall(agent: agent) }
+        case "status", nil: Hooks.status(agents: agents)
         default: throw UsageError("hooks needs install, uninstall or status")
         }
 
@@ -470,6 +496,8 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         guard arguments.positional.isEmpty else { throw UsageError("setup takes no arguments, only options") }
         var options = Setup.Options()
         options.withHooks = arguments.flags.contains("with-hooks")
+        options.hookAgents = try hookAgents(arguments)
+        if arguments.options["agent"] != nil, !options.withHooks { throw UsageError("--agent applies only with --with-hooks") }
         options.withSkill = !arguments.flags.contains("no-skill")
         options.withCompletions = !arguments.flags.contains("no-completions")
         if let binDirectory = arguments.options["bin-dir"] { options.binDirectory = binDirectory }

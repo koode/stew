@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests the installers against a temporary home folder. launchctl calls are logged
 # instead of run (STEW_INSTALL_LAUNCHCTL_LOG), so the real daemon is never touched,
-# and Claude Code settings go to a temporary file. STEW_ZSH_FPATH stands in for the
+# and Claude Code settings go to a temporary file. Codex's home is the temporary home's
+# ~/.codex: CODEX_HOME is unset, so a real one never takes its place. STEW_ZSH_FPATH stands in for the
 # fpath of the user's zsh, so shell completion lands in the temporary folder too.
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -24,7 +25,7 @@ expect() { # name, haystack, needle
 }
 ZSH_FPATH="$SITE_FUNCTIONS:/usr/share/zsh/site-functions"
 in_home() {
-  env -u XDG_CONFIG_HOME -u ZDOTDIR HOME="$FAKE_HOME" STEW_INSTALL_LAUNCHCTL_LOG="$LAUNCHCTL_LOG" \
+  env -u XDG_CONFIG_HOME -u ZDOTDIR -u CODEX_HOME -u STEW_CODEX_HOME HOME="$FAKE_HOME" STEW_INSTALL_LAUNCHCTL_LOG="$LAUNCHCTL_LOG" \
     STEW_CLAUDE_USER_SETTINGS="$WORK/claude-settings.json" STEW_CONFIG="$WORK/config.json" \
     STEW_SOCKET="$WORK/no-daemon.sock" STEW_ZSH_FPATH="$ZSH_FPATH" PATH="$FAKE_HOME/.local/bin:$PATH" "$@"
 }
@@ -238,7 +239,25 @@ expect "a second run keeps the LaunchAgent" "$(plist_program)" "$cask_tool"
 out=$(as_cask "$cask_tool" setup --with-hooks 2>&1); code=$?
 expect "setup --with-hooks exits 0" "$code" "0"
 expect "setup --with-hooks adds the hooks for the app's tool" "$(cat "$WORK/claude-settings.json")" "Contents/MacOS/stew hook denied"
+[[ ! -e "$FAKE_HOME/.codex" ]] && pass "setup --with-hooks leaves Codex alone" || fail "setup --with-hooks leaves Codex alone" "$(ls -a "$FAKE_HOME/.codex")"
+expect "setup skips the Codex skill without ~/.codex" "$out" "No ~/.codex folder, so the Codex skill was skipped."
 as_cask "$cask_tool" hooks uninstall > /dev/null
+
+# Codex: the skill goes to ~/.agents/skills once ~/.codex exists, and --agent codex puts
+# the hooks in ~/.codex/hooks.json, next to hooks of the user's own.
+mkdir -p "$FAKE_HOME/.codex"
+echo '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}' > "$FAKE_HOME/.codex/hooks.json"
+settings_before="$(cat "$WORK/claude-settings.json")"
+out=$(as_cask "$cask_tool" setup --with-hooks --agent codex 2>&1); code=$?
+expect "setup --with-hooks --agent codex exits 0" "$code" "0"
+expect "setup installs the Codex skill" "$out" "Installed the Codex skill in ~/.agents/skills/stew"
+cmp -s "$FAKE_HOME/.agents/skills/stew/SKILL.md" "$cask_app/Contents/Resources/skill/SKILL.md" && pass "the Codex skill is the app's SKILL.md" || fail "the Codex skill is the app's SKILL.md" "$(ls -R "$FAKE_HOME/.agents" 2>&1)"
+expect "setup adds the Codex hooks for the app's tool" "$(cat "$FAKE_HOME/.codex/hooks.json")" "Contents/MacOS/stew hook permission --agent codex"
+expect "setup keeps the user's Codex hooks" "$(cat "$FAKE_HOME/.codex/hooks.json")" '"echo hi"'
+expect "setup says to trust the Codex hooks" "$out" "open /hooks in Codex"
+[[ "$(cat "$WORK/claude-settings.json")" == "$settings_before" ]] && pass "--agent codex leaves Claude Code settings alone" || fail "--agent codex leaves Claude Code settings alone" "$(cat "$WORK/claude-settings.json")"
+out=$(as_cask "$cask_tool" setup --agent codex 2>&1); code=$?
+expect "--agent needs --with-hooks" "$out$code" "--agent applies only with --with-hooks"
 
 # Moving from the script to the cask: the old link now leads to the cask's app, so the
 # path the hooks call keeps working, and the old copy is pointed out.
@@ -257,6 +276,10 @@ out=$(as_cask "$cask_tool" uninstall --keep-app --app-dir "$APPS" 2>&1); code=$?
 expect "uninstall --keep-app exits 0" "$code" "0"
 [[ -x "$cask_tool" && ! -e "$FAKE_HOME/Library/LaunchAgents/nl.koode.stew.plist" && ! -e "$FAKE_HOME/.claude/skills/stew" ]] \
   && pass "uninstall --keep-app keeps only the app" || fail "uninstall --keep-app keeps only the app" "$out"
+expect "uninstall removes the Codex hooks" "$out" "removed stew hooks from $FAKE_HOME/.codex/hooks.json"
+[[ "$(cat "$FAKE_HOME/.codex/hooks.json")" != *"stew hook"* && "$(cat "$FAKE_HOME/.codex/hooks.json")" == *'"echo hi"'* ]] \
+  && pass "uninstall keeps the user's Codex hooks" || fail "uninstall keeps the user's Codex hooks" "$(cat "$FAKE_HOME/.codex/hooks.json")"
+[[ ! -e "$FAKE_HOME/.agents/skills/stew" ]] && pass "uninstall removes the Codex skill" || fail "uninstall removes the Codex skill" "$(ls -R "$FAKE_HOME/.agents")"
 
 # The same app without Homebrew: setup adds the link and shell completion, as the script does.
 out=$(not_cask "$cask_tool" setup --no-skill 2>&1); code=$?
@@ -273,7 +296,7 @@ out=$(in_home "$STEW" setup 2>&1); code=$?
 expect "setup needs Stew.app" "$out$code" "this stew is not inside Stew.app"
 out=$(in_home "$cask_tool" setup extra 2>&1); code=$?
 expect "setup takes no arguments" "$code" "64"
-expect "setup --help" "$(in_home "$cask_tool" setup --help)" "stew setup [--with-hooks] [--no-skill]"
+expect "setup --help" "$(in_home "$cask_tool" setup --help)" "stew setup [--with-hooks [--agent claude|codex|all]] [--no-skill]"
 
 # The Homebrew cask for a release, as scripts/release.sh writes it for the tap.
 CASK="$WORK/tap/Casks/stew.rb"

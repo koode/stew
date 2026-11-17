@@ -27,7 +27,7 @@ public struct CompletionCommand: Sendable {
     public let subcommands: [CompletionCommand]
     /// What the first word after the command takes when it is not a subcommand.
     public let argument: CompletionValue?
-    /// In the usage text, but not offered: the commands that Claude Code and launchd run.
+    /// In the usage text, but not offered: the commands that the agents and launchd run.
     public let hidden: Bool
 
     public var visibleSubcommands: [CompletionCommand] { subcommands.filter { !$0.hidden } }
@@ -97,25 +97,27 @@ public enum CommandTable {
             flag("until-back", "Pause until the next keyboard or mouse input, after 1 minute"),
         ], argument: .text),
         command("resume", "End a pause now"),
-        command("hooks", "Ask in stew when auto mode blocks a call", subcommands: [
-            command("install", "Add the hooks to Claude Code"),
-            command("uninstall", "Remove the hooks"),
-            command("status", "Show whether the hooks are installed"),
+        command("hooks", "Ask in stew when an agent blocks a call or asks for approval", subcommands: [
+            command("install", "Add the hooks to Claude Code or Codex", options: [agentOption]),
+            command("uninstall", "Remove the hooks", options: [agentOption]),
+            command("status", "Show whether the hooks are installed", options: [agentOption]),
         ]),
-        command("hook", "The hook commands Claude Code runs", subcommands: [
-            command("denied", "PermissionDenied hook"),
-            command("pre", "PreToolUse hook"),
-            command("question", "AskUserQuestion hook"),
-            command("stop", "Stop hook"),
-            command("prompt", "UserPromptSubmit hook"),
+        command("hook", "The hook commands Claude Code and Codex run", subcommands: [
+            command("denied", "PermissionDenied hook", options: [hookAgentOption]),
+            command("pre", "PreToolUse hook", options: [hookAgentOption]),
+            command("question", "AskUserQuestion hook", options: [hookAgentOption]),
+            command("permission", "PermissionRequest hook", options: [hookAgentOption]),
+            command("stop", "Stop hook", options: [hookAgentOption]),
+            command("prompt", "UserPromptSubmit hook", options: [hookAgentOption]),
         ], hidden: true),
         command("stop", "Stop the daemon"),
         command("daemon", "Run the daemon", hidden: true),
         command("version", "Print the version and build"),
         command("update", "Install the latest version now", options: [flag("check", "Only report whether there is one")]),
         command("setup", "Set up the daemon, skill and shell completion for this Stew.app", options: [
-            flag("with-hooks", "Also add the Claude Code hooks"),
-            flag("no-skill", "Skip the Claude Code skill"),
+            flag("with-hooks", "Also add the agent hooks"),
+            agentOption,
+            flag("no-skill", "Skip the agent skill"),
             flag("no-completions", "Skip shell completion"),
             option("bin-dir", "Where to put the stew link", value: .directory),
         ]),
@@ -157,6 +159,12 @@ public enum CommandTable {
     private static func flag(_ name: String, _ summary: String) -> CompletionOption {
         CompletionOption(name: name, summary: summary, value: nil, repeats: false)
     }
+
+    /// `--agent` of `stew hooks` and `stew setup`.
+    private static let agentOption = option("agent", "Which agent's hooks: claude (default), codex or all", value: .choices(["claude", "codex", "all"]))
+
+    /// `--agent` of the hook commands: the agent that runs them.
+    private static let hookAgentOption = option("agent", "The agent that runs the hook", value: .choices(["claude", "codex"]))
 }
 
 /// Compares the usage text with the command table. The usage text documents a command

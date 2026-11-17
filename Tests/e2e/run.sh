@@ -11,8 +11,9 @@ WORK="$(mktemp -d "${TMP_ROOT%/}/stew-e2e.XXXXXX")"
 export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLESS=1 STEW_SESSION="e2e" STEW_CACHE="$WORK/cache" STEW_STUB_LOG="$WORK/claude-stub.log"
 # Until I'm back begins 2 seconds after it is chosen, not a minute.
 export STEW_PAUSE_ARMING=2
-# Run from inside Claude Code, requests would carry that session's id; tests set their own.
-unset CLAUDE_CODE_SESSION_ID
+# Run from inside Claude Code or Codex, requests would carry that session's id and agent;
+# tests set their own.
+unset CLAUDE_CODE_SESSION_ID CLAUDECODE CODEX_SESSION_ID CODEX_THREAD_ID CODEX_HOME
 echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 
 failures=0
@@ -819,6 +820,131 @@ expect "an install without the needs hooks is partial" "$("$STEW" hooks status)"
 expect "install completes a partial install" "$("$STEW" hooks status)" "hooks: installed"
 "$STEW" hooks uninstall > /dev/null
 expect "uninstall keeps only the other Stop hook" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]))["hooks"];print(len(d["Stop"]), "UserPromptSubmit" in d)' "$STEW_CLAUDE_USER_SETTINGS")" "1 False"
+
+# Codex hooks: PermissionRequest asks in stew before Codex shows its own approval prompt.
+# Approve allows and Deny refuses with the note; a timeout, a closed panel or no daemon
+# print nothing, so Codex asks in the terminal. The input follows Codex's hook schemas.
+export STEW_CODEX_HOME="$WORK/codex"
+codex_permission() { # tool_name, tool_input JSON
+  python3 -c 'import json,sys;print(json.dumps({"session_id":"codex-1","transcript_path":None,"cwd":sys.argv[3],"hook_event_name":"PermissionRequest","model":"gpt-5.5-codex","permission_mode":"default","turn_id":"turn-1","tool_name":sys.argv[1],"tool_input":json.loads(sys.argv[2])}))' "$1" "$2" "$PROJ" \
+    | "$STEW" hook permission --agent codex
+}
+codex_bash() { codex_permission Bash "$(python3 -c 'import json,sys;print(json.dumps({"command":sys.argv[1],"description":"Install deps; the sandbox has no network"}))' "$1")"; }
+codex_entry() { # summary: the newest history entry with it, as JSON
+  history_json | python3 -c 'import json,sys; print(json.dumps(next(entry for entry in json.load(sys.stdin) if entry["summary"]==sys.argv[1]), separators=(",", ":")))' "$1"
+}
+codex_bash "pnpm install" > "$WORK/out" & hook=$!
+wait_items 1
+expect "codex: the approval shows as a permission request" "$(control state)" "kind=permission"
+control press approve > /dev/null
+wait $hook
+expect "codex: approve allows" "$(cat "$WORK/out")" '{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}'
+entry=$(codex_entry "Run a shell command")
+expect "codex: history keeps the agent" "$entry" '"agent":"codex"'
+expect "codex: Codex's description is the reason" "$entry" '"detail":"Install deps; the sandbox has no network"'
+codex_bash "rm -rf build" > "$WORK/out" & hook=$!
+wait_items 1
+control press other > /dev/null
+control type "keep the build folder" > /dev/null
+control press deny > /dev/null
+wait $hook
+expect "codex: deny carries the note" "$(cat "$WORK/out")" '{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"The user denied this in stew: keep the build folder"},"hookEventName":"PermissionRequest"}}'
+codex_bash "make" > "$WORK/out" & hook=$!
+wait_items 1
+control press dismiss > /dev/null
+wait $hook
+expect "codex: a closed panel leaves the decision to Codex" "[$(cat "$WORK/out")]" "[]"
+set_config ',"responseTimeout":1'
+expect "codex: a timeout leaves the decision to Codex" "[$(codex_bash "make test")]" "[]"
+set_config ""
+[[ "$(cat "$LATE_FILE" 2>/dev/null)" != *"codex-1"* ]] && pass "codex: a timed-out approval waits for no late answer" || fail "codex: a timed-out approval waits for no late answer" "$(cat "$LATE_FILE")"
+expect "codex: no daemon leaves the decision to Codex" "[$(STEW_SOCKET="/nonexistent/stew-e2e/stew.sock" codex_bash "make lint" 2>/dev/null)]" "[]"
+PATCH=$'*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch'
+codex_permission apply_patch "$(python3 -c 'import json,sys;print(json.dumps({"command":sys.argv[1]}))' "$PATCH")" > "$WORK/out" & hook=$!
+wait_items 1
+control press approve > /dev/null
+wait $hook
+expect "codex: apply_patch names the file" "$(codex_entry "Edit src/app.ts")" '"command":"*** Begin Patch'
+codex_permission mcp__github__create_issue '{"title":"Flaky test"}' > "$WORK/out" & hook=$!
+wait_items 1
+control press approve > /dev/null
+wait $hook
+expect "codex: an MCP tool names its server" "$(codex_entry "Use create_issue from the github MCP server")" '"command":"mcp__github__create_issue: {\"title\":\"Flaky test\"}"'
+expect "codex: unknown agent is refused" "$(echo '{}' | "$STEW" hook permission --agent gemini 2>&1)" "unknown --agent gemini"
+
+# Codex Stop and UserPromptSubmit: the same needs and late answers as Claude Code, and
+# Stop always prints JSON, which Codex requires. Codex does not say whether anyone is at
+# the terminal, so with the default autoNeeds its needs lines make no item.
+codex_turn() { # event, session, message
+  python3 -c 'import json,sys;print(json.dumps({"session_id":sys.argv[2],"transcript_path":None,"cwd":sys.argv[4],"hook_event_name":sys.argv[1],"model":"gpt-5.5-codex","permission_mode":"default","turn_id":"turn-2","stop_hook_active":False,"last_assistant_message":sys.argv[3] or None,"prompt":"ok"}))' "$1" "$2" "$3" "$PROJ"
+}
+expect "codex: Stop prints an empty decision" "$(codex_turn Stop codex-2 "All done." | "$STEW" hook stop --agent codex)" "{}"
+expect "codex: Stop without a message prints an empty decision" "$(codex_turn Stop codex-2 "" | "$STEW" hook stop --agent codex)" "{}"
+expect "codex: malformed Stop input prints an empty decision" "$(echo 'not json' | "$STEW" hook stop --agent codex)" "{}"
+codex_turn Stop codex-2 "$NEEDS_MESSAGE" | CLAUDE_CODE_SESSION_ATTENDED=0 "$STEW" hook stop --agent codex > /dev/null
+sleep 0.2
+expect "codex: unattended is unknown, so no item by default" "$(control state)" "items=0 kind=none"
+set_config ',"autoNeeds":"always"'
+codex_turn Stop codex-2 "$NEEDS_MESSAGE" | "$STEW" hook stop --agent codex > /dev/null
+wait_items 1
+listed=$("$STEW" needs list --json)
+expect "codex: always makes the item" "$listed" '"title" : "log in to the registry"'
+expect "codex: the item knows its agent" "$listed" '"agent" : "codex"'
+expect "codex: prompt hook is silent" "[$(codex_turn UserPromptSubmit codex-2 "" | "$STEW" hook prompt --agent codex)]" "[]"
+expect "codex: a message to the session resolves its item" "$(control state)" "items=0 kind=none"
+set_config ',"responseTimeout":1'
+# A stew permit from a Codex shell carries Codex's session id, so a late answer reaches
+# that session's Stop hook.
+CODEX_SESSION_ID=codex-3 "$STEW" permit --action "Ship from Codex" --reason "r" > /dev/null
+set_config ""
+sleep 0.2
+expect "codex: a shell call is recorded as Codex's" "$(codex_entry "Ship from Codex")" '"agent":"codex"'
+control late "$(late_entry "Ship from Codex")" > /dev/null
+control press approve > /dev/null
+wait_items 0; sleep 0.2
+expect "codex: Stop of another session decides nothing" "$(codex_turn Stop codex-2 "" | "$STEW" hook stop-late --agent codex)" "{}"
+out=$(codex_turn Stop codex-3 "" | "$STEW" hook stop-late --agent codex)
+expect "codex: Stop continues with the late answer" "$out" '{"decision":"block","reason":"Late answer from the user, through stew.'
+expect "codex: Stop delivers once" "$(codex_turn Stop codex-3 "" | "$STEW" hook stop-late --agent codex)" "{}"
+
+# hooks install --agent codex writes hooks.json in the Codex home, keeps other hooks and
+# keys, writes a backup, says to trust the hooks in /hooks, and warns when config.toml
+# turns hooks off.
+mkdir -p "$STEW_CODEX_HOME"
+echo '{"description":"mine","hooks":{"PermissionRequest":[{"matcher":"Bash","hooks":[{"type":"command","command":"policy"}]}]}}' > "$STEW_CODEX_HOME/hooks.json"
+out=$("$STEW" hooks install --agent codex)
+expect "codex install: names the file" "$out" "installed PermissionRequest, Stop and UserPromptSubmit hooks in $STEW_CODEX_HOME/hooks.json"
+expect "codex install: says to trust them" "$out" "open /hooks in Codex"
+[[ -n "$(ls "$STEW_CODEX_HOME"/hooks.json.bak-stew-* 2>/dev/null)" ]] && pass "codex install: backup written" || fail "codex install: backup written" "$(ls "$STEW_CODEX_HOME")"
+expect "codex install: twice changes nothing" "$("$STEW" hooks install --agent codex)" "hooks already installed in $STEW_CODEX_HOME/hooks.json"
+expect "codex install: other hooks and keys stay" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["description"], len(d["hooks"]["PermissionRequest"]), len(d["hooks"]["Stop"]), len(d["hooks"]["UserPromptSubmit"]))' "$STEW_CODEX_HOME/hooks.json")" "mine 2 2 1"
+expect "codex install: the hook command" "$(cat "$STEW_CODEX_HOME/hooks.json")" "hook permission --agent codex"
+expect "codex install: the Claude Code settings are untouched" "$(cat "$STEW_CLAUDE_USER_SETTINGS")" '"say done"'
+[[ "$(cat "$STEW_CLAUDE_USER_SETTINGS")" != *"--agent codex"* ]] && pass "codex install: no Codex hooks in Claude Code" || fail "codex install: no Codex hooks in Claude Code" "$(cat "$STEW_CLAUDE_USER_SETTINGS")"
+status=$("$STEW" hooks status --agent codex)
+expect "codex status: installed" "$status" "Codex hooks: installed in $STEW_CODEX_HOME/hooks.json"
+expect "codex status: the trust step" "$status" "open /hooks in Codex"
+expect "default status stays Claude Code" "$("$STEW" hooks status)" "hooks: not installed in $STEW_CLAUDE_USER_SETTINGS"
+status=$("$STEW" hooks status --agent all)
+expect "status --agent all: Claude Code" "$status" "hooks: not installed in"
+expect "status --agent all: Codex" "$status" "Codex hooks: installed in"
+printf '[features]\nhooks = false\n' > "$STEW_CODEX_HOME/config.toml"
+expect "codex status: hooks turned off" "$("$STEW" hooks status --agent codex)" "hooks are off in $STEW_CODEX_HOME/config.toml"
+rm "$STEW_CODEX_HOME/config.toml"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["hooks"]["Stop"]=[h for h in d["hooks"]["Stop"] if "stop-late" not in h["hooks"][0]["command"]];json.dump(d,open(sys.argv[1],"w"))' "$STEW_CODEX_HOME/hooks.json"
+expect "codex status: partial" "$("$STEW" hooks status --agent codex)" "run \`stew hooks install --agent codex\` to update"
+"$STEW" hooks uninstall --agent codex > /dev/null
+expect "codex uninstall keeps only the other hook" "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["description"], list(d["hooks"].keys()), d["hooks"]["PermissionRequest"][0]["hooks"][0]["command"])' "$STEW_CODEX_HOME/hooks.json")" "mine ['PermissionRequest'] policy"
+before=$(shasum "$STEW_CODEX_HOME/hooks.json")
+expect "codex uninstall without hooks says so" "$("$STEW" hooks uninstall --agent codex)" "no stew hooks in $STEW_CODEX_HOME/hooks.json"
+expect "codex uninstall without hooks leaves the file untouched" "$(shasum "$STEW_CODEX_HOME/hooks.json")" "$before"
+rm -rf "$STEW_CODEX_HOME"
+"$STEW" hooks install --agent codex > /dev/null
+[[ -f "$STEW_CODEX_HOME/hooks.json" ]] && pass "codex install: makes the Codex home when it is missing" || fail "codex install: makes the Codex home when it is missing" "no hooks.json"
+"$STEW" hooks uninstall --agent all > /dev/null
+expect "uninstall --agent all removes the Codex hooks" "$(cat "$STEW_CODEX_HOME/hooks.json")" "{"
+[[ "$(cat "$STEW_CODEX_HOME/hooks.json")" != *"stew hook"* ]] && pass "no Codex stew hooks left" || fail "no Codex stew hooks left" "$(cat "$STEW_CODEX_HOME/hooks.json")"
+expect "an unknown --agent is refused" "$("$STEW" hooks status --agent gemini 2>&1)" "unknown --agent gemini; use claude, codex or all"
 
 # pause: requests that need an answer now time out at once, with a note for Claude;
 # notifications and needs items still arrive, and needs items wait in the menu bar

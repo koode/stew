@@ -9,12 +9,14 @@
 #   ~/.local/bin/stew                             a link to the tool inside Stew.app
 #   ~/Library/LaunchAgents/nl.koode.stew.plist    starts the daemon at login
 #   ~/.claude/skills/stew                         the Claude Code skill, if ~/.claude exists
+#   ~/.agents/skills/stew                         the Codex skill, if ~/.codex exists
 #   shell completion for fish and zsh             see `stew completions install`
 # Everything after the app comes from `stew setup`, run from the new app.
 #
 # Options:
 #   --with-hooks     also ask in stew when Claude Code's auto mode blocks a call
-#   --no-skill       skip the Claude Code skill
+#   --agent NAME     the agent --with-hooks is for: claude (default), codex or all
+#   --no-skill       skip the agent skills
 #   --no-completions skip shell completion
 #   --bin-dir DIR    put the stew link in DIR instead of ~/.local/bin
 #   --app-dir DIR    put Stew.app in DIR instead of ~/Applications
@@ -24,8 +26,8 @@
 # The download is checked before anything changes: size and sha256 from latest.json,
 # then the code signature, which must be Koode's Developer ID (team PXD36584ME) and
 # notarized. Run it again to update. An older install with a plain binary at
-# ~/.local/bin/stew is replaced in place. Claude Code hooks call ~/.local/bin/stew,
-# so they keep working. To remove stew: stew uninstall
+# ~/.local/bin/stew is replaced in place. Agent hooks call ~/.local/bin/stew, so
+# they keep working. To remove stew: stew uninstall
 #
 # For tests only: STEW_UPDATE_URL points at another latest.json,
 # STEW_UPDATE_SKIP_TEAM_CHECK=1 accepts ad hoc signed builds,
@@ -39,6 +41,7 @@ team_id="PXD36584ME"
 label="nl.koode.stew"
 
 with_hooks=0
+hook_agent=""
 with_skill=1
 with_completions=1
 bin_dir="$HOME/.local/bin"
@@ -47,12 +50,13 @@ local_app=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --with-hooks) with_hooks=1 ;;
+    --agent) hook_agent="$2"; shift ;;
     --no-skill) with_skill=0 ;;
     --no-completions) with_completions=0 ;;
     --bin-dir) bin_dir="$2"; shift ;;
     --app-dir) app_dir="$2"; shift ;;
     --app) local_app="$2"; shift ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "stew: unknown option: $1" >&2; exit 64 ;;
   esac
   shift
@@ -167,6 +171,7 @@ rm -rf "$previous"
 # same), the LaunchAgent, the skill, shell completion and the hooks.
 setup_options=(--bin-dir "$bin_dir")
 [[ $with_hooks -eq 1 ]] && setup_options+=(--with-hooks)
+[[ -n "$hook_agent" ]] && setup_options+=(--agent "$hook_agent")
 [[ $with_skill -eq 0 ]] && setup_options+=(--no-skill)
 [[ $with_completions -eq 0 ]] && setup_options+=(--no-completions)
 "$tool" setup "${setup_options[@]}" || fail "setup did not finish; see above. To try again: $tool setup ${setup_options[*]}"

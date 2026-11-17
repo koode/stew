@@ -5,7 +5,7 @@ import StewCore
 /// from the release script can be removed without the source repository.
 ///
 /// Order matters: the hooks go first, while the binary they call still exists, so
-/// Claude Code never calls a missing stew. The shell completion files the installer
+/// no agent calls a missing stew. The shell completion files the installer
 /// wrote, and the iPhone pairings and the account session in the login keychain, go too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
 /// .claude/settings.local.json.
 ///
@@ -31,6 +31,15 @@ enum Uninstaller {
             print("could not remove the hooks: \(error)")
             failures += 1
         }
+        // Without a Codex hook file there is nothing to say about Codex.
+        if FileManager.default.fileExists(atPath: Hooks.codexHooksPath) {
+            do {
+                try Hooks.uninstall(agent: .codex)
+            } catch {
+                print("could not remove the Codex hooks: \(error)")
+                failures += 1
+            }
+        }
 
         Launchctl.run(["bootout", "gui/\(getuid())/\(Paths.launchAgentLabel)"])
         remove(Paths.launchAgent, &failures)
@@ -41,7 +50,9 @@ enum Uninstaller {
         remove(binDirectory + "/stew", &failures)
         // Before the support folder goes, because the list of completion files is in it.
         failures += CompletionInstaller.uninstall()
-        remove(Paths.home + "/.claude/skills/stew", &failures)
+        for agent in CodingAgent.allCases {
+            remove(Setup.skillLocation(for: agent).skillFolder, &failures)
+        }
         remove(Paths.home + "/Library/Caches/stew", &failures)
         remove(Paths.home + "/Library/Application Support/stew", &failures)
         // The keychain is not inside the home folder, so the installer tests (which set

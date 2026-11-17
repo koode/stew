@@ -62,6 +62,33 @@ enum Hooks {
         ProcessInfo.processInfo.environment["STEW_CLAUDE_USER_SETTINGS"] ?? Paths.home + "/.claude/settings.json"
     }
 
+    /// Codex's user config layer: CODEX_HOME when set, else ~/.codex. STEW_CODEX_HOME
+    /// points the tests at a folder of their own.
+    static var codexHome: String {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["STEW_CODEX_HOME"], !override.isEmpty { return override }
+        if let codexHome = environment["CODEX_HOME"], !codexHome.isEmpty { return codexHome }
+        return Paths.home + "/.codex"
+    }
+
+    /// stew writes Codex hooks to hooks.json, not inline into config.toml: JSON it can
+    /// edit safely, and config.toml stays the user's.
+    static var codexHooksPath: String { codexHome + "/hooks.json" }
+    static var codexConfigPath: String { codexHome + "/config.toml" }
+
+    /// The file that holds an agent's user-level hooks.
+    static func hookFilePath(for agent: CodingAgent) -> String {
+        switch agent {
+        case .claudeCode: claudeSettingsPath
+        case .codex: codexHooksPath
+        }
+    }
+
+    static func hookState(for agent: CodingAgent) -> HookInstallState {
+        let data = FileManager.default.contents(atPath: hookFilePath(for: agent))
+        return HookFile.state(of: agent.stewHooks(waitTimeout: deniedTimeout), executable: installedExecutable, in: data)
+    }
+
     /// Grants apply per project: the git root of the session folder, else the folder.
     static func projectRoot(for cwd: String) -> String {
         let process = Process()
@@ -122,6 +149,7 @@ enum Hooks {
                 readFile: { FileManager.default.contents(atPath: $0) }
             )
             if let sessionID = call.sessionID { session.id = sessionID }
+            session.agent = .claudeCode
             let request = StewRequest(
                 session: session, prompt: .question(questionSet), maxWait: Double(deniedTimeout - 20),
                 origin: RequestOrigin(agentID: call.agentID)
@@ -181,6 +209,7 @@ enum Hooks {
                 readFile: { FileManager.default.contents(atPath: $0) }
             )
             if let sessionID = call.sessionID { session.id = sessionID }
+            session.agent = .claudeCode
             let permission = PermissionRequest(
                 action: call.description ?? "Use the \(call.toolName) tool",
                 command: call.toolName == "Bash" ? call.command : "\(call.toolName): \(call.summary)",
@@ -220,22 +249,68 @@ enum Hooks {
         exit(0)
     }
 
-    /// Stop: when Claude's last message has a `needs input:` line, the session waits on
+    /// PermissionRequest (Codex): the agent is about to ask for approval, so ask in stew
+    /// first. Approve allows the call; Deny refuses it with the user's note as the message
+    /// the agent reads. A timeout, a closed panel or no daemon prints nothing: the agent
+    /// then shows its own approval prompt, so the user answers there and stew keeps no
+    /// late answer for it.
+    static func permission(agent: CodingAgent) -> Never {
+        do {
+            let call = try readHookInput()
+            var session = SessionResolver.resolve(
+                explicitName: nil,
+                environment: ProcessInfo.processInfo.environment,
+                cwd: call.cwd,
+                home: Paths.home,
+                readFile: { FileManager.default.contents(atPath: $0) }
+            )
+            if let sessionID = call.sessionID { session.id = sessionID }
+            session.agent = agent
+            let request = StewRequest(
+                session: session, prompt: .permission(PermissionRequest.approval(call, agent: agent)), maxWait: Double(deniedTimeout - 20),
+                origin: RequestOrigin(agentID: call.agentID, agentAsksOnTimeout: true)
+            )
+            let response = Client.send(request)
+            let note = response.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            switch response.status {
+            case .approved:
+                print(HookOutput.permissionRequest(allow: true))
+            case .denied:
+                print(HookOutput.permissionRequest(allow: false, message: note.isEmpty ? "The user denied this in stew." : "The user denied this in stew: \(note)"))
+            case .error:
+                Log.append("hook permission: \(response.error ?? "error"); \(agent.productName) asks in its own prompt")
+            default:
+                break
+            }
+        } catch {
+            Log.append("hook permission: \(error)")
+        }
+        exit(0)
+    }
+
+    /// Ends a Stop hook. Codex treats a Stop hook's output as invalid unless it is JSON, so
+    /// for Codex the hook prints an empty decision; Claude Code gets nothing, as before.
+    static func endTurnHook(_ agent: CodingAgent) -> Never {
+        if agent == .codex { print(HookOutput.noDecision) }
+        exit(0)
+    }
+
+    /// Stop: when the agent's last message has a `needs input:` line, the session waits on
     /// the user, so show it as a needs item. When it has none, the session moved on and
     /// its earlier automatic item goes. It runs in the background (async in the hook
-    /// entry), prints nothing and always exits 0, so it never holds up or fails the end
+    /// entry), decides nothing and always exits 0, so it never holds up or fails the end
     /// of a turn.
-    static func stop() -> Never {
+    static func stop(agent: CodingAgent) -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         guard let input = TurnHookInput.parse(data),
-              let message = input.lastAssistantMessage ?? lastAssistantMessage(transcriptPath: input.transcriptPath) else { exit(0) }
-        guard let needs = NeedsParser.parse(message) else {
+              // Codex's transcript format is not a stable interface, so only Claude Code's is read.
+              let message = input.lastAssistantMessage ?? (agent == .claudeCode ? lastAssistantMessage(transcriptPath: input.transcriptPath) : nil) else { endTurnHook(agent) }
+        guard let needs = NeedsParser.parse(message, agent: agent) else {
             resolveAutomatic(sessionID: input.sessionID, control: "moved-on")
-            exit(0)
+            endTurnHook(agent)
         }
         let (config, _) = loadConfig()
-        let attended = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ATTENDED"]
-        guard AutoNeeds.shouldCreate(mode: config.autoNeeds, attended: attended) else { exit(0) }
+        guard AutoNeeds.shouldCreate(mode: config.autoNeeds, attended: attended(agent)) else { endTurnHook(agent) }
         var session = SessionResolver.resolve(
             explicitName: nil,
             environment: ProcessInfo.processInfo.environment,
@@ -244,25 +319,35 @@ enum Hooks {
             readFile: { FileManager.default.contents(atPath: $0) }
         )
         if let sessionID = input.sessionID { session.id = sessionID }
+        session.agent = agent
         let response = Client.send(StewRequest(session: session, prompt: .needs(needs), wait: false))
         if response.status == .error {
             Log.append("hook stop: \(response.error ?? "error")")
         }
-        exit(0)
+        endTurnHook(agent)
+    }
+
+    /// Whether someone is at the session's terminal, as `QuestionRouting` reads it. Only
+    /// Claude Code says so; for Codex it is unknown, which counts as attended, the same as
+    /// a Claude Code version without the variable.
+    static func attended(_ agent: CodingAgent) -> String? {
+        agent == .claudeCode ? ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ATTENDED"] : nil
     }
 
     /// Stop, in the foreground: when the user answered a timed-out request of this
-    /// session later, Claude must not stop before it has read the answer, so the stop is
-    /// blocked with the answer as the reason. With nothing waiting it prints nothing, so
-    /// Claude stops as usual. Reads only late-answers.json, so it never holds up a turn.
-    static func stopLate() -> Never {
+    /// session later, the agent must not stop before it has read the answer, so the stop
+    /// is blocked with the answer as the reason. With nothing waiting it decides nothing,
+    /// so the agent stops as usual. Reads only late-answers.json, so it never holds up a
+    /// turn.
+    static func stopLate(agent: CodingAgent) -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard LateAnswerFile.exists, let input = TurnHookInput.parse(data) else { exit(0) }
+        guard LateAnswerFile.exists, let input = TurnHookInput.parse(data) else { endTurnHook(agent) }
         let late = LateAnswerFile.deliver(sessionID: input.sessionID, agentID: input.agentID, event: "Stop")
         if let reason = LateWording.combined(late) {
             print(HookOutput.blockStop(reason: reason))
+            exit(0)
         }
-        exit(0)
+        endTurnHook(agent)
     }
 
     /// UserPromptSubmit: a new message to the session answers what it was waiting on, so
@@ -335,42 +420,89 @@ enum Hooks {
         return BlockedCall.hardDenyNames(policyJSON: policy)
     }
 
-    static func install() throws {
-        let path = claudeSettingsPath
+    static func install(agent: CodingAgent = .claudeCode) throws {
+        let path = hookFilePath(for: agent)
         let current = FileManager.default.contents(atPath: path)
-        let updated = try ClaudeSettings.installingHooks(executable: installedExecutable, deniedTimeout: deniedTimeout, into: current)
-        guard updated != current else { print("hooks already installed in \(path)"); return }
+        let updated = try HookFile.installing(agent.stewHooks(waitTimeout: deniedTimeout), executable: installedExecutable, into: current)
+        guard updated != current else {
+            print("hooks already installed in \(path)")
+            if agent == .codex { printCodexNotes(trust: false) }
+            return
+        }
         if let current {
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-            try current.write(to: URL(fileURLWithPath: "\(path).bak-stew-\(stamp)"))
+            try current.write(to: URL(fileURLWithPath: backupPath(for: path)))
+        } else if agent == .codex {
+            try FileManager.default.createDirectory(atPath: codexHome, withIntermediateDirectories: true)
         }
         try updated.write(to: URL(fileURLWithPath: path), options: .atomic)
-        print("installed PermissionDenied, PreToolUse, Stop and UserPromptSubmit hooks in \(path)")
+        switch agent {
+        case .claudeCode:
+            print("installed PermissionDenied, PreToolUse, Stop and UserPromptSubmit hooks in \(path)")
+        case .codex:
+            print("installed PermissionRequest, Stop and UserPromptSubmit hooks in \(path)")
+            printCodexNotes(trust: true)
+        }
     }
 
-    static func uninstall() throws {
-        let path = claudeSettingsPath
+    static func uninstall(agent: CodingAgent = .claudeCode) throws {
+        let path = hookFilePath(for: agent)
         let current = FileManager.default.contents(atPath: path)
-        guard let updated = try ClaudeSettings.removingHooks(executable: installedExecutable, from: current) else {
+        let events = Array(Set(agent.stewHooks(waitTimeout: deniedTimeout).map(\.event)))
+        let removed = agent == .claudeCode
+            ? try ClaudeSettings.removingHooks(executable: installedExecutable, from: current)
+            : try HookFile.removing(events: events, executable: installedExecutable, from: current)
+        guard let updated = removed else {
             print("no stew hooks in \(path)")
             return
         }
         if let current {
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-            try current.write(to: URL(fileURLWithPath: "\(path).bak-stew-\(stamp)"))
+            try current.write(to: URL(fileURLWithPath: backupPath(for: path)))
         }
         try updated.write(to: URL(fileURLWithPath: path), options: .atomic)
         print("removed stew hooks from \(path)")
     }
 
-    static func status() {
-        let state = ClaudeSettings.hookState(executable: installedExecutable, in: FileManager.default.contents(atPath: claudeSettingsPath))
-        let standing = GrantFile.read().filter { $0.isStanding && $0.isLive(at: Date()) }
-        switch state {
-        case .complete: print("hooks: installed in \(claudeSettingsPath)")
-        case .partial: print("hooks: partly installed in \(claudeSettingsPath); run `stew hooks install` to update")
-        case .none: print("hooks: not installed in \(claudeSettingsPath)")
+    /// The copy written before stew changes an agent's hook file.
+    static func backupPath(for path: String) -> String {
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+        return "\(path).bak-stew-\(stamp)"
+    }
+
+    /// Codex skips a new or changed hook until the user trusts it, and loads none while
+    /// hooks are off in config.toml.
+    static func printCodexNotes(trust: Bool) {
+        if trust {
+            print(codexTrustNote)
         }
-        print("standing approvals: \(standing.count) (stew approvals to manage)")
+        let config = (try? String(contentsOfFile: codexConfigPath, encoding: .utf8)) ?? ""
+        if CodexConfig.hooksDisabled(toml: config) {
+            print("hooks are off in \(codexConfigPath) ([features] hooks = false): Codex runs no hooks until you remove that line.")
+        }
+        if CodexConfig.hasInlineHooks(toml: config) {
+            print("\(codexConfigPath) also defines hooks inline: Codex runs both and warns at startup.")
+        }
+    }
+
+    static let codexTrustNote = "Codex runs them only after you trust them: open /hooks in Codex, review the stew hooks and trust them. Codex asks again whenever a hook changes, such as after stew moves."
+
+    static func status(agents: [CodingAgent] = [.claudeCode]) {
+        for agent in agents {
+            let path = hookFilePath(for: agent)
+            let label = agent == .claudeCode ? "hooks" : "\(agent.productName) hooks"
+            let state = hookState(for: agent)
+            switch state {
+            case .complete: print("\(label): installed in \(path)")
+            case .partial: print("\(label): partly installed in \(path); run `stew hooks install\(agent == .claudeCode ? "" : " --agent \(agent.rawValue)")` to update")
+            case .none: print("\(label): not installed in \(path)")
+            }
+            if agent == .codex {
+                if state != .none { print("  " + codexTrustNote) }
+                printCodexNotes(trust: false)
+            }
+        }
+        if agents.contains(.claudeCode) {
+            let standing = GrantFile.read().filter { $0.isStanding && $0.isLive(at: Date()) }
+            print("standing approvals: \(standing.count) (stew approvals to manage)")
+        }
     }
 }
