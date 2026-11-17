@@ -258,10 +258,16 @@ public struct StewConfig: Codable, Equatable, Sendable {
         /// Which levels need an extra confirmation before the iPhone approves them:
         /// a `SeverityRules.PhoneScope` value.
         public var phoneConfirmation: String
+        /// Which tool checks a request: a `RiskCheckBackend` value, `agent` by default.
+        public var backend: String
+        /// The model `codex exec` checks with.
+        public var codexModel: String
+        public var codexPath: String?
 
         public init(
             enabled: Bool = true, model: String = "haiku", claudePath: String? = nil, timeoutSeconds: Double = 60, recentUserMessages: Int = 6,
-            criticalNeedsStrongApprove: Bool = true, highExtraTime: Double = 60, phoneConfirmation: String = SeverityRules.PhoneScope.highAndCritical
+            criticalNeedsStrongApprove: Bool = true, highExtraTime: Double = 60, phoneConfirmation: String = SeverityRules.PhoneScope.highAndCritical,
+            backend: String = RiskCheckBackend.agent.rawValue, codexModel: String = RiskCheck.defaultCodexModel, codexPath: String? = nil
         ) {
             self.enabled = enabled
             self.model = model
@@ -271,6 +277,9 @@ public struct StewConfig: Codable, Equatable, Sendable {
             self.criticalNeedsStrongApprove = criticalNeedsStrongApprove
             self.highExtraTime = highExtraTime
             self.phoneConfirmation = phoneConfirmation
+            self.backend = backend
+            self.codexModel = codexModel
+            self.codexPath = codexPath
         }
 
         public init(from decoder: Decoder) throws {
@@ -284,6 +293,9 @@ public struct StewConfig: Codable, Equatable, Sendable {
             criticalNeedsStrongApprove = try container.decodeIfPresent(Bool.self, forKey: .criticalNeedsStrongApprove) ?? defaults.criticalNeedsStrongApprove
             highExtraTime = try container.decodeIfPresent(Double.self, forKey: .highExtraTime) ?? defaults.highExtraTime
             phoneConfirmation = try container.decodeIfPresent(String.self, forKey: .phoneConfirmation) ?? defaults.phoneConfirmation
+            backend = try container.decodeIfPresent(String.self, forKey: .backend) ?? defaults.backend
+            codexModel = try container.decodeIfPresent(String.self, forKey: .codexModel) ?? defaults.codexModel
+            codexPath = try container.decodeIfPresent(String.self, forKey: .codexPath)
         }
     }
 
