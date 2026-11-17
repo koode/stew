@@ -14,13 +14,13 @@ enum Brand {
 
 extension SettingsTab {
     /// The order of the tab bar.
-    static let order: [SettingsTab] = [.general, .keys, .claude, .phone, .account, .approvals, .history]
+    static let order: [SettingsTab] = [.general, .keys, .agents, .phone, .account, .approvals, .history]
 
     var title: String {
         switch self {
         case .general: "General"
         case .keys: "Keys"
-        case .claude: "Claude Code"
+        case .agents: "Agents"
         case .phone: "iPhone"
         case .account: "Account"
         case .approvals: "Approvals"
@@ -32,7 +32,7 @@ extension SettingsTab {
         switch self {
         case .general: "gearshape"
         case .keys: "keyboard"
-        case .claude: "terminal"
+        case .agents: "terminal"
         case .phone: "iphone"
         case .account: "person.crop.circle"
         case .approvals: "lock.open"
@@ -45,11 +45,11 @@ extension SettingsTab {
         switch self {
         case .general: "The menu bar, how long the panel waits for you, where it appears and how it sounds."
         case .keys: "Shortcuts that answer the panel from any app."
-        case .claude: "How Claude Code's blocked calls, questions and needs reach stew."
+        case .agents: "How Claude Code and Codex reach stew: blocked calls, approvals, questions and needs."
         case .phone: "Answer requests on your iPhone while you are away from the Mac."
         case .account: "Only the iPhone relay needs a plan. Everything else in stew is free."
         case .approvals: "Calls that auto mode blocks but these approvals let through without asking."
-        case .history: "Every finished request, with what Claude was told."
+        case .history: "Every finished request, with what the agent was told."
         }
     }
 }

@@ -69,9 +69,19 @@ enum Snapshot {
         // The Updates section after Check now found a newer version: a window tall enough
         // to show the whole General pane.
         settings("settings-update-available", in: directory, height: 940, updater: Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)) { _, _, _ in }
-        // The whole Claude Code pane, down to the risk check's severity settings.
-        settings("settings-claude-risk", in: directory, height: 1180) { model, _, _ in
-            model.tab = .claude
+        // The whole Agents pane, down to the risk check's severity settings.
+        settings("settings-agents-risk", in: directory, height: 1180) { model, _, _ in
+            model.tab = .agents
+        }
+        // Codex hooks installed: the note to trust them in Codex, and the warning for
+        // hooks that config.toml turned off.
+        settings("settings-agents-codex", in: directory, height: 760) { model, _, _ in
+            model.tab = .agents
+            model.showHookSample(claude: .complete, codex: .complete)
+        }
+        settings("settings-agents-codex-off", in: directory, height: 800) { model, _, _ in
+            model.tab = .agents
+            model.showHookSample(claude: .none, codex: .partial, codexHooksDisabled: true)
         }
         // The Menu bar section while stew is paused.
         settings("settings-general-paused", in: directory, pause: PauseModel(display: .until(Date().addingTimeInterval(42 * 60)))) { _, _, _ in }
@@ -125,6 +135,8 @@ enum Snapshot {
         for dark in [false, true] {
             let model = SettingsModel()
             model.load()
+            // The images show the same hook states on every machine.
+            model.showHookSample(claude: .complete, codex: .none)
             let approvals = ApprovalsModel()
             let history = HistoryModel()
             prepare(model, approvals, history)
@@ -152,6 +164,7 @@ enum Snapshot {
 
     private static let session = SessionInfo(name: "refactor auth middleware", id: "5b0e3c71-2f4d-4c1a-9e0b-7d6f1a2b3c4d", cwd: "~/code/web-app")
     private static let otherSession = SessionInfo(name: "mobile-app", id: "9c1d2e77-8a6b-4f3e-b2d1-0c9e8f7a6b5d", cwd: "~/code/mobile-app")
+    private static let codexSession = SessionInfo(name: "web-app", id: "019a4c2e-7d1b-7f30-9a52-3c8e1f0b6d47", cwd: "~/code/web-app", agent: .codex)
 
     private static func permission(
         _ command: String,
@@ -217,6 +230,43 @@ enum Snapshot {
         }),
         ("update-available-homebrew", { coordinator in
             if let notice = UpdateNotice.available("0.2.0", route: .homebrew, state: DaemonState()) { coordinator.showNotice(notice) }
+        }),
+        // A Codex approval, as its PermissionRequest hook asks it, with a note being typed.
+        ("permission-codex", { coordinator in
+            let call = HookCall(
+                event: "PermissionRequest", sessionID: "019a4c2e-7d1b-7f30-9a52-3c8e1f0b6d47", cwd: "/Users/you/code/web-app",
+                toolName: "Bash", key: "{}", command: "pnpm add zod@4 --filter api",
+                description: "Install zod 4 for the api package; the sandbox has no network access.",
+                summary: "pnpm add zod@4 --filter api", reason: nil
+            )
+            let item = Item(
+                request: StewRequest(
+                    session: codexSession, prompt: .permission(PermissionRequest.approval(call, agent: .codex)), timeout: 60,
+                    origin: RequestOrigin(agentAsksOnTimeout: true)
+                ),
+                connection: nil
+            )
+            coordinator.show(item)
+            coordinator.setTextMode(true)
+            coordinator.draft = "Use the workspace catalog version instead."
+        }),
+        ("permission-codex-patch", { coordinator in
+            let patch = "*** Begin Patch\n*** Update File: src/auth/session.ts\n@@\n-const ttl = 3600\n+const ttl = 900\n*** Add File: src/auth/refresh.ts\n+export const refresh = () => {}\n*** End Patch"
+            let call = HookCall(
+                event: "PermissionRequest", sessionID: "019a4c2e-7d1b-7f30-9a52-3c8e1f0b6d47", cwd: "/Users/you/code/web-app",
+                toolName: "apply_patch", key: "{}", command: patch, description: nil, summary: patch, reason: nil
+            )
+            coordinator.show(Item(
+                request: StewRequest(session: codexSession, prompt: .permission(PermissionRequest.approval(call, agent: .codex)), timeout: 60),
+                connection: nil
+            ))
+        }),
+        ("needs-codex", { coordinator in
+            coordinator.show(needsItem(NeedsRequest(
+                title: "Sign in to the staging dashboard",
+                steps: ["Open the link below.", "Sign in with your work account."],
+                links: [NeedsLink(url: "https://staging.example.com/login")]
+            ), session: codexSession))
         }),
         ("permission-checking", { coordinator in
             coordinator.show(permission(branchCommand, risk: .checking, timeout: 600))

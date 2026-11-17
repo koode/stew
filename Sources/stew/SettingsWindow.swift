@@ -4,7 +4,7 @@ import SwiftUI
 import StewCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, keys, claude, approvals, history
+    case general, keys, agents, approvals, history
     var id: String { rawValue }
     case phone, account
 }
@@ -14,7 +14,10 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var config = StewConfig()
     @Published private(set) var keymap = try! Keymap(config: StewConfig())
     @Published private(set) var error: String?
-    @Published private(set) var hookState: ClaudeSettings.HookState = .none
+    @Published private(set) var hookState: HookInstallState = .none
+    @Published private(set) var codexHookState: HookInstallState = .none
+    /// `[features] hooks = false` in Codex's config.toml: Codex runs no hooks at all.
+    @Published private(set) var codexHooksDisabled = false
     @Published var tab: SettingsTab = .general
     var onSaved: (() -> Void)?
 
@@ -23,10 +26,16 @@ final class SettingsModel: ObservableObject {
         config = loaded
         keymap = (try? Keymap(config: loaded)) ?? keymap
         error = loadError
-        hookState = ClaudeSettings.hookState(
-            executable: Hooks.installedExecutable,
-            in: FileManager.default.contents(atPath: Hooks.claudeSettingsPath)
-        )
+        hookState = Hooks.hookState(for: .claudeCode)
+        codexHookState = Hooks.hookState(for: .codex)
+        codexHooksDisabled = CodexConfig.hooksDisabled(toml: (try? String(contentsOfFile: Hooks.codexConfigPath, encoding: .utf8)) ?? "")
+    }
+
+    /// Shows these hook states without reading the agents' files, for `stew snapshot`.
+    func showHookSample(claude: HookInstallState, codex: HookInstallState, codexHooksDisabled: Bool = false) {
+        hookState = claude
+        codexHookState = codex
+        self.codexHooksDisabled = codexHooksDisabled
     }
 
     /// Applies a change, refusing it when the keys would clash.
@@ -78,9 +87,9 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    func setHooks(installed: Bool) {
+    func setHooks(installed: Bool, agent: CodingAgent = .claudeCode) {
         do {
-            if installed { try Hooks.install() } else { try Hooks.uninstall() }
+            if installed { try Hooks.install(agent: agent) } else { try Hooks.uninstall(agent: agent) }
             error = nil
         } catch {
             self.error = "\(error)"
@@ -226,7 +235,7 @@ struct SettingsView: View {
         switch model.tab {
         case .general: GeneralSettings(model: model, updater: updater, pause: pause)
         case .keys: KeySettings(model: model)
-        case .claude: ClaudeSettingsTab(model: model)
+        case .agents: AgentsSettingsTab(model: model)
         case .phone: PhoneSettingsTab(model: model, link: link, sample: phoneSample)
         case .account: AccountSettingsTab(account: account)
         case .approvals: ApprovalsView(model: approvals)
@@ -261,7 +270,7 @@ struct GeneralSettings: View {
         SettingsPane(tab: .general) {
             SettingsForm {
                 Section("Menu bar") {
-                    SettingRow(hint: "While paused, permission requests, questions and inputs time out at once, and Claude is told you are away. Notifications and needs items still arrive. A pause ends at its time, or for Until I'm back, at the first keyboard or mouse input after a minute, or when you unlock the screen.") {
+                    SettingRow(hint: "While paused, permission requests, questions and inputs time out at once, and the agent is told you are away. Notifications and needs items still arrive. A pause ends at its time, or for Until I'm back, at the first keyboard or mouse input after a minute, or when you unlock the screen.") {
                         LabeledContent("Pause") {
                             HStack(spacing: 8) {
                                 if let display = pause.display {
@@ -300,7 +309,7 @@ struct GeneralSettings: View {
                     }
                 }
                 Section("Timing") {
-                    SettingRow(hint: "When it runs out, Claude is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
+                    SettingRow(hint: "When it runs out, the agent is told you did not respond in time, so it can go another way. You can still answer it later from History. Applies to permission requests and questions.") {
                         Picker("Time to answer", selection: binding(\.responseTimeout)) {
                             ForEach(Self.limits, id: \.1) { Text($0.0).tag($0.1) }
                         }
@@ -519,7 +528,7 @@ struct KeyRecorder: View {
     }
 }
 
-struct ClaudeSettingsTab: View {
+struct AgentsSettingsTab: View {
     @ObservedObject var model: SettingsModel
 
     private static let extraTimes: [(String, Double)] = [("Off", 0), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)]
@@ -533,31 +542,33 @@ struct ClaudeSettingsTab: View {
         Binding(get: { model.config.classifier[keyPath: keyPath] }, set: { value in model.update { $0.classifier[keyPath: keyPath] = value } })
     }
 
+    /// The installed state of one agent's hooks, with the button that changes it.
+    @ViewBuilder
+    private func hookControls(_ agent: CodingAgent, state: HookInstallState) -> some View {
+        HStack(spacing: 8) {
+            switch state {
+            case .complete:
+                StatusPill(text: "Installed", tone: Tone.green.color)
+                Button("Uninstall") { model.setHooks(installed: false, agent: agent) }
+            case .partial:
+                StatusPill(text: "Needs an update", tone: Tone.orange.color)
+                Button("Update") { model.setHooks(installed: true, agent: agent) }
+                    .buttonStyle(.borderedProminent)
+            case .none:
+                StatusPill(text: "Not installed", tone: Ink.secondary)
+                Button("Install") { model.setHooks(installed: true, agent: agent) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
     var body: some View {
-        SettingsPane(tab: .claude) {
+        SettingsPane(tab: .agents) {
             SettingsForm {
-                Section("Hooks") {
+                Section(CodingAgent.claudeCode.productName) {
                     SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
-                        LabeledContent("Hooks") {
-                            HStack(spacing: 8) {
-                                switch model.hookState {
-                                case .complete:
-                                    StatusPill(text: "Installed", tone: Tone.green.color)
-                                    Button("Uninstall") { model.setHooks(installed: false) }
-                                case .partial:
-                                    StatusPill(text: "Needs an update", tone: Tone.orange.color)
-                                    Button("Update") { model.setHooks(installed: true) }
-                                        .buttonStyle(.borderedProminent)
-                                case .none:
-                                    StatusPill(text: "Not installed", tone: Ink.secondary)
-                                    Button("Install") { model.setHooks(installed: true) }
-                                        .buttonStyle(.borderedProminent)
-                                }
-                            }
-                        }
+                        LabeledContent("Hooks") { hookControls(.claudeCode, state: model.hookState) }
                     }
-                }
-                Section("Questions and needs") {
                     SettingRow(hint: "Where Claude Code's questions (AskUserQuestion) appear. Unattended means background and remote sessions; a session you are typing in keeps asking in the terminal.") {
                         Picker("Questions", selection: Binding(
                             get: { model.config.routeQuestions },
@@ -568,8 +579,21 @@ struct ClaudeSettingsTab: View {
                             Text("Always in the terminal").tag(QuestionRouting.never)
                         }
                     }
-                    SettingRow(hint: "When Claude ends a turn with a \"needs input:\" line, stew shows it as something that needs you, with its steps and commands. It goes away when you write to that session.") {
-                        Picker("Needs you from Claude Code", selection: Binding(
+                }
+                Section(CodingAgent.codex.productName) {
+                    SettingRow(hint: "When Codex is about to ask for approval, stew asks you first. If you do not answer in time, Codex asks in the terminal as usual. Changes \(SessionResolver.abbreviate(Hooks.codexHooksPath, home: Paths.home)); a backup is written first.") {
+                        LabeledContent("Hooks") { hookControls(.codex, state: model.codexHookState) }
+                    }
+                    if model.codexHookState != .none {
+                        Notice(.error, "Codex skips new or changed hooks until you trust them. Open /hooks in Codex and trust the stew hooks.")
+                    }
+                    if model.codexHooksDisabled {
+                        Notice(.error, "Hooks are off in \(SessionResolver.abbreviate(Hooks.codexConfigPath, home: Paths.home)) ([features] hooks = false), so Codex runs none of them.")
+                    }
+                }
+                Section("Needs you") {
+                    SettingRow(hint: "When an agent ends a turn with a \"needs input:\" line, stew shows it as something that needs you, with its steps and commands. It goes away when you write to that session. Unattended means Claude Code's background and remote sessions; Codex does not say whether you are watching, so its items appear only with Always in stew.") {
+                        Picker("Needs you from agents", selection: Binding(
                             get: { model.config.autoNeeds },
                             set: { value in model.update { $0.autoNeeds = value } }
                         )) {
@@ -580,7 +604,7 @@ struct ClaudeSettingsTab: View {
                     }
                 }
                 Section("Risk check") {
-                    SettingRow(hint: "For direct stew permit calls: claude -p checks the command against your auto mode rules. Runs on your Claude subscription only, never on API billing.") {
+                    SettingRow(hint: "For direct stew permit calls and Codex approvals: claude -p checks the command against your Claude Code auto mode rules. Needs Claude Code, and runs on your Claude subscription only, never on API billing.") {
                         Toggle("Risk check", isOn: Binding(
                             get: { model.config.classifier.enabled },
                             set: { value in model.update { $0.classifier.enabled = value } }
