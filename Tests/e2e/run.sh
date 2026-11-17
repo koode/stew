@@ -364,10 +364,11 @@ wait_items 2
 expect "a new request waits behind the one being answered" "$(control state)" "kind=question question=1"
 sleep 3
 expect "its clock does not run while it waits" "$(control state)" "items=2"
-control choose 2 > /dev/null; wait $client
+# The reply to choose is the state right after the answer went, before the clock moved.
+state=$(control choose 2); wait $client
 expect "the first request gets both answers" "$(cat "$WORK/out")" '"answers":{"Q1?":"A","Q2?":"D"}'
-expect "the waiting request's clock starts fresh at the front" "$(control state)" "kind=permission"
-expect "with its full limit" "$(control state)" "clock=running:2"
+expect "the waiting request's clock starts fresh at the front" "$state" "kind=permission"
+expect "with its full limit" "$state" "clock=running:2"
 wait $second
 expect "and then it can time out" "$(cat "$WORK/second")" '"status":"timeout"'
 raw_request question 60 3 > "$WORK/out" & client=$!
