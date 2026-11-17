@@ -78,6 +78,18 @@ Check that it works:
 stew notify "stew works" --body "Close this with ⌘. or ⌘↩"
 ```
 
+### The setup window
+
+The first time stew starts with no hooks installed for any agent, it opens a setup window, without taking the keyboard from the app you are in. It walks through five steps, each of which you can skip:
+
+1. **Welcome:** what stew does.
+2. **Agents:** whether Claude Code and Codex are on this Mac, and one Install button per agent for its skill and hooks (the same as `stew setup` and `stew hooks install`). For Codex it reminds you to trust the hooks in Codex's `/hooks`.
+3. **Try it:** shows a sample permission request in the panel, which answers nothing to any agent, and lists your keys.
+4. **iPhone:** whether you are signed in and have a paired iPhone, with buttons to Settings → Account and Settings → iPhone.
+5. **Done:** where the menu bar icon is, how to reopen Settings and this window, and [stewcli.com/help](https://stewcli.com/help).
+
+Closing the window, at any step, sets `"setup": {"completed": true}` in the config, so it does not open by itself again. Until then, opening Stew.app opens it instead of Settings. Reopen it any time with Set up stew… in the menu bar menu or in Settings → General.
+
 ### Let your agent set it up
 
 Open Claude Code or Codex in this folder and paste:
@@ -369,7 +381,7 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 The window has seven panes, picked from its toolbar:
 
-- **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, look (solid or glass), sound, confetti, updates.
+- **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, look (solid or glass), sound, confetti, updates, and Set up stew… for the setup window.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
@@ -417,6 +429,7 @@ The window has seven panes, picked from its toolbar:
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
 - `menuBarIcon` is `"color"` (the app icon, the default) or `"monochrome"` (the pot alone, in the menu bar's color like the system icons).
 - `pauseMorningHour` is the hour, 0 to 23, that Pause stew → Until 08:00 ends at (8 by default).
+- `setup.completed` is set when you close the setup window; until then it opens when stew starts with no hooks installed, and when you open Stew.app.
 - `account.server` is the stew account service, `https://account.stewcli.com` by default.
 - `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
 - `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.

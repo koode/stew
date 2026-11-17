@@ -15,6 +15,8 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 
 Note which agents are installed (`~/.claude` and `~/.codex` exist): the questions and the install command below depend on it.
 
+The user can also do all of this without you: stew opens a setup window when it first starts with no hooks installed, and it is in stew's menu bar menu as Set up stew…. It installs the skill and hooks per agent, shows a sample request and the keys, and points to the iPhone settings. If the user prefers that, install stew (step 3, without the hook commands) and tell them the window will guide them.
+
 ## 2. Ask the user two questions
 
 1. **Hooks.** Ask only about the agents that are installed.
@@ -51,6 +53,8 @@ Do not use both. If stew is already installed with the script and the user wants
 If the user works from a clone of this repository and wants to build from source, run `./install.sh` (or `./install.sh --with-hooks`, with `--agent codex` or `--agent all` for Codex) from its folder instead. That needs Swift 6 or later (`swift --version`; fix with `xcode-select --install` or an Xcode update).
 
 If `~/.local/bin` is not on the user's PATH, the script says so. Add it to their shell profile only if they agree.
+
+When stew starts with no hooks installed for any agent, it opens its setup window, without taking the keyboard. The install script with `--with-hooks` installs the hooks before stew starts, so the window stays closed; after `brew install` it opens before you run `stew hooks install`, and the user can close it or use it. Either way, tell the user where it is: Set up stew… in the menu bar menu.
 
 If Codex hooks were installed, tell the user: "Open `/hooks` in Codex, review the stew hooks and trust them. Codex skips them until you do, and asks again if they change." You cannot do this step for them.
 
