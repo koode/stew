@@ -13,6 +13,8 @@ export STEW_SOCKET="$WORK/stew.sock" STEW_CONFIG="$WORK/config.json" STEW_HEADLE
 export STEW_CODEX_STUB_LOG="$WORK/codex-stub.log" STEW_CODEX_STUB_STATE="$WORK/codex-stub-state"
 # Until I'm back begins 2 seconds after it is chosen, not a minute.
 export STEW_PAUSE_ARMING=2
+# Hovering pauses a request for at most 5 seconds in all, not 15 minutes.
+export STEW_HOVER_CAP=5
 # Run from inside Claude Code or Codex, requests would carry that session's id and agent;
 # tests set their own.
 unset CLAUDE_CODE_SESSION_ID CLAUDECODE CODEX_SESSION_ID CODEX_THREAD_ID CODEX_HOME
@@ -455,6 +457,19 @@ sleep 0.7
 expect "hovered with a hard limit" "$(control state)" "clock=paused:"
 wait $client
 expect "the hard limit still ends a hovered request" "$(cat "$WORK/out")" '"status":"timeout"'
+control hover off > /dev/null
+# A pointer left on the card pauses the request for the hover cap (5 s here), then the
+# clock runs again with what was left.
+"$STEW" permit --action "hovered too long" --reason "y" --timeout 2 > "$WORK/out" & client=$!
+wait_items 1
+hovered=$(python3 -c 'import time;print(time.time())')
+control hover on > /dev/null
+sleep 4
+expect "within the hover cap the clock stays paused" "$(control state)" "clock=paused:"
+wait $client
+expect "past the hover cap the request times out" "$(cat "$WORK/out")" '"status":"timeout"'
+python3 -c 'import sys,time;sys.exit(0 if 6.0<=time.time()-float(sys.argv[1])<=9.0 else 1)' "$hovered" \
+  && pass "it ran out after the cap and the time it had left" || fail "it ran out after the cap and the time it had left" "after $(python3 -c 'import sys,time;print(round(time.time()-float(sys.argv[1]),1))' "$hovered") s"
 control hover off > /dev/null
 out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
 expect "question timeout note" "$out" "didn't answer within 1 s"

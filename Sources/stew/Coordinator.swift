@@ -1255,25 +1255,41 @@ final class Coordinator: ObservableObject {
     private var hoverCheck: DispatchWorkItem?
 
     /// The pointer came onto the front request's card, or left it. Leaving resumes the
-    /// clock at once; coming on pauses it only after `HoverPause.delay`. Hovering is no
-    /// answer: the request is not engaged and still goes to a phone.
+    /// clock at once; coming on pauses it only after `HoverPause.delay`, and for at most
+    /// `HoverPause.cap` in all. Hovering is no answer: the request is not engaged and
+    /// still goes to a phone.
     func hoverCard(_ inside: Bool) {
         guard historyPreview == nil else { return }
         let now = Date()
         if inside, let item = current {
             cardHover.entered(at: now, requestID: item.id)
         } else {
-            cardHover.exited()
+            cardHover.exited(at: now)
         }
-        hoverCheck?.cancel()
-        hoverCheck = nil
-        if let begins = cardHover.pausesAt(after: now) {
-            let work = DispatchWorkItem { [weak self] in self?.changed() }
-            hoverCheck = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + begins.timeIntervalSince(now), execute: work)
-        }
+        scheduleHoverCheck(now: now)
         changed()
     }
+
+    /// Re-checks the clock when a resting pointer starts to pause it, and again when the
+    /// request has used up its hover cap.
+    private func scheduleHoverCheck(now: Date) {
+        hoverCheck?.cancel()
+        hoverCheck = nil
+        guard let next = cardHover.nextChange(after: now, cap: Self.hoverCap) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.changed()
+            self.scheduleHoverCheck(now: Date())
+        }
+        hoverCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + next.timeIntervalSince(now), execute: work)
+    }
+
+    /// The headless test daemon can shorten the hover cap with STEW_HOVER_CAP.
+    static let hoverCap: TimeInterval = {
+        guard Paths.headless, let text = ProcessInfo.processInfo.environment["STEW_HOVER_CAP"], let seconds = Double(text) else { return HoverPause.cap }
+        return seconds
+    }()
 
     /// The front item is on screen; the others wait unseen.
     private func trackScreenTime() {
@@ -1316,7 +1332,7 @@ final class Coordinator: ObservableObject {
                 item.deadline = item.capped(Date().addingTimeInterval(limit))
             }
             let now = Date()
-            let shouldPause = textMode || grantMode || isViewing(item) || cardHover.isPausing(item.id, at: now)
+            let shouldPause = textMode || grantMode || isViewing(item) || cardHover.isPausing(item.id, at: now, cap: Self.hoverCap)
             if shouldPause, let deadline = item.deadline {
                 item.pausedRemaining = RequestClock.remaining(until: deadline, at: now)
                 item.deadline = nil
