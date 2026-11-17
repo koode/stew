@@ -36,7 +36,7 @@ final class PhoneLink: ObservableObject {
     /// Which pairing answered a request, so its "resolved" carries the right outcome.
     private var answeredBy: [UUID: String] = [:]
     /// Outcomes of recent requests, so a late answer gets a reason and not just "no".
-    private var recentlyResolved: [String: (outcome: LinkOutcome, pairingId: String?, at: Date)] = [:]
+    private var recentlyResolved: [String: (outcome: LinkOutcome, pairingId: String?, at: Date, agent: CodingAgent)] = [:]
     /// Test notifications sent from Settings, by request id, with the phone each went to.
     private var testRequests: [String: String] = [:]
     /// Requests that timed out on phones, by request id: which phones had them, and
@@ -370,11 +370,11 @@ final class PhoneLink: ObservableObject {
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
             if answer.choice == .viewing || answer.choice == .left {
                 // Ignored for a request that already ended; the phone shows its outcome.
-                return refuse(LinkRefusal.closed(recentlyResolved[requestId]?.outcome, macName: macName))
+                return refuse(LinkRefusal.closed(recentlyResolved[requestId]?.outcome, macName: macName, agent: recentlyResolved[requestId]?.agent ?? .claudeCode))
             }
             if let late = applyLate(answer, from: pairingId) { return late }
             if let recent = recentlyResolved[requestId] {
-                return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName))
+                return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName, agent: recent.agent))
             }
             return refuse(LinkRefusal.closed(nil, macName: macName))
         }
@@ -385,7 +385,7 @@ final class PhoneLink: ObservableObject {
             // The time ran out a moment ago and the timer has not fired yet: time the
             // request out now, so the answer can still go as a late answer.
             coordinator.expire(item)
-            return applyLate(answer, from: pairingId) ?? refuse(LinkRefusal.tooLate(macName: macName, deadline: deadline))
+            return applyLate(answer, from: pairingId) ?? refuse(LinkRefusal.tooLate(macName: macName, deadline: deadline, agent: item.request.session.codingAgent))
         }
         if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
             return refuse(LinkRefusal.tooSlow)
@@ -470,7 +470,7 @@ final class PhoneLink: ObservableObject {
         func refuse(_ message: String) -> LinkResult { LinkResult(requestId: requestId, accepted: false, message: message) }
         guard let coordinator, coordinator.needsStore.item(needsID) != nil, pushedNeeds[needsID]?.contains(pairingId) == true else {
             if let recent = recentlyResolved[requestId] {
-                return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName))
+                return refuse(recent.pairingId == pairingId ? LinkRefusal.alreadyAnswered : LinkRefusal.closed(recent.outcome, macName: macName, agent: recent.agent))
             }
             return refuse(LinkRefusal.closed(nil, macName: macName))
         }
@@ -510,7 +510,7 @@ final class PhoneLink: ObservableObject {
         case .movedOn: linkOutcome = .movedOn
         default: linkOutcome = .dismissed
         }
-        resolve(LinkPresentation.needsRequestId(record.id), pairingIds: pairingIds, outcome: linkOutcome, answering: doneBy)
+        resolve(LinkPresentation.needsRequestId(record.id), pairingIds: pairingIds, outcome: linkOutcome, answering: doneBy, agent: record.session.codingAgent)
     }
 
     private func responded(_ item: Item, _ response: StewResponse) {
@@ -532,7 +532,7 @@ final class PhoneLink: ObservableObject {
         if outcome == .timedOut || (outcome == .later && entry.sent.secretInApp == true) {
             lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date())
         }
-        resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering)
+        resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering, agent: item.request.session.codingAgent)
     }
 
     /// An answer from the phone to a request that timed out: it goes to the Claude session
@@ -580,13 +580,13 @@ final class PhoneLink: ObservableObject {
             guard case .valid(let secret) = input.check(text) else { return refuse(LinkRefusal.emptyAnswer) }
             response = StewResponse(status: .answered, text: secret)
         default:
-            return refuse(LinkRefusal.closed(.timedOut, macName: macName))
+            return refuse(LinkRefusal.closed(.timedOut, macName: macName, agent: request.session.codingAgent))
         }
         guard coordinator.answerLate(entryID: entryID, with: response, answeredOn: phoneName(pairingId)) else {
             return refuse(LinkRefusal.closed(nil, macName: macName))
         }
         lateAnswerable[requestId] = nil
-        recentlyResolved[requestId] = (.answered, pairingId, Date())
+        recentlyResolved[requestId] = (.answered, pairingId, Date(), request.session.codingAgent)
         return LinkResult(requestId: requestId, accepted: true, message: LinkRefusal.lateAnswerSent + ".", late: true)
     }
 
@@ -624,8 +624,9 @@ final class PhoneLink: ObservableObject {
         return LinkResult(requestId: answer.requestId, accepted: true, message: "Notifications work.")
     }
 
-    private func resolve(_ requestId: String, pairingIds: Set<String>, outcome: LinkOutcome, answering: String?) {
-        recentlyResolved[requestId] = (outcome, answering, Date())
+    /// `agent` is the agent that asked, for the refusals that name it.
+    private func resolve(_ requestId: String, pairingIds: Set<String>, outcome: LinkOutcome, answering: String?, agent: CodingAgent = .claudeCode) {
+        recentlyResolved[requestId] = (outcome, answering, Date(), agent)
         guard let store else { return }
         // Each phone's notification says which phone answered, and "this iPhone" on that one.
         let answeredOn = answering.flatMap { answeringId in paired.first { $0.pairingId == answeringId }?.phoneName ?? "iPhone" }
@@ -649,7 +650,7 @@ final class PhoneLink: ObservableObject {
         let requestId = answer.requestId
         guard item.timeLimit != nil else { return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.noTimeLimit) }
         if let deadline = item.deadline, deadline <= Date() {
-            return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.tooLate(macName: macName, deadline: deadline))
+            return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.tooLate(macName: macName, deadline: deadline, agent: item.request.session.codingAgent))
         }
         if Date().timeIntervalSince(answer.answeredAt) > LinkRefusal.answerLifetime {
             return LinkResult(requestId: requestId, accepted: false, message: LinkRefusal.tooSlow)
@@ -753,7 +754,7 @@ final class PhoneLink: ObservableObject {
         for (itemID, entry) in pushed where !liveIDs.contains(itemID) {
             // The caller went away (Ctrl-C, a hook timeout) without an answer.
             pushed[itemID] = nil
-            resolve(itemID.uuidString, pairingIds: entry.pairingIds, outcome: .dismissed, answering: nil)
+            resolve(itemID.uuidString, pairingIds: entry.pairingIds, outcome: .dismissed, answering: nil, agent: entry.sent.request.session.codingAgent)
         }
         let targets = Set(paired.map(\.pairingId))
         guard !targets.isEmpty else { return }

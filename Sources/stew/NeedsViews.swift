@@ -8,10 +8,11 @@ enum NeedsStyle {
     static let tint = Tone.teal.color
 }
 
-/// What Claude needs the user to do: the steps, commands to copy, links to open, the
-/// other answers Claude offered, and Done or Not now. No time limit, so no clock.
+/// What the agent needs the user to do: the steps, commands to copy, links to open, the
+/// other answers the agent offered, and Done or Not now. No time limit, so no clock.
 struct NeedsBody: View {
     let needs: NeedsRequest
+    var agent: CodingAgent = .claudeCode
     @ObservedObject var coordinator: Coordinator
     var interactive: Bool
 
@@ -19,7 +20,7 @@ struct NeedsBody: View {
         let keymap = coordinator.keymap
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                SectionLabel(text: "Claude needs you to")
+                SectionLabel(text: "\(agent.name) needs you to")
                 Text(needs.title)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(3)
@@ -72,7 +73,7 @@ struct NeedsBody: View {
             if coordinator.textMode {
                 ReplyEditor(
                     coordinator: coordinator,
-                    placeholder: "Note for Claude, sent with your answer",
+                    placeholder: "Note for \(agent.name), sent with your answer",
                     hint: noteHint(keymap),
                     interactive: interactive
                 )

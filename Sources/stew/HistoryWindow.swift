@@ -152,7 +152,7 @@ final class HistoryModel: ObservableObject {
     private func answerLate(_ entryID: UUID, _ response: StewResponse) -> Bool {
         let stored = onLateAnswer?(entryID, response) ?? false
         message = stored
-            ? HistoryMessage(.success, "Claude gets your answer at its next step.")
+            ? HistoryMessage(.success, "\(entries.first { $0.id == entryID }?.agent.name ?? CodingAgent.claudeCode.name) gets your answer at its next step.")
             : HistoryMessage(.error, "This request can no longer be answered: it timed out more than a day ago.")
         // The coordinator dropped the item: build the preview again, with the outcome.
         preview = nil

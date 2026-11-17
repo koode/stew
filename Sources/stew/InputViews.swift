@@ -55,7 +55,7 @@ struct InputBody: View {
                 ActionButton(title: "Send", shortcut: keymap[.submit], prominent: true) { coordinator.perform(.submit) }
                     .disabled(!check.isValid)
                     .opacity(check.isValid ? 1 : 0.45)
-                    .help(check.isValid ? "Send this answer to Claude" : "Type an answer in the expected format first")
+                    .help(check.isValid ? "Send this answer to \(item.request.session.codingAgent.name)" : "Type an answer in the expected format first")
         }
     }
 

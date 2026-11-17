@@ -23,7 +23,7 @@ final class HistoryPreview {
             var request = waiting.request
             request.timeout = 0
             request.maxWait = nil
-            mode = .late(ended: "\(entry.outcome.label) \(SettingsDate.text(entry.ended))")
+            mode = .late(ended: "\(entry.outcome.label(for: entry.agent)) \(SettingsDate.text(entry.ended))")
             item = Item(request: request, connection: nil)
             item.lateEntryID = entry.id
             coordinator.onPreviewAnswer = onAnswer
@@ -117,12 +117,13 @@ struct HistoryPreviewPane: View {
 
     private var lateHint: String {
         let keys = focused ? "" : " Click the request to use the panel's keys."
+        let agent = entry.agent.name
         if entry.outcome == .later {
-            return "Claude gets the secret at its next step. stew keeps it in memory only until then.\(keys)"
+            return "\(agent) gets the secret at its next step. stew keeps it in memory only until then.\(keys)"
         }
         return entry.secret == true
-            ? "It timed out, so Claude gets your answer at its next step. stew keeps the secret in memory only until then.\(keys)"
-            : "It timed out, so Claude gets your answer at its next step.\(keys)"
+            ? "It timed out, so \(agent) gets your answer at its next step. stew keeps the secret in memory only until then.\(keys)"
+            : "It timed out, so \(agent) gets your answer at its next step.\(keys)"
     }
 }
 
@@ -201,13 +202,13 @@ struct HistoryDetails: View {
                     if let grant = entry.grant {
                         row("Allowed", Self.grantText(grant))
                     }
-                    // Claude hears about a needs item only when it waited for it, so the
-                    // row shows the user's note instead.
+                    // The agent hears about a needs item only when it waited for it, so
+                    // the row shows the user's note instead.
                     if entry.kind == "needs" {
                         if let answer = entry.answer, !answer.isEmpty { row("Answer", answer) }
                         if let note = entry.note, !note.isEmpty { row("Note", note) }
                     } else {
-                        row("Claude was told", toldClaude)
+                        row("\(entry.agent.name) was told", toldAgent)
                     }
                     if let late = entry.late {
                         row("Answered late", SettingsDate.text(late.answered))
@@ -222,7 +223,7 @@ struct HistoryDetails: View {
                         if let grant = late.grant {
                             row("Allowed", Self.grantText(grant))
                         }
-                        row("Claude is told", late.message)
+                        row("\(entry.agent.name) is told", late.message)
                         if let delivery = model.deliveryText(entry) {
                             row("Delivery", delivery)
                         }
@@ -258,16 +259,16 @@ struct HistoryDetails: View {
         "\(grant.scope.value), \(grant.duration == .always ? "always" : "for 1 hour")"
     }
 
-    /// The status Claude got, with the note that came with it.
-    private var toldClaude: String {
+    /// The status the agent got, with the note that came with it.
+    private var toldAgent: String {
         if let note = entry.note, !note.isEmpty {
-            return "\(entry.outcome.label): \(note)"
+            return "\(entry.outcome.label(for: entry.agent)): \(note)"
         }
         switch entry.outcome {
         case .callerGone: return "Nothing: the caller had stopped waiting."
         case .answered where entry.kind == "input": return entry.secret == true ? "The secret." : "The answer above."
         case .answered: return "The answers above."
-        default: return "\(entry.outcome.label)."
+        default: return "\(entry.outcome.label(for: entry.agent))."
         }
     }
 

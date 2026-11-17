@@ -116,7 +116,7 @@ struct ItemCard: View {
             case .question:
                 QuestionBody(item: item, coordinator: coordinator, interactive: interactive)
             case .needs(let needs):
-                NeedsBody(needs: needs, coordinator: coordinator, interactive: interactive)
+                NeedsBody(needs: needs, agent: item.request.session.codingAgent, coordinator: coordinator, interactive: interactive)
             case .input(let input):
                 InputBody(input: input, item: item, coordinator: coordinator, interactive: interactive)
             }
@@ -272,7 +272,7 @@ struct TimeLimit: View {
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .fixedSize()
-            .help(item.typedOnMac ? "You started typing, so this waits for you" : "When this runs out, Claude is told you did not respond in time")
+            .help(item.typedOnMac ? "You started typing, so this waits for you" : "When this runs out, \(item.request.session.codingAgent.name) is told you did not respond in time")
             if !item.typedOnMac {
                 Button { coordinator.perform(.extend) } label: {
                     HStack(spacing: 4) {
@@ -412,6 +412,8 @@ struct RiskBanner: View {
     var explaining = false
     /// The command the risky part comes from.
     var command: String? = nil
+    /// The agent that retries an approved blocked call.
+    var agent: CodingAgent = .claudeCode
 
     var body: some View {
         switch state {
@@ -424,8 +426,8 @@ struct RiskBanner: View {
         case .blocked(let blocked):
             let red = blocked.hardDeny || blocked.explanation?.severity == .critical
             let retry = blocked.hardDeny
-                ? "This rule blocks even when you ask. Approving lets Claude retry this exact call once."
-                : "Approving lets Claude retry this exact call once."
+                ? "This rule blocks even when you ask. Approving lets \(agent.name) retry this exact call once."
+                : "Approving lets \(agent.name) retry this exact call once."
             let title = ["Auto mode blocked this", blocked.category].compactMap { $0 }.joined(separator: " · ")
             if let explanation = blocked.explanation {
                 banner(
@@ -582,18 +584,19 @@ struct PermissionBody: View {
 
     var body: some View {
         let keymap = coordinator.keymap
+        let agent = item.request.session.codingAgent
         let strongApprove = coordinator.needsStrongApprove(item)
         let approveShortcut = strongApprove ? keymap[.approve].adding(keymap.hardDenyExtra) : keymap[.approve]
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                SectionLabel(text: "Claude wants to")
+                SectionLabel(text: "\(agent.name) wants to")
                 Text(permission.action)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(permission.action)
             }
-            RiskBanner(state: item.risk, explaining: item.explaining, command: permission.command)
+            RiskBanner(state: item.risk, explaining: item.explaining, command: permission.command, agent: agent)
             if let command = permission.command, !command.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     SectionLabel(text: "Command")
@@ -601,13 +604,13 @@ struct PermissionBody: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                SectionLabel(text: item.blocked == nil ? "Why" : "Claude's last message")
+                SectionLabel(text: item.blocked == nil ? "Why" : "\(agent.name)'s last message")
                 LongText(text: permission.reason, maxLines: 6)
             }
             if coordinator.textMode {
                 ReplyEditor(
                     coordinator: coordinator,
-                    placeholder: "Note for Claude, sent with your answer",
+                    placeholder: "Note for \(agent.name), sent with your answer",
                     hint: Text("\(approveShortcut.text) approves and \(keymap[.deny].text) denies with this note. Esc leaves the field."),
                     interactive: interactive
                 )

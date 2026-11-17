@@ -172,7 +172,10 @@ public enum LinkOutcome: String, Codable, Sendable, CaseIterable {
     /// A secret input the user will enter on the Mac later.
     case later
 
-    public var label: String {
+    /// The label for a Claude Code request, the agent of requests that do not say.
+    public var label: String { label(for: .claudeCode) }
+
+    public func label(for agent: CodingAgent) -> String {
         switch self {
         case .approved: "Approved"
         case .denied: "Denied"
@@ -181,7 +184,7 @@ public enum LinkOutcome: String, Codable, Sendable, CaseIterable {
         case .dismissed: "Dismissed"
         case .answeredOnMac: "Answered on Mac"
         case .done: "Done"
-        case .resolvedByClaude: "Resolved by Claude"
+        case .resolvedByClaude: "Resolved by \(agent.name)"
         case .answeredInSession: "Answered in session"
         case .movedOn: "Moved on"
         case .later: "Enter later"

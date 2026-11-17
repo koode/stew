@@ -305,7 +305,7 @@ public enum LinkPresentation {
             if let command = permission.command, !command.isEmpty {
                 lines.append("$ " + CommandText.masked(command))
             }
-            lines.append((permission.blocked == nil ? "Why: " : "Claude's last message: ") + permission.reason)
+            lines.append((permission.blocked == nil ? "Why: " : "\(session.codingAgent.name)'s last message: ") + permission.reason)
         case .question(let set):
             if let question = notificationQuestion(request) {
                 lines.append(question.question)
@@ -345,7 +345,8 @@ public enum LinkPresentation {
     public static let thisPhone = "this iPhone"
 
     /// One line for how a request ended, in the notification that replaces its own.
-    public static func closedLine(_ resolved: LinkResolved, macName: String, canAnswerLate: Bool = false) -> String {
+    /// `agent` is the agent that asked, for the outcomes that name it.
+    public static func closedLine(_ resolved: LinkResolved, macName: String, canAnswerLate: Bool = false, agent: CodingAgent = .claudeCode) -> String {
         let phone = resolved.answeredHere == true ? thisPhone : resolved.answeredOn
         switch resolved.outcome {
         case .approved, .denied, .answered:
@@ -362,7 +363,7 @@ public enum LinkPresentation {
         case .later:
             return "Waiting for you to enter it later"
         case .resolvedByClaude, .answeredInSession, .movedOn:
-            return resolved.outcome.label
+            return resolved.outcome.label(for: agent)
         }
     }
 
@@ -375,7 +376,7 @@ public enum LinkPresentation {
         return LinkNotificationContent(
             title: original?.title ?? "stew",
             subtitle: original?.subtitle ?? macName,
-            body: closedLine(resolved, macName: macName, canAnswerLate: lateAnswerPossible),
+            body: closedLine(resolved, macName: macName, canAnswerLate: lateAnswerPossible, agent: request?.request.session.codingAgent ?? .claudeCode),
             categoryIdentifier: closedCategory,
             actions: [],
             threadIdentifier: pairingId,
@@ -467,22 +468,26 @@ public enum LinkPresentation {
 /// first, so most refusals need no network; the Mac checks again, because only its
 /// state counts.
 public enum LinkRefusal {
-    public static func tooLate(macName: String, deadline: Date, time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String {
-        "Too late: the request on \(macName) timed out at \(time(deadline)). Claude was told you did not respond in time."
+    /// `agent` is the agent that asked: requests that do not say come from Claude Code.
+    public static func tooLate(
+        macName: String, deadline: Date, agent: CodingAgent = .claudeCode,
+        time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
+    ) -> String {
+        "Too late: the request on \(macName) timed out at \(time(deadline)). \(agent.name) was told you did not respond in time."
     }
 
     public static let macOnly = "Approve this on your Mac. Auto mode never allows it, so the phone can only deny it."
 
-    public static func closed(_ outcome: LinkOutcome?, macName: String) -> String {
+    public static func closed(_ outcome: LinkOutcome?, macName: String, agent: CodingAgent = .claudeCode) -> String {
         switch outcome {
         case .answeredOnMac: "Already answered on \(macName)."
-        case .timedOut: "Too late: the request on \(macName) timed out. Claude was told you did not respond in time."
+        case .timedOut: "Too late: the request on \(macName) timed out. \(agent.name) was told you did not respond in time."
         case .dismissed: "The request on \(macName) was dismissed."
         case .approved, .denied, .answered: "Already answered on another device."
         case .done: "Already marked done."
-        case .resolvedByClaude: "Claude saw that this is done."
-        case .answeredInSession: "You already answered this in the Claude session."
-        case .movedOn: "Claude moved on from this."
+        case .resolvedByClaude: "\(agent.name) saw that this is done."
+        case .answeredInSession: "You already answered this in the \(agent.name) session."
+        case .movedOn: "\(agent.name) moved on from this."
         case .later: "You chose to enter this on \(macName) later, from its History."
         case nil: "This request is no longer open on \(macName)."
         }
@@ -505,7 +510,11 @@ public enum LinkRefusal {
 
     /// The phone shows this when the Mac took an answer as a late answer.
     public static let lateAnswerSent = "Sent as a late answer"
-    public static let lateAnswerDetail = "The request had timed out. Claude gets this answer at its next step, in place of the timeout."
+    public static let lateAnswerDetail = lateAnswerDetail(for: .claudeCode)
+
+    public static func lateAnswerDetail(for agent: CodingAgent) -> String {
+        "The request had timed out. \(agent.name) gets this answer at its next step, in place of the timeout."
+    }
 
     /// Checked on the phone before anything is sent. After the deadline only an answer
     /// that can go as a late answer passes: approve, deny, the question's answers or a
@@ -518,7 +527,7 @@ public enum LinkRefusal {
             case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left: isAnswer = false
             }
             guard isAnswer, LinkPresentation.canAnswerLate(request) else {
-                return tooLate(macName: request.macName, deadline: deadline)
+                return tooLate(macName: request.macName, deadline: deadline, agent: request.request.session.codingAgent)
             }
         }
         switch (choice, request.request.prompt) {
