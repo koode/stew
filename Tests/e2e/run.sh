@@ -393,6 +393,23 @@ control choose 1 > /dev/null; wait $client
 clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)
 [[ "${clock:-99}" -le 2 ]] && pass "a request that waited shows the hard limit it has left" || fail "a request that waited shows the hard limit it has left" "clock=$clock"
 wait $second
+# A phone that opened the request and never said it left: its viewing cap ends an
+# unanswered request, but not one the user started answering on the Mac.
+echo '{"classifier":{"enabled":false},"sound":"","phone":{"viewingCap":2}}' > "$STEW_CONFIG"
+"$STEW" ask --timeout 60 --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
+wait_items 1
+control view > /dev/null
+expect "open on a phone" "$(control state)" "viewing=Test phone"
+control choose 1 > /dev/null
+sleep 3
+expect "an answered request outlasts the phone's viewing cap" "$(control state)" "items=1 kind=question question=1"
+control press dismiss > /dev/null; wait $client
+"$STEW" ask --timeout 60 --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
+wait_items 1
+control view > /dev/null
+wait $client
+expect "an unanswered one still ends at the viewing cap" "$(cat "$WORK/out")" '"status":"timeout"'
+echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
 expect "question timeout note" "$out" "didn't answer within 1 s"
 echo '{"classifier":{"enabled":false},"sound":"","responseTimeout":1}' > "$STEW_CONFIG"

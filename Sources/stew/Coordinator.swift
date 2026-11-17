@@ -654,6 +654,10 @@ final class Coordinator: ObservableObject {
             // A pause of a few seconds, to see it end by itself.
             guard let seconds = Double(argument), seconds > 0 else { return "bad seconds" }
             pause(seconds: seconds)
+        case "view":
+            // A paired phone opens the request on screen and never says it left.
+            guard let item = current else { return "nothing on screen" }
+            startViewing(item, phoneName: "Test phone", pairingId: "test")
         case "input":
             // Keyboard or mouse input from the user, which a test daemon never has.
             testLastInput = Date()
@@ -1219,6 +1223,9 @@ final class Coordinator: ObservableObject {
     func engage(_ item: Item) {
         guard !item.engaged, !item.isNeeds, item === current, historyPreview == nil else { return }
         item.engaged = true
+        // The clock is stopped for good, so the phone's viewing cap no longer ends it.
+        item.viewingTimer?.cancel()
+        item.viewingTimer = nil
         Log.write("request \(item.id.uuidString.prefix(8)): answering on the Mac, clock stopped")
         changed()
     }
@@ -1333,8 +1340,9 @@ final class Coordinator: ObservableObject {
         let cap = config.phone.viewingCap
         let work = DispatchWorkItem { [weak self, weak item] in
             guard let self, let item, let pause = item.viewing, self.items.contains(where: { $0 === item }) else { return }
-            if pause.reachedCap(at: Date(), cap: cap) {
+            if pause.reachedCap(at: Date(), cap: cap), !item.engaged {
                 // Open on the phone all along without an answer: time out, and say why.
+                // One the user started answering on the Mac waits for them instead.
                 self.expire(item, reason: ViewingPause.capNote(phoneName: pause.phoneName, cap: cap))
             } else {
                 // The pause stays on record, so a later open still counts against the
