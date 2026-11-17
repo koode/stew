@@ -25,7 +25,7 @@ enum Snapshot {
         }
         // Every pane, with sample approvals and history so their tables show.
         let historySample = HistorySample.make()
-        for tab in SettingsTab.order where tab != .phone {
+        for tab in SettingsTab.order where tab != .phone && tab != .account {
             let width = tab == .history ? SettingsWindowController.historyWidth : settingsSize.width
             settings("settings-\(tab.rawValue)", in: directory, width: width) { model, approvals, history in
                 model.tab = tab
@@ -35,7 +35,7 @@ enum Snapshot {
         }
         // Every pane in the window as wide as History makes it: the header and the
         // content keep one column on the left.
-        for tab in SettingsTab.order where tab != .phone && tab != .history {
+        for tab in SettingsTab.order where tab != .phone && tab != .account && tab != .history {
             settings("settings-\(tab.rawValue)-wide", in: directory, width: SettingsWindowController.historyWidth) { model, approvals, _ in
                 model.tab = tab
                 approvals.showSample(sampleGrants)
@@ -103,6 +103,7 @@ enum Snapshot {
             }
         }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
+        AccountSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         MenuBarSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         PopoverSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
