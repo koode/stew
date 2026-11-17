@@ -121,7 +121,7 @@ struct PhoneSettingsTab: View {
                             ForEach(Self.viewingCaps, id: \.1) { Text($0.0).tag($0.1) }
                         }
                     }
-                    SettingRow(hint: "Used for new pairings. A paired iPhone keeps the relay it paired with. relay-next gets new relay versions first. For another relay, such as your own, set phone.relay in config.json.") {
+                    SettingRow(hint: "Used for new pairings. A paired iPhone keeps the relay it paired with. relay-next gets new relay versions first.") {
                         let relay = model.config.phone.relay
                         let offered = PhoneConfig.offeredRelay(relay)
                         Picker("Relay", selection: Binding(

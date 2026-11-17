@@ -7,7 +7,7 @@ public struct PairingCode: Codable, Equatable, Sendable {
     public static let scheme = "stew"
     static let prefix = "stew://pair?code="
 
-    /// Relay base URL, such as https://relay.stewcli.com. A self-hosted relay works the same.
+    /// Relay base URL, such as https://relay.stewcli.com.
     public var relay: String
     public var pairingId: String
     public var macName: String
