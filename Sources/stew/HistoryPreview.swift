@@ -261,6 +261,9 @@ struct HistoryDetails: View {
 
     /// The status the agent got, with the note that came with it.
     private var toldAgent: String {
+        if entry.outcome == .timedOut, entry.request?.agentAsksOnTimeout == true {
+            return "Nothing: \(entry.agent.name) asked in its own prompt instead."
+        }
         if let note = entry.note, !note.isEmpty {
             return "\(entry.outcome.label(for: entry.agent)): \(note)"
         }

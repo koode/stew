@@ -22,6 +22,12 @@ public struct RequestOrigin: Codable, Equatable, Sendable {
     }
 }
 
+extension StewRequest {
+    /// The agent asks in its own prompt once stew's time runs out, so nobody tells it about
+    /// the timeout.
+    public var agentAsksOnTimeout: Bool { origin?.agentAsksOnTimeout == true }
+}
+
 /// A request that timed out and can still be answered from the history.
 public struct LateRequest: Codable, Equatable, Sendable {
     /// The history entry of the timeout.

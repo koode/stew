@@ -62,3 +62,19 @@ import Testing
         #expect(older.outcomeLabel == "Resolved by Claude")
     }
 }
+
+@Suite struct AgentAsksOnTimeoutHistoryTests {
+    @Test func historyKeepsOnlyTheFlagOfTheOrigin() {
+        let session = SessionInfo(name: "web-app", id: "019a", agent: .codex)
+        let approval = StewRequest(
+            session: session, prompt: .permission(PermissionRequest(action: "Run a shell command", reason: "x")),
+            origin: RequestOrigin(agentID: "agent-2", toolName: "Bash", callKey: "{\"command\":\"x\"}", agentAsksOnTimeout: true)
+        )
+        #expect(approval.agentAsksOnTimeout)
+        #expect(approval.forHistory.origin == RequestOrigin(agentAsksOnTimeout: true))
+        let permit = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "Push", reason: "x")), origin: RequestOrigin(agentID: "agent-2"))
+        #expect(!permit.agentAsksOnTimeout)
+        #expect(permit.forHistory.origin == nil)
+        #expect(CodingAgent.codex.asksInItsOwnPrompt == "Codex asks in its own prompt instead.")
+    }
+}

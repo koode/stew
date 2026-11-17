@@ -470,19 +470,24 @@ public enum LinkPresentation {
 /// state counts.
 public enum LinkRefusal {
     /// `agent` is the agent that asked: requests that do not say come from Claude Code.
+    /// `agentAsksOnTimeout`: the agent was told nothing and asks in its own prompt.
     public static func tooLate(
-        macName: String, deadline: Date, agent: CodingAgent = .claudeCode,
+        macName: String, deadline: Date, agent: CodingAgent = .claudeCode, agentAsksOnTimeout: Bool = false,
         time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
     ) -> String {
-        "Too late: the request on \(macName) timed out at \(time(deadline)). \(agent.name) was told you did not respond in time."
+        "Too late: the request on \(macName) timed out at \(time(deadline)). \(timeoutConsequence(agent: agent, agentAsksOnTimeout: agentAsksOnTimeout))"
+    }
+
+    private static func timeoutConsequence(agent: CodingAgent, agentAsksOnTimeout: Bool) -> String {
+        agentAsksOnTimeout ? agent.asksInItsOwnPrompt : "\(agent.name) was told you did not respond in time."
     }
 
     public static let macOnly = "Approve this on your Mac. Auto mode never allows it, so the phone can only deny it."
 
-    public static func closed(_ outcome: LinkOutcome?, macName: String, agent: CodingAgent = .claudeCode) -> String {
+    public static func closed(_ outcome: LinkOutcome?, macName: String, agent: CodingAgent = .claudeCode, agentAsksOnTimeout: Bool = false) -> String {
         switch outcome {
         case .answeredOnMac: "Already answered on \(macName)."
-        case .timedOut: "Too late: the request on \(macName) timed out. \(agent.name) was told you did not respond in time."
+        case .timedOut: "Too late: the request on \(macName) timed out. \(timeoutConsequence(agent: agent, agentAsksOnTimeout: agentAsksOnTimeout))"
         case .dismissed: "The request on \(macName) was dismissed."
         case .approved, .denied, .answered: "Already answered on another device."
         case .done: "Already marked done."
@@ -528,7 +533,10 @@ public enum LinkRefusal {
             case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left: isAnswer = false
             }
             guard isAnswer, LinkPresentation.canAnswerLate(request) else {
-                return tooLate(macName: request.macName, deadline: deadline, agent: request.request.session.codingAgent)
+                return tooLate(
+                    macName: request.macName, deadline: deadline, agent: request.request.session.codingAgent,
+                    agentAsksOnTimeout: request.agentAsksOnTimeout == true
+                )
             }
         }
         switch (choice, request.request.prompt) {

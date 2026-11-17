@@ -248,6 +248,14 @@ struct TimeLimit: View {
     @ObservedObject var item: Item
     @ObservedObject var coordinator: Coordinator
 
+    /// What happens when the clock runs out, for the clock's tooltip.
+    static func runsOutText(_ request: StewRequest) -> String {
+        let agent = request.session.codingAgent
+        return request.agentAsksOnTimeout
+            ? "When this runs out, \(agent.name) asks in its own prompt instead"
+            : "When this runs out, \(agent.name) is told you did not respond in time"
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Group {
@@ -272,7 +280,7 @@ struct TimeLimit: View {
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .fixedSize()
-            .help(item.typedOnMac ? "You started typing, so this waits for you" : "When this runs out, \(item.request.session.codingAgent.name) is told you did not respond in time")
+            .help(item.typedOnMac ? "You started typing, so this waits for you" : Self.runsOutText(item.request))
             if !item.typedOnMac {
                 Button { coordinator.perform(.extend) } label: {
                     HStack(spacing: 4) {

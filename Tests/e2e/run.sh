@@ -857,6 +857,7 @@ expect "codex: a closed panel leaves the decision to Codex" "[$(cat "$WORK/out")
 set_config ',"responseTimeout":1'
 expect "codex: a timeout leaves the decision to Codex" "[$(codex_bash "make test")]" "[]"
 set_config ""
+expect "codex: History knows Codex asked in its own prompt" "$(history_json | python3 -c 'import json,sys; entry=next(entry for entry in json.load(sys.stdin) if entry.get("command")=="make test"); print(entry["outcome"], entry["request"].get("origin"))')" "timedOut {'agentAsksOnTimeout': True}"
 [[ "$(cat "$LATE_FILE" 2>/dev/null)" != *"codex-1"* ]] && pass "codex: a timed-out approval waits for no late answer" || fail "codex: a timed-out approval waits for no late answer" "$(cat "$LATE_FILE")"
 expect "codex: no daemon leaves the decision to Codex" "[$(STEW_SOCKET="/nonexistent/stew-e2e/stew.sock" codex_bash "make lint" 2>/dev/null)]" "[]"
 PATCH=$'*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch'

@@ -68,3 +68,23 @@ private func codexApproval(agentAsksOnTimeout: Bool?) -> LinkRequest {
         #expect(LinkPresentation.closedNotification(resolved, request: fromOlderMac, macName: "Studio", pairingId: "pair").body == "Timed out. Open stew to answer late.")
     }
 }
+
+@Suite struct AgentAsksOnTimeoutWordingTests {
+    @Test func codexIsNotToldItAsksInItsOwnPrompt() {
+        let time: (Date) -> String = { _ in "10:00" }
+        #expect(LinkRefusal.tooLate(macName: "Studio", deadline: received, agent: .codex, agentAsksOnTimeout: true, time: time)
+            == "Too late: the request on Studio timed out at 10:00. Codex asks in its own prompt instead.")
+        #expect(LinkRefusal.closed(.timedOut, macName: "Studio", agent: .codex, agentAsksOnTimeout: true)
+            == "Too late: the request on Studio timed out. Codex asks in its own prompt instead.")
+        // Other requests, and Codex's own stew calls, keep the timeout note wording.
+        #expect(LinkRefusal.closed(.timedOut, macName: "Studio", agent: .codex)
+            == "Too late: the request on Studio timed out. Codex was told you did not respond in time.")
+        #expect(LinkRefusal.tooLate(macName: "Studio", deadline: received, time: time)
+            == "Too late: the request on Studio timed out at 10:00. Claude was told you did not respond in time.")
+    }
+
+    @Test func thePhoneSaysSoBeforeSendingALateAnswer() {
+        let refusal = LinkRefusal.beforeSending(.approve, for: codexApproval(agentAsksOnTimeout: true), now: received.addingTimeInterval(120))
+        #expect(refusal?.hasSuffix("Codex asks in its own prompt instead.") == true)
+    }
+}

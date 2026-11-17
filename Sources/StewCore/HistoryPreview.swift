@@ -3,9 +3,11 @@ import Foundation
 extension StewRequest {
     /// The copy History keeps: commands masked as the panel shows them, a secret input's
     /// default left out, and nothing that only routes a late answer (the origin and the
-    /// time limits).
+    /// time limits). Only whether the agent asks in its own prompt on a timeout stays,
+    /// because History says what the agent was told.
     public var forHistory: StewRequest {
         var copy = StewRequest(session: session, prompt: prompt, wait: wait)
+        if agentAsksOnTimeout { copy.origin = RequestOrigin(agentAsksOnTimeout: true) }
         switch prompt {
         case .permission(var permission):
             permission.command = permission.command.map { CommandText.masked($0) }

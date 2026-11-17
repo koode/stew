@@ -22,6 +22,10 @@ public enum CodingAgent: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// What happens when stew's time runs out on a request the agent asks again in its
+    /// own prompt, such as a Codex approval: the agent is told nothing.
+    public var asksInItsOwnPrompt: String { "\(name) asks in its own prompt instead." }
+
     /// The agent whose shell a command runs in, from the variables each agent sets for
     /// its commands. Nil outside both. Claude Code wins when both are set, because its
     /// variables reach only commands it starts itself.
