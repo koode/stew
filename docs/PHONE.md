@@ -37,6 +37,17 @@ When a request stays open while you are away from your Mac, stew sends it to you
 
 A Mac can pair with several phones and a phone with several Macs. Each pairing has its own id, its own pairing secret and its own key. Unpairing on either side removes the pairing on both.
 
+## Account
+
+The iPhone relay is the one part of stew that needs a plan. Everything else in stew is free and works without an account.
+
+- **Sign in.** Settings ▸ Account ▸ Email, then Send sign-in email. The email has a link and a 6-digit code: click the link, or type the code in Settings. The Mac sends the account service the address and this Mac's name, which the email shows so you can tell where the sign-in came from. The first sign-in creates the account and starts a free trial, no card needed.
+- **Plan.** Settings ▸ Account shows the plan: a trial with the days left, stew Pro with its renewal or end date, a payment problem, or expired. Subscribe opens the checkout in your browser, and Settings updates by itself once the payment is through. Manage billing opens Stripe's billing page, where you change the payment method, see invoices or cancel.
+- **Plan needed.** When the relay refuses a pairing for want of a plan, Settings ▸ iPhone shows "Plan needed" with Open Account, which goes to Settings ▸ Account.
+- **How the relay learns the plan.** With a plan, the account service hands the Mac a signed lease. The Mac asks for the account at launch, once a day, after you sign in and while it waits for a payment, and sends each new lease to the relay of every pairing whose relay says it takes leases (`"leases": true` in `/v2/info`), and with each new pairing. The relay checks the lease's signature and keeps its end date on the pairing. The phone link keeps running when that fails; a pairing the relay stopped for want of a plan connects again once its relay has a lease.
+- **Session.** The session token is in the login keychain (service `nl.koode.stew.account`). Sign out removes it here and on the server; `stew uninstall` removes it here. Delete account cancels any subscription at once and deletes the account and its data; paired iPhones keep working until the relay's copy of the lease runs out.
+- **Server.** `account.server` in `~/.config/stew/config.json` sets the account service, `https://account.stewcli.com` by default, for development against a local relay.
+
 ## Configuration
 
 The `phone` object in `~/.config/stew/config.json`. Every field is optional.

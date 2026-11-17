@@ -256,7 +256,9 @@ Waiting requests and late answers are in `~/Library/Application Support/stew/lat
 
 ## On your iPhone
 
-When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input is typed on the Mac or in the stew app's masked field, never in a notification; the notification offers Enter in app, Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. It needs the stew iPhone app, which is distributed through TestFlight while stew is in beta. Pair a phone in `stew settings` → iPhone. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol.
+When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input is typed on the Mac or in the stew app's masked field, never in a notification; the notification offers Enter in app, Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. It needs the stew iPhone app, which is distributed through TestFlight while stew is in beta. Pair a phone in `stew settings` → iPhone.
+
+The iPhone relay is the one part of stew that needs a plan; everything else is free and works without an account. Sign in with your email in `stew settings` → Account (a link and a 6-digit code arrive by email) to start a free trial, subscribe or manage billing. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol.
 
 ## Keys
 
@@ -340,12 +342,13 @@ Run `stew settings` for a settings window, or edit `~/.config/stew/config.json` 
 
 ![The settings window](docs/images/settings-general-light.png)
 
-The window has six panes, picked from its toolbar:
+The window has seven panes, picked from its toolbar:
 
 - **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, look (solid or glass), sound, confetti, updates.
 - **Keys:** click a key and press the new combination.
 - **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
+- **Account:** sign in, see the plan the iPhone relay needs, subscribe and manage billing (see [docs/PHONE.md](docs/PHONE.md#account)).
 - **Approvals:** the same list as `stew approvals`.
 - **History:** the same list and preview as the menu bar popover, in a bigger window (see History).
 
@@ -389,6 +392,7 @@ The window has six panes, picked from its toolbar:
 - `menuBar` shows the stew icon in the menu bar. Off, it shows only while a needs item is open.
 - `menuBarIcon` is `"color"` (the app icon, the default) or `"monochrome"` (the pot alone, in the menu bar's color like the system icons).
 - `pauseMorningHour` is the hour, 0 to 23, that Pause stew → Until 08:00 ends at (8 by default).
+- `account.server` is the stew account service, `https://account.stewcli.com` by default.
 - `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
 - `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
 
