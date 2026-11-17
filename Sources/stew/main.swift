@@ -38,7 +38,8 @@ USAGE
   stew needs list [--json]       The open items.
   stew needs resolve ID          Clear an item once you can see it is done.
   stew check --action TEXT --reason TEXT [--command TEXT|-]
-      Run only the auto mode risk check and print its verdict.
+      Run only the auto mode risk check and print its verdict. Claude or
+      Codex checks, as classifier.backend says (the asking agent by default).
   stew keys          Show the shortcuts in effect.
   stew settings      Open the settings window (time limit, keys, agents, risk check).
   stew approvals     Open the settings window on the list of standing approvals.

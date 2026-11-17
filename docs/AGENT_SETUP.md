@@ -9,9 +9,9 @@ Run each check. Stop and tell the user if one fails, with the fix shown.
 | Check | Command | Needs | Fix |
 |---|---|---|---|
 | macOS version | `sw_vers -productVersion` | 14 or later | Update macOS |
-| Claude Code | `claude --version` | Installed | Needed only for its skill and auto mode hooks, and for the risk check |
-| Login type | `claude auth status` | `"authMethod": "claude.ai"` | The risk check runs only on a Claude subscription, never on API billing; it is skipped otherwise |
-| Codex | `codex --version` | 0.122 or later | Needed only for its skill and approval hooks; older versions have no `PermissionRequest` hook |
+| Claude Code | `claude --version` | Installed | Needed only for its skill and auto mode hooks, and for the risk check of its requests |
+| Login type | `claude auth status` | `"authMethod": "claude.ai"` | The risk check runs only on a Claude subscription, never on API billing; Codex checks instead, or it is skipped |
+| Codex | `codex --version` | 0.122 or later | Needed only for its skill and approval hooks, and for the risk check of its requests (with a ChatGPT login: `codex login status`); older versions have no `PermissionRequest` hook |
 
 Note which agents are installed (`~/.claude` and `~/.codex` exist): the questions and the install command below depend on it.
 
@@ -100,7 +100,8 @@ A bare key joins `chord`; a full spec such as `"cmd+shift+y"` stands alone. Keys
 | The panel says a key is "taken by another app" | Another app registered the same global shortcut | Remap that action in `~/.config/stew/config.json` |
 | `daemon did not start` | The LaunchAgent is not loaded | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/nl.koode.stew.plist`, then read `~/Library/Logs/stew.log` |
 | The install script stops with a sha256 or signature error | The download was damaged or is not an official build | Run the install command again. If it keeps failing, stop and tell the user; do not work around the check |
-| "Risk check unavailable: not logged in with a Claude subscription" | `claude` uses an API key or is logged out | `claude auth login` with a Claude account, or set `"classifier": {"enabled": false}` |
+| "Risk check unavailable: claude is not logged in with a Claude subscription" or "codex is not logged in with ChatGPT" | The tool that checks uses an API key or is logged out, and the other one cannot take over | `claude auth login` with a Claude account or `codex login` with ChatGPT, pick the other tool under Settings ▸ Agents ▸ Risk check ▸ Check with, or set `"classifier": {"enabled": false}` |
+| "Risk check unavailable: codex CLI not found" | Check with is set to Codex, or neither CLI can run | Install Codex, set `classifier.codexPath`, or pick another tool under Check with |
 | A blocked call never shows in stew | Hooks not installed, or the denial had no verdict | `stew hooks status`; denials such as "Classifier unavailable" cannot be retried, so stew skips them |
 | `stew hooks status` says "partly installed" | The hooks come from an older stew, without the needs hooks or the late answer hook | Tell the user to run `stew hooks install` (with `--agent codex` for Codex); it adds what is missing and keeps the rest. Do not edit `~/.claude/settings.json` or `~/.codex/hooks.json` yourself |
 | A Codex approval never shows in stew | The hooks are not trusted yet, hooks are off in `~/.codex/config.toml`, or Codex is older than 0.122 | Ask the user to open `/hooks` in Codex and trust the stew hooks; `stew hooks status --agent codex` warns when `[features] hooks = false` |

@@ -16,7 +16,7 @@ A macOS panel that lets Claude Code and Codex ask you for permission, ask you a 
 ## Requirements
 
 - macOS 14 or later
-- [Claude Code](https://code.claude.com), for its skill and auto mode hooks, and for the risk check
+- [Claude Code](https://code.claude.com), for its skill and auto mode hooks, and for the risk check (or Codex for the risk check)
 - [Codex](https://learn.chatgpt.com/docs/codex/cli) 0.122 or later, for its skill and approval hooks (0.129 or later asks you to trust new hooks in `/hooks`; see [Codex](#codex-approvals-in-stew))
 - To build from source: a Swift 6 toolchain (Xcode 16 or later, or the Command Line Tools: `xcode-select --install`)
 
@@ -246,7 +246,9 @@ While you answer one request, the ones that arrive meanwhile wait behind it, and
 
 ![A permission request with the risk check above the command](docs/images/permission-soft-deny-light.png)
 
-For a direct `stew permit`, a Codex approval and a call auto mode blocked, stew runs its own risk check (it needs Claude Code): `claude -p` judges the command against the rules from `claude auto-mode config`, with your recent messages in the session and the `git status` of the session folder as context, so it can say which uncommitted work a command would lose. The verdict shows above the command after approximately 5 seconds, with the risky part of a longer command marked. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
+For a direct `stew permit`, a Codex approval and a call auto mode blocked, stew runs its own risk check: a small, fast model judges the command against the rules from `claude auto-mode config`, with your recent messages in the session and the `git status` of the session folder as context, so it can say which uncommitted work a command would lose. The verdict shows above the command after approximately 5 seconds, with the risky part of a longer command marked. Claude Code's real auto mode prompt is not public, so this check approximates it with the same rules.
+
+**Which tool checks.** By default the agent that asks: Claude Code's requests go to `claude -p` (Haiku), Codex's to `codex exec` (`gpt-6-luna`). When that tool is not installed or not logged in, the other one checks; when neither can, the panel says "Risk check unavailable" and names what is missing. Pick one tool for every request under Settings ▸ Agents ▸ Risk check ▸ Check with, or with `classifier.backend` (`agent`, `claude` or `codex`). Without Claude Code there are no auto mode rules to read, so Codex checks against a short set of stew's own rules with the same categories (Data Exfiltration, Git Destructive and so on). Codex runs read-only with every tool turned off (no shell, no web search, no apps, MCP servers or hooks), no approvals and no saved session, from stew's cache folder.
 
 #### Severity
 
@@ -395,7 +397,7 @@ The window has seven panes, picked from its toolbar:
 
 - **General:** pause, the menu bar icon, time to answer, more time, arming delay, position, look (solid or glass), sound, confetti, updates, and Set up stew… for the setup window.
 - **Keys:** click a key and press the new combination.
-- **Claude Code:** install or remove the hooks, choose where questions and needs items from Claude Code appear, and set up the risk check.
+- **Agents:** install or remove the Claude Code and Codex hooks, choose where questions and needs items appear, and set up the risk check, including which tool runs it.
 - **iPhone:** pair and unpair iPhones, and choose when requests go to them (see [docs/PHONE.md](docs/PHONE.md)).
 - **Account:** sign in, see the plan the iPhone relay needs, subscribe and manage billing (see [docs/PHONE.md](docs/PHONE.md#account)).
 - **Approvals:** the same list as `stew approvals`.
@@ -421,7 +423,8 @@ The window has seven panes, picked from its toolbar:
   "autoUpdate": true,
   "historyDays": 30,
   "menuBar": true,
-  "classifier": { "enabled": true, "model": "haiku", "timeoutSeconds": 60, "recentUserMessages": 6,
+  "classifier": { "enabled": true, "backend": "agent", "model": "haiku", "codexModel": "gpt-6-luna",
+                  "timeoutSeconds": 60, "recentUserMessages": 6,
                   "criticalNeedsStrongApprove": true, "highExtraTime": 60, "phoneConfirmation": "highAndCritical" }
 }
 ```
@@ -444,13 +447,13 @@ The window has seven panes, picked from its toolbar:
 - `setup.completed` is set when you close the setup window; until then it opens when stew starts with no hooks installed, and when you open Stew.app.
 - `account.server` is the stew account service, `https://account.stewcli.com` by default.
 - `phone.viewingCap` is the longest a request's clock stays paused while it is open in the stew app on a paired iPhone, in seconds (900 by default).
-- `classifier` controls the risk check on direct `stew permit` calls. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
+- `classifier` controls the risk check on direct `stew permit` calls and Codex approvals. `backend` is `agent`, `claude` or `codex`: which tool checks (see Risk check). `model` is Claude's model, `codexModel` Codex's; `claudePath` and `codexPath` point at a CLI that is not in the usual places. `criticalNeedsStrongApprove` asks for ⇧⌘↩ on a critical action. `highExtraTime` is the seconds added to the time to answer for high and critical actions (0 adds none). `phoneConfirmation` is `highAndCritical`, `critical` or `off`: which levels need the extra confirmation before the iPhone approves.
 
 ## Security model
 
 - **stew never runs commands.** The agent runs them through its own tools, so Claude Code's or Codex's permissions, sandbox and transcript still apply.
 - **One retry, one call.** An approval lets one identical call through, in the session that asked, within 15 minutes.
-- **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session. It runs only on a Claude subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login.
+- **No API billing.** The risk check runs `claude -p` with no tools, no settings sources (so no hooks) and no saved session, or `codex exec` read-only with no tools, no user config, no hooks and no saved session. It runs only on a subscription login: API key variables are removed from its environment, and it refuses to run unless `claude auth status` reports a claude.ai login, or `codex login status` a ChatGPT login.
 - **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
 - **Signed updates only.** An update needs a valid Ed25519 signature from the stew release key and Koode's Developer ID code signature. The release server only serves the files.
 - **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Open needs items are in `needs.json` (mode 0600), with their commands as given so the copy button copies the real command; the panel and the history show secrets as `••••`. Logs go to `~/Library/Logs/stew.log`.
