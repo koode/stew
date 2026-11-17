@@ -428,6 +428,23 @@ public struct Keymap: Equatable, Sendable {
 }
 
 extension StewConfig {
+    /// A change from a settings window, applied to config.json as it is on disk now
+    /// rather than to the copy the window loaded, so one window's write never reverts a
+    /// key another window, the daemon or an editor changed meanwhile. A file that is
+    /// missing or does not decode starts from `loaded`. Throws when the keys would clash.
+    public static func updatingFile(
+        _ file: Data?, loaded: StewConfig, change: (inout StewConfig) -> Void
+    ) throws -> (config: StewConfig, keymap: Keymap, data: Data) {
+        var updated = file.flatMap { try? JSONDecoder().decode(StewConfig.self, from: $0) } ?? loaded
+        change(&updated)
+        let keymap = try Keymap(config: updated)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (updated, keymap, try encoder.encode(updated))
+    }
+}
+
+extension StewConfig {
     /// Confetti follows an approved permission request, also one approved together with
     /// an "Allow more…" choice. Answers to questions and notifications get none.
     public func celebrates(_ response: StewResponse, to prompt: Prompt) -> Bool {

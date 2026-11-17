@@ -40,15 +40,12 @@ final class SettingsModel: ObservableObject {
         self.codexHooksDisabled = codexHooksDisabled
     }
 
-    /// Applies a change, refusing it when the keys would clash.
+    /// Applies a change to the file as it is now, refusing it when the keys would clash.
     func update(_ change: (inout StewConfig) -> Void) {
-        var updated = config
-        change(&updated)
         do {
-            let updatedKeymap = try Keymap(config: updated)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            let data = try encoder.encode(updated)
+            let (updated, updatedKeymap, data) = try StewConfig.updatingFile(
+                FileManager.default.contents(atPath: Paths.config), loaded: config, change: change
+            )
             let folder = (Paths.config as NSString).deletingLastPathComponent
             try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
             try data.write(to: URL(fileURLWithPath: Paths.config), options: .atomic)
