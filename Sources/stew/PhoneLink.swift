@@ -608,7 +608,9 @@ final class PhoneLink: ObservableObject {
         return LinkRequest(
             requestId: item.id.uuidString,
             macName: macName,
-            request: Self.withoutOrigin(item.request),
+            // A blocked call's explanation comes after the request; the phone shows it as
+            // the panel does.
+            request: Self.withoutOrigin(item.requestWithExplanation),
             receivedAt: item.received,
             deadline: deadline,
             queued: queued,
@@ -617,7 +619,8 @@ final class PhoneLink: ObservableObject {
             risk: item.risk.assessment,
             confirmation: confirmation(for: item),
             viewingOn: coordinator.flatMap { $0.isViewing(item) ? item.viewing?.phoneName : nil },
-            secretInApp: item.input?.secret == true ? true : nil
+            secretInApp: item.input?.secret == true ? true : nil,
+            explaining: item.explaining ? true : nil
         )
     }
 
@@ -637,6 +640,7 @@ final class PhoneLink: ObservableObject {
 
     private static func needsUpdate(_ old: LinkRequest, _ new: LinkRequest) -> Bool {
         if old.queued != new.queued || old.hardDeny != new.hardDeny || old.risk != new.risk || old.confirmation != new.confirmation || old.viewingOn != new.viewingOn { return true }
+        if old.request != new.request || old.explaining != new.explaining { return true }
         switch (old.deadline, new.deadline) {
         case (nil, nil): return false
         case (let before?, let after?): return abs(before.timeIntervalSince(after)) > deadlineTolerance

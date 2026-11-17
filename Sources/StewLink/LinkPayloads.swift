@@ -39,6 +39,10 @@ public struct LinkRequest: Codable, Equatable, Sendable {
     /// True for a secret input from a Mac that takes the secret typed in the app
     /// (`LinkChoice.secret`). Nil from an older Mac, so the app offers no field for it.
     public var secretInApp: Bool?
+    /// True while the Mac's own risk check of a call auto mode blocked still runs; the
+    /// explanation follows in an update, inside `PermissionRequest.blocked`. Nil from an
+    /// older Mac, and once the check ended.
+    public var explaining: Bool?
 
     public init(
         requestId: String,
@@ -52,7 +56,8 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         risk: RiskAssessment?,
         confirmation: PhoneConfirmation? = nil,
         viewingOn: String? = nil,
-        secretInApp: Bool? = nil
+        secretInApp: Bool? = nil,
+        explaining: Bool? = nil
     ) {
         self.requestId = requestId
         self.macName = macName
@@ -66,6 +71,7 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         self.confirmation = confirmation
         self.viewingOn = viewingOn
         self.secretInApp = secretInApp
+        self.explaining = explaining
     }
 }
 

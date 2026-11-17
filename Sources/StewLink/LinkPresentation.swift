@@ -247,6 +247,14 @@ public enum LinkPresentation {
         }
     }
 
+    /// The risk check's verdict on the call: the Mac's own check, or for a call auto mode
+    /// blocked, stew's explanation of it, which the Mac adds once its check is done.
+    public static func assessment(_ request: LinkRequest) -> RiskAssessment? {
+        if let risk = request.risk { return risk }
+        guard case .permission(let permission) = request.request.prompt else { return nil }
+        return permission.blocked?.explanation
+    }
+
     /// The severity chip and the reversibility line as one line of text, such as
     /// "High risk · Deletes files permanently; no undo." Nil without a severity.
     public static func severityLine(_ risk: RiskAssessment?) -> String? {
@@ -283,10 +291,11 @@ public enum LinkPresentation {
                 lines.append("Auto mode never allows this. Approve it on your Mac, or deny it here.")
             } else if let blocked = permission.blocked {
                 lines.append((["Auto mode blocked this", blocked.category].compactMap { $0 }).joined(separator: " · "))
+                if let summary = blocked.explanation?.summary, !summary.isEmpty { lines.append(CommandText.masked(summary)) }
             } else if let risk = request.risk, risk.verdict == .softDeny {
                 lines.append((["Auto mode would block this", risk.ruleName].compactMap { $0 }).joined(separator: " · "))
             }
-            if let line = severityLine(request.risk) { lines.append(line) }
+            if let line = severityLine(assessment(request)) { lines.append(line) }
             lines.append(permission.action)
             if let command = permission.command, !command.isEmpty {
                 lines.append("$ " + CommandText.masked(command))
