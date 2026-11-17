@@ -615,14 +615,22 @@ struct AgentsSettingsTab: View {
                     }
                 }
                 Section("Risk check") {
-                    SettingRow(hint: "For direct stew permit calls and Codex approvals: claude -p checks the command against your Claude Code auto mode rules. Needs Claude Code, and runs on your Claude subscription only, never on API billing.") {
+                    SettingRow(hint: "For direct stew permit calls and Codex approvals: Claude Code or Codex checks the command against your Claude Code auto mode rules, or stew's default rules without Claude Code. Runs on your Claude or ChatGPT plan only, never on API billing.") {
                         Toggle("Risk check", isOn: Binding(
                             get: { model.config.classifier.enabled },
                             set: { value in model.update { $0.classifier.enabled = value } }
                         ))
                     }
-                    SettingRow(hint: "Haiku takes about 5 seconds per check. Larger models are slower and use more of your plan.") {
-                        Picker("Model", selection: Binding(
+                    SettingRow(hint: "The asking agent checks Claude Code's requests with Claude and Codex's with Codex, and uses the other one when that one is missing or not logged in. Claude Code or Codex checks every request with that one only.") {
+                        Picker("Check with", selection: classifierBinding(\.backend)) {
+                            Text("The asking agent (Recommended)").tag(RiskCheckBackend.agent.rawValue)
+                            Text(CodingAgent.claudeCode.productName).tag(RiskCheckBackend.claude.rawValue)
+                            Text(CodingAgent.codex.productName).tag(RiskCheckBackend.codex.rawValue)
+                        }
+                    }
+                    .disabled(!model.config.classifier.enabled)
+                    SettingRow(hint: "Haiku takes about 5 seconds per check. Larger models are slower and use more of your plan. Codex checks with \(model.config.classifier.codexModel); classifier.codexModel in the config changes it.") {
+                        Picker("Claude model", selection: Binding(
                             get: { model.config.classifier.model },
                             set: { value in model.update { $0.classifier.model = value } }
                         )) {

@@ -75,6 +75,11 @@ enum Snapshot {
         settings("settings-agents-risk", in: directory, height: 1180) { model, _, _ in
             model.tab = .agents
         }
+        // The risk check set to Codex, scrolled down to it.
+        settings("settings-agents-risk-codex", in: directory, height: 1180) { model, _, _ in
+            model.tab = .agents
+            model.showSample { $0.classifier.backend = RiskCheckBackend.codex.rawValue }
+        }
         // Codex hooks installed: the note to trust them in Codex, and the warning for
         // hooks that config.toml turned off.
         settings("settings-agents-codex", in: directory, height: 760) { model, _, _ in
