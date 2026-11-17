@@ -50,6 +50,12 @@ public struct PermissionRequest: Codable, Equatable, Sendable {
     /// Set when the request comes from the auto mode hook: the call auto mode blocked.
     public var blocked: BlockedCall?
 
+    /// The heading above `command`: "Code" for the JavaScript Claude Code's Code Mode runs,
+    /// else "Command".
+    public var commandLabel: String {
+        blocked?.toolName == HookCall.codeModeTool ? "Code" : "Command"
+    }
+
     public init(action: String, command: String? = nil, reason: String, blocked: BlockedCall? = nil) {
         self.action = action
         self.command = command

@@ -494,14 +494,21 @@ public struct TurnHookInput: Equatable, Sendable {
     public var lastAssistantMessage: String?
     /// The subagent or teammate the hook fired in; nil for the main agent.
     public var agentID: String?
+    /// UserPromptSubmit only: what fired the hook. Claude Code's Code Mode also runs the
+    /// hook on output from code running in the background, with source "poll_event".
+    public var source: String?
 
-    public init(sessionID: String? = nil, cwd: String? = nil, transcriptPath: String? = nil, lastAssistantMessage: String? = nil, agentID: String? = nil) {
+    public init(sessionID: String? = nil, cwd: String? = nil, transcriptPath: String? = nil, lastAssistantMessage: String? = nil, agentID: String? = nil, source: String? = nil) {
         self.sessionID = sessionID
         self.cwd = cwd
         self.transcriptPath = transcriptPath
         self.lastAssistantMessage = lastAssistantMessage
         self.agentID = agentID
+        self.source = source
     }
+
+    /// The hook fired for output from code Claude runs, not for a prompt the user typed.
+    public var isCodeOutput: Bool { source == "poll_event" }
 
     public static func parse(_ data: Data) -> TurnHookInput? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
@@ -511,7 +518,8 @@ public struct TurnHookInput: Equatable, Sendable {
             cwd: object["cwd"] as? String,
             transcriptPath: object["transcript_path"] as? String,
             lastAssistantMessage: message,
-            agentID: (object["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            agentID: (object["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            source: (object["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 }

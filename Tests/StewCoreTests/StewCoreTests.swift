@@ -769,6 +769,54 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         let old = Data(#"{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/u/stew hook pre"}]}]}}"#.utf8)
         #expect(ClaudeSettings.hookState(executable: "/u/stew", in: old) == .partial)
     }
+
+    @Test func claudeHooksLetTheCallGoAheadWhenStewFails() throws {
+        let installed = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: nil)
+        var object = try JSONSerialization.jsonObject(with: installed) as! [String: Any]
+        var hooks = object["hooks"] as! [String: [[String: Any]]]
+        let handlers = hooks.values.flatMap { $0 }.flatMap { $0["hooks"] as! [[String: Any]] }
+        #expect(handlers.count == 6)
+        #expect(handlers.allSatisfy { $0["onFailure"] as? String == "continue" })
+
+        // An install from before onFailure has every command, but needs an update.
+        for (event, entries) in hooks {
+            hooks[event] = entries.map { entry in
+                var entry = entry
+                entry["hooks"] = (entry["hooks"] as! [[String: Any]]).map { handler in
+                    var handler = handler
+                    handler["onFailure"] = nil
+                    return handler
+                }
+                return entry
+            }
+        }
+        object["hooks"] = hooks
+        let older = try JSONSerialization.data(withJSONObject: object)
+        #expect(ClaudeSettings.hookState(executable: "/u/stew", in: older) == .partial)
+        let updated = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: older)
+        #expect(ClaudeSettings.hookState(executable: "/u/stew", in: updated) == .complete)
+    }
+
+    @Test func codeModeRunCodeShowsTheCode() throws {
+        let code = "const files = await $`rg -l retry src`.text();\nawait edit(files.trim(), \"a\", \"b\");"
+        let input = try JSONSerialization.data(withJSONObject: ["tool_name": "REPL", "tool_input": ["code": code], "cwd": "/p"])
+        let call = try HookCall.parse(input)
+        #expect(call.blockedAction == "Run code")
+        #expect(call.blockedCommand == code)
+
+        let bash = try HookCall.parse(Data(#"{"tool_name":"Bash","tool_input":{"command":"git push","description":"Push the branch"},"cwd":"/p"}"#.utf8))
+        #expect(bash.blockedAction == "Push the branch")
+        #expect(bash.blockedCommand == "git push")
+        let read = try HookCall.parse(Data(#"{"tool_name":"Read","tool_input":{"file_path":"/p/.env"},"cwd":"/p"}"#.utf8))
+        #expect(read.blockedAction == "Use the Read tool")
+        #expect(read.blockedCommand == "Read: /p/.env")
+
+        let codeCall = BlockedCall(toolName: call.toolName, category: nil, reason: "", hardDeny: false, projectRoot: "/p", suggestions: [])
+        #expect(PermissionRequest(action: "Run code", command: code, reason: "", blocked: codeCall).commandLabel == "Code")
+        let bashCall = BlockedCall(toolName: "Bash", category: nil, reason: "", hardDeny: false, projectRoot: "/p", suggestions: [])
+        #expect(PermissionRequest(action: "Push", command: "git push", reason: "", blocked: bashCall).commandLabel == "Command")
+        #expect(PermissionRequest(action: "Deploy", command: "make deploy", reason: "release").commandLabel == "Command")
+    }
 }
 
 private enum StewDefaults {

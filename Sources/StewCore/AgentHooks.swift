@@ -13,18 +13,32 @@ public struct StewHook: Equatable, Sendable {
     public var background: Bool
     /// Shown by the agent while the hook runs.
     public var statusMessage: String?
+    /// What the agent does when the hook cannot run or gives no decision in time.
+    /// "continue" lets the tool call go ahead: Claude Code's Code Mode otherwise refuses a
+    /// call whose PreToolUse hook fails, so a moved or deleted stew would block every call.
+    public var onFailure: String?
 
-    public init(event: String, matcher: String?, arguments: String, timeout: Int, background: Bool = false, statusMessage: String? = nil) {
+    public init(event: String, matcher: String?, arguments: String, timeout: Int, background: Bool = false, statusMessage: String? = nil, onFailure: String? = nil) {
         self.event = event
         self.matcher = matcher
         self.arguments = arguments
         self.timeout = timeout
         self.background = background
         self.statusMessage = statusMessage
+        self.onFailure = onFailure
     }
 
     public func command(executable: String) -> String {
         "\(executable) hook \(arguments)"
+    }
+
+    /// The handler entry stew writes for this hook.
+    public func handler(executable: String) -> [String: Any] {
+        var handler: [String: Any] = ["type": "command", "command": command(executable: executable), "timeout": timeout]
+        if background { handler["async"] = true }
+        if let statusMessage { handler["statusMessage"] = statusMessage }
+        if let onFailure { handler["onFailure"] = onFailure }
+        return handler
     }
 }
 
@@ -50,16 +64,21 @@ extension CodingAgent {
     /// Codex has no auto mode and no AskUserQuestion: its PermissionRequest hook asks in
     /// stew before Codex shows its own approval prompt. The Stop and UserPromptSubmit hooks
     /// do what they do for Claude Code.
+    /// Claude Code hooks never hold up the agent when stew itself fails: the call goes ahead
+    /// as if stew were not installed. Codex's hook file has no such field.
+    static let claudeOnFailure = "continue"
+
     public func stewHooks(waitTimeout: Int) -> [StewHook] {
         switch self {
         case .claudeCode:
+            let failure = Self.claudeOnFailure
             return [
-                StewHook(event: "PermissionDenied", matcher: "*", arguments: "denied", timeout: waitTimeout),
-                StewHook(event: "PreToolUse", matcher: "*", arguments: "pre", timeout: 10),
-                StewHook(event: "PreToolUse", matcher: "AskUserQuestion", arguments: "question", timeout: waitTimeout),
-                StewHook(event: "Stop", matcher: nil, arguments: "stop", timeout: 15, background: true),
-                StewHook(event: "Stop", matcher: nil, arguments: "stop-late", timeout: 5),
-                StewHook(event: "UserPromptSubmit", matcher: nil, arguments: "prompt", timeout: 5),
+                StewHook(event: "PermissionDenied", matcher: "*", arguments: "denied", timeout: waitTimeout, onFailure: failure),
+                StewHook(event: "PreToolUse", matcher: "*", arguments: "pre", timeout: 10, onFailure: failure),
+                StewHook(event: "PreToolUse", matcher: "AskUserQuestion", arguments: "question", timeout: waitTimeout, onFailure: failure),
+                StewHook(event: "Stop", matcher: nil, arguments: "stop", timeout: 15, background: true, onFailure: failure),
+                StewHook(event: "Stop", matcher: nil, arguments: "stop-late", timeout: 5, onFailure: failure),
+                StewHook(event: "UserPromptSubmit", matcher: nil, arguments: "prompt", timeout: 5, onFailure: failure),
             ]
         case .codex:
             return [
@@ -110,10 +129,7 @@ public enum HookFile {
         }
         for hook in hooks {
             var list = events[hook.event] as? [[String: Any]] ?? []
-            var handler: [String: Any] = ["type": "command", "command": hook.command(executable: executable), "timeout": hook.timeout]
-            if hook.background { handler["async"] = true }
-            if let statusMessage = hook.statusMessage { handler["statusMessage"] = statusMessage }
-            var entry: [String: Any] = ["hooks": [handler]]
+            var entry: [String: Any] = ["hooks": [hook.handler(executable: executable)]]
             if let matcher = hook.matcher { entry["matcher"] = matcher }
             list.append(entry)
             events[hook.event] = list
@@ -141,15 +157,26 @@ public enum HookFile {
 
     public static func state(of wanted: [StewHook], executable: String, in data: Data?) -> HookInstallState {
         guard let object = try? object(from: data), let hooks = object["hooks"] as? [String: Any] else { return .none }
-        let events = Array(Set(wanted.map(\.event)))
-        let commands = events.flatMap { event in
-            (hooks[event] as? [[String: Any]] ?? []).flatMap { entry in
-                (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
-            }
+        let handlers = { (event: String) in
+            (hooks[event] as? [[String: Any]] ?? []).flatMap { entry in entry["hooks"] as? [[String: Any]] ?? [] }
         }
-        let present = wanted.filter { commands.contains($0.command(executable: executable)) }
+        // A hook counts as present when its command is there, and as current only when the
+        // handler also has today's fields (async, onFailure...): an older stew's entry then
+        // shows as needing an update. The timeout is left out: it follows the user's time
+        // limit, and callers that only look for the hooks pass any value.
+        let shape = { (handler: [String: Any]) in
+            NSDictionary(dictionary: handler.filter { $0.key != "timeout" })
+        }
+        let found = wanted.map { hook in
+            handlers(hook.event).first { $0["command"] as? String == hook.command(executable: executable) }
+        }
+        let present = found.compactMap { $0 }
         if present.isEmpty { return .none }
-        return present.count == wanted.count ? .complete : .partial
+        let current = zip(wanted, found).allSatisfy { hook, handler in
+            guard let handler else { return false }
+            return shape(handler).isEqual(shape(hook.handler(executable: executable)))
+        }
+        return current ? .complete : .partial
     }
 }
 

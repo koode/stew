@@ -269,6 +269,8 @@ public struct HookCall: Equatable, Sendable {
             summary = path
         } else if let url = input["url"] as? String {
             summary = url
+        } else if let code = input["code"] as? String {
+            summary = code
         } else {
             summary = key
         }
@@ -299,6 +301,25 @@ public struct HookCall: Equatable, Sendable {
         self.description = description
         self.summary = summary
         self.reason = reason
+    }
+
+    /// The tool Claude Code's Code Mode runs Claude's JavaScript with; its input is `code`.
+    public static let codeModeTool = "REPL"
+
+    /// What the panel says a blocked call wants to do.
+    public var blockedAction: String {
+        if let description { return description }
+        return toolName == Self.codeModeTool ? "Run code" : "Use the \(toolName) tool"
+    }
+
+    /// The text the panel shows and the risk check reads: the command, the code, or the
+    /// tool with its path, URL or input.
+    public var blockedCommand: String? {
+        switch toolName {
+        case "Bash": command
+        case Self.codeModeTool: summary
+        default: "\(toolName): \(summary)"
+        }
     }
 }
 

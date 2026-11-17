@@ -618,7 +618,7 @@ struct PermissionBody: View {
             )
             if let command = permission.command, !command.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    SectionLabel(text: "Command")
+                    SectionLabel(text: permission.commandLabel)
                     CommandBox(command: command, highlight: RiskCheck.partToPoint(item.risk.riskyPart, in: command))
                 }
             }

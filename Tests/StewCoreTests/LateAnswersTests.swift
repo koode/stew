@@ -236,6 +236,8 @@ private func question(session: SessionInfo = session) -> StewRequest {
         #expect(try HookCall.parse(Data(#"{"session_id":"s1","tool_name":"Bash","tool_input":{}}"#.utf8)).agentID == nil)
         #expect(TurnHookInput.parse(Data(#"{"session_id":"s1","agent_id":"agent-7"}"#.utf8))?.agentID == "agent-7")
         #expect(TurnHookInput.parse(Data(#"{"session_id":"s1"}"#.utf8))?.agentID == nil)
+        #expect(TurnHookInput.parse(Data(#"{"session_id":"s1","source":"poll_event"}"#.utf8))?.isCodeOutput == true)
+        #expect(TurnHookInput.parse(Data(#"{"session_id":"s1","prompt":"go on"}"#.utf8))?.isCodeOutput == false)
     }
 }
 

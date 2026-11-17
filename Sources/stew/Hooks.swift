@@ -211,8 +211,8 @@ enum Hooks {
             if let sessionID = call.sessionID { session.id = sessionID }
             session.agent = .claudeCode
             let permission = PermissionRequest(
-                action: call.description ?? "Use the \(call.toolName) tool",
-                command: call.toolName == "Bash" ? call.command : "\(call.toolName): \(call.summary)",
+                action: call.blockedAction,
+                command: call.blockedCommand,
                 reason: claudeReason(transcriptPath: call.transcriptPath),
                 blocked: blocked
             )
@@ -357,6 +357,10 @@ enum Hooks {
     static func prompt() -> Never {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input = TurnHookInput.parse(data)
+        // Output from code Claude runs in the background is not the user answering: the
+        // session's needs items stay open, and late answers wait for a real prompt or the
+        // next tool call.
+        if input?.isCodeOutput == true { exit(0) }
         resolveAutomatic(sessionID: input?.sessionID, control: "answered")
         let late = LateAnswerFile.deliver(sessionID: input?.sessionID, agentID: input?.agentID, event: "UserPromptSubmit")
         if let context = LateWording.combined(late) {

@@ -52,6 +52,8 @@ public enum RiskCheck {
 
         Set "risky_part" to the shortest part of the command that carries the risk, copied character for character from the command, such as "git checkout -q -- ." or "dropdb \"$db\"". Use null when nothing in the command is risky, or when there is no command.
 
+        When the action is "Run code", the command is JavaScript that Claude Code runs in one step: each $`...` runs a shell command, and calls such as edit(...) and write(...) change files. Judge everything the code would do, including commands built from values it computes, and copy "risky_part" from the code.
+
         "git_status", when present, is `git status --porcelain --branch` for the working directory: the branch, then one line per changed or untracked file. Use it to say which uncommitted work a command would lose, and how many files. "auto_mode_blocked", when present, means Claude Code's auto mode already blocked this call under that rule: the user wants to know why, so make the summary name what in the command falls under that rule.
 
         Separately from the verdict, set "severity" to how bad it is if the action runs, judged by what the action itself does: how hard it is to undo, and whether it reaches other people or the outside world. Do not raise it for how sensitive the data it touches is: the user approves each action, so reading a secret on this machine is low or medium. It becomes high or critical only when the action also sends the secret somewhere outside (an unknown host, a post, a public repo) or uses it to do something irreversible.

@@ -144,6 +144,7 @@ private func codexInput(_ event: String, _ fields: [String: Any]) -> Data {
         #expect(permission["type"] as? String == "command")
         #expect(permission["statusMessage"] as? String == "Asking in stew")
         #expect(permission["async"] == nil)
+        #expect(permission["onFailure"] == nil)
         #expect(hooks["PermissionRequest"]?.first?["matcher"] as? String == "*")
         let stops = try #require(hooks["Stop"]).compactMap { ($0["hooks"] as? [[String: Any]])?.first }
         #expect(stops.map { $0["command"] as? String } == ["/u/.local/bin/stew hook stop --agent codex", "/u/.local/bin/stew hook stop-late --agent codex"])

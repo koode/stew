@@ -381,6 +381,46 @@ enum Snapshot {
                 )
             ))
         }),
+        // Claude Code's Code Mode: auto mode reviews the JavaScript Claude wrote, so a
+        // blocked call is the whole piece of code, shown as code.
+        ("auto-mode-blocked-code", { coordinator in
+            let code = """
+                const stale = (await $`git branch -r --merged origin/main`.text()).split("\\n").map(line => line.trim()).filter(Boolean);
+                for (const branch of stale) await $`git push origin --delete ${branch.replace("origin/", "")}`;
+                ({ deleted: stale.length });
+                """
+            let input = (try? JSONSerialization.data(withJSONObject: [
+                "tool_name": HookCall.codeModeTool, "tool_input": ["code": code], "cwd": "/Users/you/code/web-app",
+            ])) ?? Data()
+            guard let call = try? HookCall.parse(input) else { return }
+            let blocked = BlockedCall(
+                toolName: call.toolName,
+                category: "Destructive or Unwanted Actions",
+                reason: "[Destructive or Unwanted Actions]",
+                hardDeny: false,
+                projectRoot: "/Users/you/code/web-app",
+                suggestions: [],
+                explanation: RiskAssessment(
+                    verdict: .softDeny, risk: .high, rule: "Git Destructive",
+                    summary: "Deletes every remote branch already merged into main on origin, including shared ones. You asked to list stale branches, not to delete them.",
+                    severity: .high, reversibility: "Deleted remote branches can be pushed again from a local copy.",
+                    riskyPart: "git push origin --delete"
+                )
+            )
+            let item = Item(
+                request: StewRequest(
+                    session: session,
+                    prompt: .permission(PermissionRequest(
+                        action: call.blockedAction, command: call.blockedCommand,
+                        reason: "Clean up the remote branches that are already merged.", blocked: blocked
+                    )),
+                    maxWait: 1780
+                ),
+                connection: nil
+            )
+            item.risk = .blocked(blocked)
+            coordinator.show(item)
+        }),
         ("auto-mode-blocked-checking", { coordinator in
             let item = blockedItem(
                 command: "git push --force origin main",
