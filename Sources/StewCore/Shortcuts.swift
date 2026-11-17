@@ -186,6 +186,19 @@ public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
     case enterSoon, enterLater
 }
 
+extension HotkeyAction {
+    /// Pressing it on the request in front means the user is answering it there, so its
+    /// clock stops for good. Asking for more time is no answer. The note field and
+    /// "Allow more…" only pause the clock while they are open: typing or picking in them
+    /// counts. Approve, Deny and the like end the request, which leaves no clock to stop.
+    public var engages: Bool {
+        switch self {
+        case .next, .previous, .submit: true
+        case .approve, .deny, .dismiss, .dismissAll, .other, .grant, .extend, .enterSoon, .enterLater: false
+        }
+    }
+}
+
 /// User config at ~/.config/stew/config.json. Every field is optional.
 public struct StewConfig: Codable, Equatable, Sendable {
     public var chord: String

@@ -60,10 +60,10 @@ import Testing
         #expect(!PushPolicy.shouldPush(source: .stew, config: PhoneConfig(), openFor: 600, presence: away))
     }
 
-    @Test func aRequestTypedIntoOnTheMacNeverGoes() {
+    @Test func aRequestAnsweredOnTheMacNeverGoes() {
         let always = PhoneConfig(push: "always")
-        #expect(!PushPolicy.shouldPush(source: .caller, config: always, openFor: 600, presence: locked, typedOnMac: true))
-        #expect(!PushPolicy.shouldPush(source: .caller, config: PhoneConfig(), openFor: 600, presence: away, typedOnMac: true))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: always, openFor: 600, presence: locked, engagedOnMac: true))
+        #expect(!PushPolicy.shouldPush(source: .caller, config: PhoneConfig(), openFor: 600, presence: away, engagedOnMac: true))
     }
 
     @Test func needsItemsGoOutAfterTheWaitEvenWhileSomeoneIsAtTheMac() {

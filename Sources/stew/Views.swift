@@ -243,7 +243,7 @@ struct Header: View {
 }
 
 /// Time left to answer, and the "more time" button. Paused while typing a note, and
-/// gone once the user typed into the request: it then waits for them.
+/// gone once the user started answering the request: it then waits for them.
 struct TimeLimit: View {
     @ObservedObject var item: Item
     @ObservedObject var coordinator: Coordinator
@@ -259,7 +259,7 @@ struct TimeLimit: View {
     var body: some View {
         HStack(spacing: 6) {
             Group {
-                if item.typedOnMac && item.deadline == nil {
+                if item.engaged && item.deadline == nil {
                     Text("No time limit").foregroundStyle(Ink.secondary)
                 } else if coordinator.isViewing(item), let pause = item.viewing {
                     HStack(spacing: 3) {
@@ -280,8 +280,8 @@ struct TimeLimit: View {
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .fixedSize()
-            .help(item.typedOnMac ? "You started typing, so this waits for you" : Self.runsOutText(item.request))
-            if !item.typedOnMac {
+            .help(item.engaged ? "You started answering, so this waits for you" : Self.runsOutText(item.request))
+            if !item.engaged {
                 Button { coordinator.perform(.extend) } label: {
                     HStack(spacing: 4) {
                         Text(Self.extendLabel(coordinator.config.extendBy)).font(.system(size: 11, weight: .medium))

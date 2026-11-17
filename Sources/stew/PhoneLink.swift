@@ -785,7 +785,7 @@ final class PhoneLink: ObservableObject {
             presence = current
             guard PushPolicy.shouldPush(
                 source: item.source, config: coordinator.config.phone, openFor: now.timeIntervalSince(item.received), presence: current,
-                typedOnMac: item.typedOnMac
+                engagedOnMac: item.engaged
             ) else { continue }
             let request = linkRequest(for: item, previous: nil)
             send(request, kind: .request, item: item, to: targets)

@@ -262,8 +262,8 @@ public enum NeedsBook {
 
 /// Order of the panel queue. Permission requests, questions and notifications go ahead
 /// of needs items, so a needs item shows only when nothing else is waiting. The front
-/// item stays where it is while the user types a note on it, so their text never ends
-/// up under a different request.
+/// item stays where it is while the user types a note on it, or once they started
+/// answering it, so their text and choices never end up under a different request.
 public enum PanelQueue {
     public static func ordered<Element>(_ elements: [Element], frontPinned: Bool, isNeeds: (Element) -> Bool) -> [Element] {
         guard let first = elements.first else { return elements }

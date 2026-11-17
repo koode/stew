@@ -667,6 +667,20 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(request.timeoutNote(after: 20).contains("within 20 s"))
     }
 
+    @Test func answeringKeysEngageButTimeAndModeKeysDoNot() {
+        #expect(HotkeyAction.next.engages)
+        #expect(HotkeyAction.previous.engages)
+        #expect(HotkeyAction.submit.engages)
+        // More time asks for time; the note field and Allow more only pause until closed.
+        for action in [HotkeyAction.extend, .enterSoon, .other, .grant] {
+            #expect(!action.engages, "\(action)")
+        }
+        // These end the request.
+        for action in [HotkeyAction.approve, .deny, .dismiss, .dismissAll, .enterLater] {
+            #expect(!action.engages, "\(action)")
+        }
+    }
+
     @Test func maxWaitRoundTrips() throws {
         let request = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")), maxWait: 1780)
         #expect(try Wire.decode(StewRequest.self, line: try Wire.encode(request).dropLast()).maxWait == 1780)

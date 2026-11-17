@@ -151,7 +151,7 @@ control press submit > /dev/null
 expect "input: ⌘↩ with nothing typed sends nothing" "$(control state)" "items=1 kind=input"
 control press other > /dev/null
 expect "input: ⌘O focuses the field and pauses the clock" "$(control state)" "text=true input=empty"
-expect "input: the clock waits while typing" "$(control state)" "clock=paused"
+expect "input: ⌘↩ on the empty field counted as answering, so the clock stopped" "$(control state)" "clock=none"
 control type "not a domain" > /dev/null
 expect "input: a mismatch is flagged" "$(control state)" "input=mismatch"
 control press submit > /dev/null
@@ -333,6 +333,33 @@ control press extend > /dev/null
 clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)
 [[ "${clock:-0}" -gt 100 ]] && pass "more time adds the configured extension" || fail "more time adds the configured extension" "clock=$clock"
 control press dismiss > /dev/null; wait $client
+
+# answering stops the clock: a key press, one answered question, and the queue behind it
+TWO_QUESTIONS='{"questions":[{"question":"Q1?","header":"Q1","options":[{"label":"A","description":""},{"label":"B","description":""}]},{"question":"Q2?","header":"Q2","options":[{"label":"C","description":""},{"label":"D","description":""}]}]}'
+"$STEW" ask --timeout 2 --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
+wait_items 1
+expect "a question's clock runs before any key" "$(control state)" "clock=running:"
+control press next > /dev/null
+expect "moving to the next question stops the clock" "$(control state)" "question=1 text=false input=- grant=false:0 clock=none"
+expect "more time is gone once answering" "$(control state)" "keys=⌘. ⌘1 ⌘2 ⌘O ⌘↩ ⌘] ⌘["
+sleep 3
+expect "a request being answered does not time out" "$(control state)" "items=1"
+control press dismiss > /dev/null; wait $client
+"$STEW" ask --timeout 2 --json "$TWO_QUESTIONS" > "$WORK/out" & client=$!
+wait_items 1
+control choose 1 > /dev/null
+expect "one answered question of two stops the clock" "$(control state)" "question=1 text=false input=- grant=false:0 clock=none"
+"$STEW" permit --action "second" --reason "y" --timeout 2 > "$WORK/second" & second=$!
+wait_items 2
+expect "a new request waits behind the one being answered" "$(control state)" "kind=question question=1"
+sleep 3
+expect "its clock does not run while it waits" "$(control state)" "items=2"
+control choose 2 > /dev/null; wait $client
+expect "the first request gets both answers" "$(cat "$WORK/out")" '"answers":{"Q1?":"A","Q2?":"D"}'
+expect "the waiting request's clock starts fresh at the front" "$(control state)" "kind=permission"
+expect "with its full limit" "$(control state)" "clock=running:2"
+wait $second
+expect "and then it can time out" "$(cat "$WORK/second")" '"status":"timeout"'
 out=$("$STEW" ask --timeout 1 --json '{"questions":[{"question":"Q?","header":"Q","options":[{"label":"A","description":""},{"label":"B","description":""}]}]}')
 expect "question timeout note" "$out" "didn't answer within 1 s"
 echo '{"classifier":{"enabled":false},"sound":"","responseTimeout":1}' > "$STEW_CONFIG"

@@ -71,10 +71,12 @@ final class Item: ObservableObject, Identifiable {
 
     /// What the user typed into an input, starting with its default.
     @Published var inputText = ""
-    /// The user started typing an answer, a note or a value for this request on the Mac.
+    /// The user started answering this request on the Mac: typed an answer, a note or a
+    /// value, moved between or picked its options, or answered one of its questions.
     /// From then on its clock is stopped (only the caller's hard limit, `maxWait`, still
-    /// applies) and it is never sent to a phone: someone is at the Mac, answering it.
-    @Published var typedOnMac = false
+    /// applies), it keeps the front of the panel, and it is never sent to a phone:
+    /// someone is at the Mac, answering it.
+    @Published var engaged = false
 
     var isNeeds: Bool {
         if case .needs = request.prompt { return true }
@@ -153,7 +155,7 @@ final class Coordinator: ObservableObject {
     @Published private(set) var grantSelection = 0
     @Published var draft = "" {
         didSet {
-            if !draft.isEmpty, draft != oldValue, let current { typed(current) }
+            if !draft.isEmpty, draft != oldValue, let current { engage(current) }
         }
     }
     @Published private(set) var keymap: Keymap
@@ -405,7 +407,7 @@ final class Coordinator: ObservableObject {
 
     /// Needs items wait behind everything else; see `PanelQueue`.
     private func arrangeQueue() {
-        items = PanelQueue.ordered(items, frontPinned: textMode, isNeeds: \.isNeeds)
+        items = PanelQueue.ordered(items, frontPinned: textMode || current?.engaged == true, isNeeds: \.isNeeds)
     }
 
     /// Commands for needs items: "resolve ID" (Claude saw it done) and "answered
@@ -587,7 +589,7 @@ final class Coordinator: ObservableObject {
         case "type":
             if let item = current, item.input != nil {
                 item.inputText = argument
-                typed(item)
+                engage(item)
                 changed()
             } else {
                 draft = argument
@@ -1167,21 +1169,23 @@ final class Coordinator: ObservableObject {
         if isIdle { onIdle?() }
     }
 
-    /// The user typed into the request on screen: its clock stops and it stays off the
-    /// phone. Called on the first change and every one after it; only the first acts.
-    func typed(_ item: Item) {
-        guard !item.typedOnMac, !item.isNeeds, item === current else { return }
-        item.typedOnMac = true
-        Log.write("request \(item.id.uuidString.prefix(8)): typed on the Mac, clock stopped")
+    /// The user started answering the request on screen (see `Item.engaged`): its clock
+    /// stops and it stays off the phone. Called on every such input; only the first acts.
+    func engage(_ item: Item) {
+        guard !item.engaged, !item.isNeeds, item === current, historyPreview == nil else { return }
+        item.engaged = true
+        Log.write("request \(item.id.uuidString.prefix(8)): answering on the Mac, clock stopped")
         changed()
     }
 
     /// The clock runs only for the request on screen, and pauses while the user types
     /// a note or picks a grant, so taking care over an answer never times it out. Once
-    /// the user has typed into it, it stops for good, up to the caller's hard limit.
+    /// the user started answering it, it stops for good, up to the caller's hard limit.
+    /// Requests behind it wait with no clock of their own; theirs starts fresh when they
+    /// reach the front, cut short by their own hard limit when less of it is left.
     private func syncTimer() {
         guard let item = current, let limit = item.timeLimit else { return }
-        if item.typedOnMac {
+        if item.engaged {
             item.pausedRemaining = nil
             item.deadline = item.latestDeadline
         } else {
@@ -1401,6 +1405,7 @@ final class Coordinator: ObservableObject {
         default:
             break
         }
+        if action.engages { engage(item) }
     }
 
     func grantAlways() {
@@ -1444,6 +1449,7 @@ final class Coordinator: ObservableObject {
             guard let scopes = current?.blocked?.grantScopes, scopes.indices.contains(index) else { return }
             grantSelection = index
             changed()
+            if let current { engage(current) }
             return
         }
         guard let item = current, var flow = item.flow else { return }
@@ -1451,12 +1457,15 @@ final class Coordinator: ObservableObject {
         item.flow = flow
         if textMode, !flow.current.multiSelect { setTextMode(false) }
         finishIfComplete(item, outcome)
+        // A choice that sent the answers ended the request; any other one starts answering it.
+        engage(item)
     }
 
     func goToQuestion(_ index: Int) {
         current?.flow?.go(to: index)
         current?.questionNotice = nil
         changed()
+        if let current { engage(current) }
     }
 
     /// Sends the answers once every question has one. Otherwise the panel shows what is
@@ -1502,7 +1511,7 @@ final class Coordinator: ObservableObject {
         if items.count > 1 { bindings.append((keymap[.dismissAll], .action(.dismissAll))) }
         switch item.request.prompt {
         case .permission:
-            if item.timeLimit != nil, !item.typedOnMac { bindings.append((keymap[.extend], .action(.extend))) }
+            if item.timeLimit != nil, !item.engaged { bindings.append((keymap[.extend], .action(.extend))) }
             if grantMode, let scopes = item.blocked?.grantScopes {
                 for index in scopes.indices {
                     bindings.append((keymap.options[index], .option(index)))
@@ -1532,7 +1541,7 @@ final class Coordinator: ObservableObject {
                 bindings.append((keymap.options[index], .option(index)))
             }
             bindings += [(keymap[.other], .action(.other)), (keymap[.submit], .action(.submit))]
-            if item.timeLimit != nil, !item.typedOnMac { bindings.append((keymap[.extend], .action(.extend))) }
+            if item.timeLimit != nil, !item.engaged { bindings.append((keymap[.extend], .action(.extend))) }
             if flow.questions.count > 1 {
                 bindings += [(keymap[.next], .action(.next)), (keymap[.previous], .action(.previous))]
             }
