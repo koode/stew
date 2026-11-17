@@ -241,6 +241,8 @@ public struct StewConfig: Codable, Equatable, Sendable {
     public var phone: PhoneConfig
     /// Where the stew account lives.
     public var account: AccountConfig
+    /// Whether the user went through the setup window.
+    public var setup: SetupConfig
 
     public struct ClassifierConfig: Codable, Equatable, Sendable {
         public var enabled: Bool
@@ -325,6 +327,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         classifier = ClassifierConfig()
         phone = PhoneConfig()
         account = AccountConfig()
+        setup = SetupConfig()
     }
 
     public init(from decoder: Decoder) throws {
@@ -354,6 +357,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         classifier = try container.decodeIfPresent(ClassifierConfig.self, forKey: .classifier) ?? defaults.classifier
         phone = try container.decodeIfPresent(PhoneConfig.self, forKey: .phone) ?? defaults.phone
         account = try container.decodeIfPresent(AccountConfig.self, forKey: .account) ?? defaults.account
+        setup = try container.decodeIfPresent(SetupConfig.self, forKey: .setup) ?? defaults.setup
     }
 }
 

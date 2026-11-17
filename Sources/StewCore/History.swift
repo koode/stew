@@ -181,7 +181,7 @@ public struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         )
     }
 
-    static func outcome(of response: StewResponse?) -> Outcome {
+    public static func outcome(of response: StewResponse?) -> Outcome {
         guard let response else { return .callerGone }
         switch response.status {
         case .approved: return .approved
