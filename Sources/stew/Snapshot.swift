@@ -68,7 +68,7 @@ enum Snapshot {
         }
         // The Updates section after Check now found a newer version: a window tall enough
         // to show the whole General pane.
-        settings("settings-update-available", in: directory, height: 940, updater: Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)) { _, _, _ in }
+        settings("settings-update-available", in: directory, height: 1280, updater: Updater(log: { _ in }, availableVersion: "0.2.0", releaseBuild: true)) { _, _, _ in }
         // The whole Agents pane, down to the risk check's severity settings.
         settings("settings-agents-risk", in: directory, height: 1180) { model, _, _ in
             model.tab = .agents
@@ -114,6 +114,7 @@ enum Snapshot {
         }
         PhoneSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         AccountSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
+        SetupSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         MenuBarSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         PopoverSnapshot.render(to: directory) { view, dark, path in write(view, dark: dark, to: path) }
         exit(0)
@@ -221,6 +222,10 @@ enum Snapshot {
     private static let branchCommand = "git push origin --delete feature/login release/2.1 && git tag -d v2.0"
 
     private static let scenarios: [(String, (Coordinator) -> Void)] = [
+        // The setup window's Try it step shows this in the panel.
+        ("setup-sample", { coordinator in
+            coordinator.showSample(SetupGuide.sampleRequest(agent: .claudeCode)) { _ in }
+        }),
         ("update-installed", { coordinator in
             let state = DaemonState(lastRunVersion: "0.1.0", installedUpdate: DaemonState.InstalledUpdate(version: "0.2.0", notes: "https://stewcli.com/changelog#0.2.0"))
             if let notice = UpdateNotice.afterStart(state, running: "0.2.0") { coordinator.showNotice(notice) }

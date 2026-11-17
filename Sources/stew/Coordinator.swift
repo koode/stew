@@ -72,6 +72,8 @@ final class Item: ObservableObject, Identifiable {
     @Published var hoveredOption: Int?
     /// For a needs item: its id in needs.json.
     var needsID: String?
+    /// For the setup window's sample request: told the answer, as no caller waits for it.
+    var onAnswer: ((StewResponse) -> Void)?
     /// A request that timed out, shown again from the history: the answer goes to the
     /// session as a late answer instead of to a waiting caller.
     var lateEntryID: UUID?
@@ -209,6 +211,8 @@ final class Coordinator: ObservableObject {
     var onChange: (() -> Void)?
     var onStop: (() -> Void)?
     var onOpenSettings: ((SettingsTab) -> Void)?
+    /// Opens the setup window, brought to the front and given the keyboard.
+    var onOpenSetup: (() -> Void)?
     /// Shows confetti where the panel is. Called just before an approved request leaves it.
     var onCelebrate: (() -> Void)?
     /// How many approvals asked for confetti, for the end-to-end tests.
@@ -311,6 +315,13 @@ final class Coordinator: ObservableObject {
         case "approvals", "settings":
             connection.send(Data("opened\n".utf8))
             onOpenSettings?(control == "approvals" ? .approvals : .general)
+        case "launch":
+            // Stew.app was opened: the setup window until the user went through it, else
+            // Settings. A headless daemon only says which.
+            reloadConfigIfChanged()
+            let setupDue = SetupGuide.isDue(completed: config.setup.completed, hooks: CodingAgent.allCases.map(Hooks.hookState(for:)))
+            connection.send(Data((setupDue ? "opened setup\n" : "opened settings\n").utf8))
+            if setupDue { onOpenSetup?() } else { onOpenSettings?(.general) }
         case "history", "history missed":
             connection.send(Data("opened\n".utf8))
             openHistory(missedOnly: control == "history missed")
@@ -698,6 +709,22 @@ final class Coordinator: ObservableObject {
         return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) viewing=\(viewingState) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
     }
 
+    /// The setup window's sample request: shown like a request from an agent, but without
+    /// a risk check, kept out of the history and off the phone, and `onAnswer` gets the
+    /// answer instead of a caller. While one is open, another click does nothing.
+    func showSample(_ request: StewRequest, onAnswer: @escaping (StewResponse) -> Void) {
+        guard !items.contains(where: { $0.onAnswer != nil }) else { return }
+        let item = Item(request: request, connection: nil)
+        item.source = .stew
+        item.onAnswer = onAnswer
+        item.timeLimit = request.timeLimit(defaultTimeout: config.responseTimeout)
+        let wasEmpty = items.isEmpty
+        items.append(item)
+        arrangeQueue()
+        if wasEmpty { ArrivalSound.play(config.sound) }
+        changed()
+    }
+
     /// Puts a prepared item on screen without a caller or risk check (snapshots).
     func show(_ item: Item) {
         item.timeLimit = item.timeLimit ?? item.request.timeLimit(defaultTimeout: config.responseTimeout)
@@ -746,6 +773,7 @@ final class Coordinator: ObservableObject {
         }
         item.connection?.send((try? Wire.encode(response)) ?? Data())
         item.connection = nil
+        item.onAnswer?(response)
         onRespond?(item, response)
         remove(item)
     }

@@ -12,7 +12,13 @@ enum Brand {
     })
 }
 
-extension SettingsTab {
+/// A tab of a tab bar: its name and symbol.
+protocol PaneTab: Hashable, Identifiable {
+    var title: String { get }
+    var symbol: String { get }
+}
+
+extension SettingsTab: PaneTab {
     /// The order of the tab bar.
     static let order: [SettingsTab] = [.general, .keys, .agents, .phone, .account, .approvals, .history]
 
@@ -56,12 +62,15 @@ extension SettingsTab {
 
 /// The toolbar of a macOS Settings window: one symbol and name per pane. Drawn in
 /// SwiftUI rather than an NSToolbar, so it also renders in offscreen snapshots.
-struct SettingsTabBar: View {
-    @Binding var selection: SettingsTab
+struct SettingsTabBar<Tab: PaneTab>: View {
+    let tabs: [Tab]
+    @Binding var selection: Tab
+    /// Tabs whose work is done get a check at the corner of their symbol.
+    var isDone: (Tab) -> Bool = { _ in false }
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(SettingsTab.order) { tab in
+            ForEach(tabs) { tab in
                 let selected = tab == selection
                 Button { selection = tab } label: {
                     VStack(spacing: 3) {
@@ -69,6 +78,9 @@ struct SettingsTabBar: View {
                             .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(selected ? Brand.paprika : Ink.secondary)
                             .frame(height: 22)
+                            .overlay(alignment: .topTrailing) {
+                                if isDone(tab) { DoneBadge().offset(x: 9, y: -3) }
+                            }
                         Text(tab.title)
                             .font(.system(size: 11, weight: selected ? .medium : .regular))
                             .foregroundStyle(selected ? Color.primary : Ink.secondary)
@@ -88,6 +100,19 @@ struct SettingsTabBar: View {
         .padding(.top, 4)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The one form of "done" on a tab: a white check on a filled green disc.
+struct DoneBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 7, weight: .heavy))
+            .foregroundStyle(.white)
+            .frame(width: 13, height: 13)
+            .background(Circle().fill(StewCore.Tone.green.color))
+            .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+            .accessibilityLabel("Done")
     }
 }
 
@@ -114,11 +139,25 @@ struct BrandTile: View {
 /// the window, so in a wide window they still start at the same x; a full-width pane,
 /// such as History's list beside its preview, takes the whole window instead.
 struct SettingsPane<Accessory: View, Content: View>: View {
-    let tab: SettingsTab
-    var subtitle: String?
+    let symbol: String
+    let title: String
+    let subtitle: String
     var fullWidth = false
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
+
+    init(symbol: String, title: String, subtitle: String, fullWidth: Bool = false, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
+        self.symbol = symbol
+        self.title = title
+        self.subtitle = subtitle
+        self.fullWidth = fullWidth
+        self.accessory = accessory()
+        self.content = content()
+    }
+
+    init(tab: SettingsTab, subtitle: String? = nil, fullWidth: Bool = false, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
+        self.init(symbol: tab.symbol, title: tab.title, subtitle: subtitle ?? tab.subtitle, fullWidth: fullWidth, accessory: accessory, content: content)
+    }
 
     var body: some View {
         column
@@ -129,10 +168,10 @@ struct SettingsPane<Accessory: View, Content: View>: View {
     private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                BrandTile(symbol: tab.symbol)
+                BrandTile(symbol: symbol)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tab.title).font(.system(size: 17, weight: .semibold))
-                    Text(subtitle ?? tab.subtitle)
+                    Text(title).font(.system(size: 17, weight: .semibold))
+                    Text(subtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(Ink.secondary)
                         .lineLimit(2)
@@ -153,6 +192,10 @@ struct SettingsPane<Accessory: View, Content: View>: View {
 extension SettingsPane where Accessory == EmptyView {
     init(tab: SettingsTab, subtitle: String? = nil, fullWidth: Bool = false, @ViewBuilder content: () -> Content) {
         self.init(tab: tab, subtitle: subtitle, fullWidth: fullWidth, accessory: { EmptyView() }, content: content)
+    }
+
+    init(symbol: String, title: String, subtitle: String, @ViewBuilder content: () -> Content) {
+        self.init(symbol: symbol, title: title, subtitle: subtitle, accessory: { EmptyView() }, content: content)
     }
 }
 

@@ -49,6 +49,10 @@ print(json.dumps({"id":"00000000-0000-0000-0000-%012d"%int(float(sys.argv[2])),"
 }
 { seed_entry "seeded long ago" 40; seed_entry "seeded yesterday" 1; } > "$WORK/history.jsonl"
 
+# The daemon reads the agents' hook files to decide whether the setup window is due;
+# these keep it, and every hooks test below, off the real ones.
+export STEW_CLAUDE_USER_SETTINGS="$WORK/claude-settings.json" STEW_CODEX_HOME="$WORK/codex"
+
 "$STEW" daemon 2> "$WORK/daemon.log" &
 DAEMON=$!
 stop_all() {
@@ -58,6 +62,14 @@ stop_all() {
 }
 trap stop_all EXIT
 for _ in $(seq 1 50); do [[ -S "$STEW_SOCKET" ]] && break; sleep 0.1; done
+
+# Opening Stew.app: the setup window while nothing is set up, Settings once it was gone
+# through. The headless daemon only answers which, and shows nothing.
+expect "launch before setup opens the setup window" "$(control launch)" "opened setup"
+expect "the headless daemon shows nothing at launch" "$(control state)" "items=0 "
+echo '{"classifier":{"enabled":false},"sound":"","setup":{"completed":true}}' > "$STEW_CONFIG"
+expect "launch after setup opens Settings" "$(control launch)" "opened settings"
+echo '{"classifier":{"enabled":false},"sound":""}' > "$STEW_CONFIG"
 
 # version: from the source checkout, and from Stew.app, also through a symlink
 expect "unbundled version" "$("$STEW" --version)" "stew $(tr -d '[:space:]' < "$ROOT/VERSION") (development build"
@@ -1088,7 +1100,7 @@ expect "an unknown --agent is refused" "$("$STEW" hooks status --agent gemini 2>
 control history > /dev/null
 expect "opening History marks missed requests seen" "$(control menu)" "visible=true count=0 dot=false paused=false"
 menu=$(control menu)
-expect "menu without anything waiting" "$menu" "paused=false | History… | Settings… | - | Pause stew ▸ {For 1 hour; For 2 hours; Until "
+expect "menu without anything waiting" "$menu" "paused=false | History… | Settings… | Set up stew… | - | Pause stew ▸ {For 1 hour; For 2 hours; Until "
 expect "the pause submenu ends with until back" "$menu" "; Until I'm back} | - | Hide menu bar icon"
 # The history keeps whole seconds: what follows ends after the second History opened.
 sleep 1

@@ -20,6 +20,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var codexHooksDisabled = false
     @Published var tab: SettingsTab = .general
     var onSaved: (() -> Void)?
+    /// Set up stew… in General: opens the setup window.
+    var onOpenSetup: (() -> Void)?
 
     func load() {
         let (loaded, loadError) = loadConfig()
@@ -119,6 +121,11 @@ final class SettingsWindowController {
         model.onSaved = onSaved
     }
 
+    var onOpenSetup: (() -> Void)? {
+        get { model.onOpenSetup }
+        set { model.onOpenSetup = newValue }
+    }
+
     /// "Hide menu bar icon" in the menu: the same as turning off Show in menu bar.
     func setShowInMenuBar(_ shown: Bool) {
         model.load()
@@ -215,7 +222,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsTabBar(selection: $model.tab)
+            SettingsTabBar(tabs: SettingsTab.order, selection: $model.tab)
             Divider()
             pane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -377,6 +384,13 @@ struct GeneralSettings: View {
                             Button("Install now") { updater.run(install: true) { _ in } }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(updater.busy)
+                        }
+                    }
+                }
+                Section("Setup") {
+                    SettingRow(hint: "Install the skill and hooks for your agents, try a sample request, and see what the iPhone app adds.") {
+                        LabeledContent("Setup") {
+                            Button("Set up stew…") { model.onOpenSetup?() }
                         }
                     }
                 }

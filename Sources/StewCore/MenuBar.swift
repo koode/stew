@@ -69,6 +69,7 @@ public struct MenuBarState: Equatable, Sendable {
         sections.append([
             MenuEntry(title: "History…", action: .history, badge: missedCount > 0 ? missedCount : nil),
             MenuEntry(title: "Settings…", action: .settings),
+            MenuEntry(title: "Set up stew…", action: .setup),
         ])
         var control: [MenuEntry]
         switch pause {
@@ -117,7 +118,7 @@ public struct MenuEntry: Equatable, Sendable {
         case none
         case openNeeds(String)
         case pause(PauseChoice)
-        case history, settings, resume, update, hide
+        case history, settings, setup, resume, update, hide
     }
 
     public var title: String

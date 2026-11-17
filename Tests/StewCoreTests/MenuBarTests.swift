@@ -115,7 +115,7 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
     }
 
     @Test func plainMenu() {
-        #expect(titles(MenuBarState()) == ["History…", "Settings…", "-", "Pause stew", "-", "Hide menu bar icon"])
+        #expect(titles(MenuBarState()) == ["History…", "Settings…", "Set up stew…", "-", "Pause stew", "-", "Hide menu bar icon"])
     }
 
     @Test func pauseSubmenuListsTheChoices() throws {
@@ -139,10 +139,10 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
     @Test func untilBackShowsTheCountdownThenThePause() {
         let starting = MenuBarState(pause: .startsAt(start.addingTimeInterval(45)))
         let startingTitles = starting.entries(now: start, timeText: { _ in "15:40" }).map { $0.isSeparator ? "-" : $0.title }
-        #expect(startingTitles == ["Pausing in 0:45…", "-", "History…", "Settings…", "-", "Cancel pause", "-", "Hide menu bar icon"])
+        #expect(startingTitles == ["Pausing in 0:45…", "-", "History…", "Settings…", "Set up stew…", "-", "Cancel pause", "-", "Hide menu bar icon"])
         #expect(!starting.icon.paused)
         let paused = MenuBarState(pause: .untilBack)
-        #expect(titles(paused) == ["Paused until you're back", "-", "History…", "Settings…", "-", "Resume stew", "-", "Hide menu bar icon"])
+        #expect(titles(paused) == ["Paused until you're back", "-", "History…", "Settings…", "Set up stew…", "-", "Resume stew", "-", "Hide menu bar icon"])
         #expect(paused.icon.paused)
         #expect(paused.entries(timeText: { _ in "" }).first { $0.title == "Resume stew" }?.action == .resume)
     }
@@ -157,7 +157,7 @@ private func entry(_ outcome: HistoryEntry.Outcome, minutesAfterStart minutes: D
         #expect(titles(state) == [
             "Paused until 15:40", "-",
             "2 things need you", "release job · Log in to npm", "release job · Plug in the key", "-",
-            "History…", "Settings…", "-",
+            "History…", "Settings…", "Set up stew…", "-",
             "Resume stew", "stew 0.2.0 is ready, restart to update", "-",
             "Hide menu bar icon",
         ])

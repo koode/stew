@@ -32,6 +32,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     var onOpenNeeds: (String) -> Void = { _ in }
     var onHistory: () -> Void = {}
     var onSettings: () -> Void = {}
+    var onSetup: () -> Void = {}
     var onPause: (PauseChoice) -> Void = { _ in }
     var onResume: () -> Void = {}
     var onUpdate: () -> Void = {}
@@ -179,6 +180,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         case .openNeeds(let id): onOpenNeeds(id)
         case .history: onHistory()
         case .settings: onSettings()
+        case .setup: onSetup()
         case .pause(let choice): onPause(choice)
         case .resume: onResume()
         case .update: onUpdate()

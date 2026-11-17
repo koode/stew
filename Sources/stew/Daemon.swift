@@ -147,6 +147,14 @@ enum Daemon {
             }
             let settings = SettingsWindowController(updater: updater, pause: coordinator.pauseModel) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
+            let setup = SetupWindowController(
+                onSaved: { coordinator.configChanged() },
+                onShowSample: { request, onAnswer in coordinator.showSample(request, onAnswer: onAnswer) },
+                onOpenSettings: { tab in settings.show(tab) }
+            )
+            coordinator.onOpenSetup = { setup.show(activate: true) }
+            settings.onOpenSetup = coordinator.onOpenSetup
+            setupWindow = setup
             let answerLate: (UUID, StewResponse) -> Bool = { entryID, response in
                 coordinator.answerLate(entryID: entryID, with: response, answeredOn: Coordinator.macName)
             }
@@ -172,6 +180,7 @@ enum Daemon {
             menuBar.onOpenNeeds = { id in coordinator.openNeeds(id: id) }
             menuBar.onHistory = { coordinator.openHistory(missedOnly: false) }
             menuBar.onSettings = { settings.show(.general) }
+            menuBar.onSetup = { setup.show(activate: true) }
             menuBar.onPause = coordinator.pauseModel.onPause
             menuBar.onResume = coordinator.pauseModel.onResume
             menuBar.onHide = { settings.setShowInMenuBar(false) }
@@ -251,6 +260,7 @@ enum Daemon {
         coordinator.restoreState()
         coordinator.restoreNeeds()
         announceUpdate(coordinator)
+        openSetupIfDue(coordinator)
         historyPruner = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { _ in
             coordinator.reloadConfigIfChanged()
             history.prune(keepDays: coordinator.config.historyDays)
@@ -310,6 +320,15 @@ enum Daemon {
         }
     }
 
+    /// The first start with nothing set up opens the setup window, without taking the
+    /// keyboard: stew starts at login and from an install, while the user is busy elsewhere.
+    private static func openSetupIfDue(_ coordinator: Coordinator) {
+        guard let setupWindow, SetupGuide.isDue(completed: coordinator.config.setup.completed, hooks: CodingAgent.allCases.map(Hooks.hookState(for:))) else { return }
+        setupWindow.show(activate: false)
+    }
+
+    /// Nil in the headless test daemon, which opens no windows.
+    private static var setupWindow: SetupWindowController?
     private static var updateWatch: AnyCancellable?
     private static var signalSources: [DispatchSourceSignal] = []
     private static let awayWatcher = AwayWatcher()
