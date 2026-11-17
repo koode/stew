@@ -265,6 +265,8 @@ public enum AccountError: Error, Equatable, Sendable {
     /// The sign-in expired, was used, or took too many wrong codes.
     case expired
     case wrongCode(attemptsLeft: Int?)
+    /// Too many wrong codes for this address today: codes are refused, the link still works.
+    case codesLocked
     /// The session token is unknown or revoked.
     case signedOut
     /// Billing has nothing to manage: the account never paid.
@@ -293,6 +295,7 @@ public enum AccountError: Error, Equatable, Sendable {
         case "rate_limited": return .rateLimited(retryAfter: decoded?.retryAfter ?? headerWait)
         case "expired": return .expired
         case "wrong_code": return .wrongCode(attemptsLeft: decoded?.attemptsLeft)
+        case "codes_locked": return .codesLocked
         case "signed_out": return .signedOut
         case "no_customer": return .noCustomer
         case let code?: return .server(status: status, code: code, message: decoded?.message)
@@ -319,6 +322,7 @@ public enum AccountError: Error, Equatable, Sendable {
         case .wrongCode(let attemptsLeft):
             guard let attemptsLeft else { return "That code is not right." }
             return "That code is not right. \(attemptsLeft) \(attemptsLeft == 1 ? "try" : "tries") left."
+        case .codesLocked: return "Too many wrong codes for this address today. Use the link in the email instead."
         case .signedOut: return "You were signed out. Sign in again."
         case .noCustomer: return "There is no billing to manage until you subscribe."
         case .unavailable(let status): return "\(host) is not available right now (\(status)). Try again later."
@@ -507,6 +511,14 @@ enum AccountTime {
 }
 
 extension AccountError {
+    /// A refusal of the typed code. It stays on screen while the link poll goes on.
+    public var isCodeProblem: Bool {
+        switch self {
+        case .wrongCode, .codesLocked: true
+        default: false
+        }
+    }
+
     /// Whether waiting and asking again may help: the Mac or the server was briefly away.
     public var isTransient: Bool {
         switch self {

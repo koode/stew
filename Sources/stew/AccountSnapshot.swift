@@ -31,11 +31,15 @@ enum AccountSnapshot {
         var wrongCode = waiting
         _ = wrongCode.checkCode("418207")
         _ = wrongCode.codeChecked(start, .failure(.wrongCode(attemptsLeft: 3)))
+        var codesLocked = waiting
+        _ = codesLocked.checkCode("418207")
+        _ = codesLocked.codeChecked(start, .failure(.codesLocked))
         let trial = account(AccountPlan(status: .trial, trialEndsAt: now.addingTimeInterval(9 * day - 3600)), entitled: true)
         let scenarios = [
             Scenario(name: "signed-out"),
             Scenario(name: "waiting-for-code", signIn: waiting),
             Scenario(name: "wrong-code", signIn: wrongCode, code: "418207"),
+            Scenario(name: "codes-locked", signIn: codesLocked, code: "418207"),
             Scenario(name: "trial", account: trial),
             Scenario(name: "waiting-for-payment", account: trial, paymentWait: PaymentWait(startedAt: now)),
             Scenario(name: "active-monthly", account: account(

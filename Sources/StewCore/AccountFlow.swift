@@ -43,6 +43,8 @@ public struct SignInFlow: Equatable, Sendable {
 
     public var shouldPoll: Bool { pending != nil }
     public var isCheckingCode: Bool { if case .checkingCode = phase { true } else { false } }
+    /// The server takes no more codes for this address today; only the link signs in.
+    public var codesLocked: Bool { problem == .codesLocked }
 
     public var trimmedEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -103,7 +105,7 @@ public struct SignInFlow: Equatable, Sendable {
     /// Starts checking a code; returns the sign-in to send it with, or nil when the code
     /// is not six digits or no sign-in waits.
     public mutating func checkCode(_ code: String) -> SignInStart? {
-        guard case .waiting(let start) = phase, code.count == 6, code.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        guard case .waiting(let start) = phase, !codesLocked, code.count == 6, code.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         phase = .checkingCode(start)
         problem = nil
         checkedCode = code
@@ -125,9 +127,9 @@ public struct SignInFlow: Equatable, Sendable {
             expire()
             return nil
         case .failure(let error):
-            // Offline or a passing server error: keep polling, and say so. A wrong code
+            // Offline or a passing server error: keep polling, and say so. A refused code
             // stays on screen until the next code.
-            if case .wrongCode = problem {} else { problem = error }
+            if problem?.isCodeProblem != true { problem = error }
             return nil
         }
     }

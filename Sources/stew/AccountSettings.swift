@@ -76,7 +76,7 @@ struct AccountSettingsTab: View {
                 Spacer()
                 DigitsField(digits: $account.code, mismatch: wrongCode, onSubmit: account.submitCode)
                     .onChange(of: account.code) { account.codeEdited() }
-                    .disabled(checking)
+                    .disabled(checking || account.signIn.codesLocked)
             }
             if let problem {
                 Notice(.error, problem)
@@ -88,7 +88,7 @@ struct AccountSettingsTab: View {
                 Button("Sign in") { account.submitCode() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(account.code.count != 6 || checking)
+                    .disabled(account.code.count != 6 || checking || account.signIn.codesLocked)
             }
         }
     }

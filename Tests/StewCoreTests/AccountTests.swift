@@ -258,6 +258,7 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
             (.http(429, #"{"error":"rate_limited"}"#, headers: ["Retry-After": "30"]), .rateLimited(retryAfter: 30)),
             (.http(410, #"{"error":"expired"}"#), .expired),
             (.http(400, #"{"error":"wrong_code","attemptsLeft":2}"#), .wrongCode(attemptsLeft: 2)),
+            (.http(400, #"{"error":"codes_locked"}"#), .codesLocked),
             (.http(401, #"{"error":"signed_out"}"#), .signedOut),
             (.http(409, #"{"error":"no_customer"}"#), .noCustomer),
             (.http(502, "<html>Bad gateway</html>"), .unavailable(status: 502)),
@@ -410,6 +411,22 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(flow.problem == .wrongCode(attemptsLeft: 4))
         flow.codeChanged(to: "12345")
         #expect(flow.problem == nil)
+    }
+
+    @Test func lockedCodesKeepWaitingForTheLink() {
+        var flow = waitingFlow()
+        _ = flow.checkCode("123456")
+        #expect(flow.codeChecked(start, .failure(.codesLocked)) == nil)
+        #expect(flow.phase == .waiting(start))
+        #expect(flow.shouldPoll)
+        #expect(flow.codesLocked)
+        #expect(flow.problem?.message(host: "h") == "Too many wrong codes for this address today. Use the link in the email instead.")
+        #expect(flow.checkCode("654321") == nil)
+        flow.codeChanged(to: "654321")
+        _ = flow.polled(start, .failure(.offline))
+        #expect(flow.codesLocked)
+        let session = SignedIn(sessionToken: "tok", account: sampleAccount())
+        #expect(flow.polled(start, .success(.approved(session))) == session)
     }
 
     @Test func tooManyWrongCodesEndTheSignIn() {
