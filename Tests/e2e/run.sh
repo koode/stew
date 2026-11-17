@@ -982,7 +982,9 @@ listed=$("$STEW" needs list --json)
 expect "codex: always makes the item" "$listed" '"title" : "log in to the registry"'
 expect "codex: the item knows its agent" "$listed" '"agent" : "codex"'
 expect "codex: prompt hook is silent" "[$(codex_turn UserPromptSubmit codex-2 "" | "$STEW" hook prompt --agent codex)]" "[]"
-expect "codex: a message to the session resolves its item" "$(control state)" "items=0 kind=none"
+expect "codex: a message to the session resolves its item" "$(control state)" "closed=answeredInSession"
+close_held
+expect "codex: the resolved item leaves the panel" "$(control state)" "items=0 kind=none"
 set_config ',"responseTimeout":1'
 # A stew permit from a Codex shell carries Codex's session id, so a late answer reaches
 # that session's Stop hook.
