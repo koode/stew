@@ -298,23 +298,13 @@ final class RiskChecker {
         }
     }
 
-    /// Codex keeps sessions in `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl` under its
-    /// home. Only the last few days are searched, newest first.
+    /// The user's recent messages in the Codex session file, wherever under the Codex
+    /// home's `sessions` folder it is.
     static func recentCodexUserMessages(sessionID: String?, limit: Int) -> [String] {
-        guard let sessionID, !sessionID.isEmpty, limit > 0 else { return [] }
-        let sessions = Hooks.codexHome + "/sessions"
-        let calendar = Calendar(identifier: .gregorian)
-        let fileManager = FileManager.default
-        for daysAgo in 0..<7 {
-            guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) else { continue }
-            let parts = calendar.dateComponents([.year, .month, .day], from: day)
-            let folder = String(format: "%@/%04d/%02d/%02d", sessions, parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-            guard let names = try? fileManager.contentsOfDirectory(atPath: folder),
-                  let name = names.first(where: { $0.hasSuffix("-\(sessionID).jsonl") }),
-                  let data = tail(of: folder + "/" + name) else { continue }
-            return RiskCheck.recentUserMessages(codexSession: data, limit: limit)
-        }
-        return []
+        guard let sessionID, limit > 0,
+              let path = CodexSessionFiles.file(sessionsFolder: Hooks.codexHome + "/sessions", sessionID: sessionID, now: Date()),
+              let data = tail(of: path) else { return [] }
+        return RiskCheck.recentUserMessages(codexSession: data, limit: limit)
     }
 
     /// The last 2 MB of a file, from the first whole line.

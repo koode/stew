@@ -180,3 +180,32 @@ import Testing
         #expect(!RiskCheck.schema.contains("default_rules"), "the model never sets it")
     }
 }
+
+@Suite struct CodexSessionFilesTests {
+    private func makeSessions(_ files: [String]) throws -> String {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("stew-sessions-test-\(UUID().uuidString)").path
+        for file in files {
+            let path = root + "/" + file
+            try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: path, contents: Data())
+        }
+        return root
+    }
+
+    private let now = ISO8601DateFormatter().date(from: "2026-11-17T12:00:00Z")!
+
+    @Test func findsARecentSessionInItsDayFolder() throws {
+        let root = try makeSessions(["2026/11/16/rollout-2026-11-16T09-00-00-019a.jsonl", "2026/11/16/rollout-2026-11-16T10-00-00-019b.jsonl"])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        #expect(CodexSessionFiles.file(sessionsFolder: root, sessionID: "019b", now: now) == root + "/2026/11/16/rollout-2026-11-16T10-00-00-019b.jsonl")
+    }
+
+    @Test func findsAnOlderSessionAnywhereUnderSessions() throws {
+        let root = try makeSessions(["2026/09/02/rollout-2026-09-02T09-00-00-old1.jsonl", "2026/11/17/rollout-2026-11-17T08-00-00-new1.jsonl"])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        #expect(CodexSessionFiles.file(sessionsFolder: root, sessionID: "old1", now: now) == root + "/2026/09/02/rollout-2026-09-02T09-00-00-old1.jsonl")
+        #expect(CodexSessionFiles.file(sessionsFolder: root, sessionID: "missing", now: now) == nil)
+        #expect(CodexSessionFiles.file(sessionsFolder: root, sessionID: "", now: now) == nil)
+        #expect(CodexSessionFiles.file(sessionsFolder: root + "/nothing-here", sessionID: "old1", now: now) == nil)
+    }
+}

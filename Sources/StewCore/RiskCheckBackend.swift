@@ -205,3 +205,29 @@ extension RiskCheck {
         return Array(messages.suffix(limit))
     }
 }
+
+/// Where Codex keeps a session's file: `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`
+/// under its home, in the folder of the day the session started.
+public enum CodexSessionFiles {
+    /// The session's file, looked for in the folders of the last `recentDays` days first,
+    /// newest first, then anywhere under `sessions` for a session that started earlier.
+    /// The search stops at the first match.
+    public static func file(sessionsFolder: String, sessionID: String, now: Date, recentDays: Int = 7, fileManager: FileManager = .default) -> String? {
+        guard !sessionID.isEmpty else { return nil }
+        let suffix = "-\(sessionID).jsonl"
+        let calendar = Calendar(identifier: .gregorian)
+        for daysAgo in 0..<max(recentDays, 0) {
+            guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
+            let parts = calendar.dateComponents([.year, .month, .day], from: day)
+            let folder = String(format: "%@/%04d/%02d/%02d", sessionsFolder, parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            if let name = (try? fileManager.contentsOfDirectory(atPath: folder))?.first(where: { $0.hasSuffix(suffix) }) {
+                return folder + "/" + name
+            }
+        }
+        guard let walker = fileManager.enumerator(atPath: sessionsFolder) else { return nil }
+        while let relative = walker.nextObject() as? String {
+            if relative.hasSuffix(suffix) { return sessionsFolder + "/" + relative }
+        }
+        return nil
+    }
+}
