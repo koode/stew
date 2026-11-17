@@ -414,8 +414,13 @@ final class Coordinator: ObservableObject {
 
     /// Needs items wait behind everything else; see `PanelQueue`.
     private func arrangeQueue() {
-        let frontPinned = textMode || current?.engaged == true || current?.closedEntry != nil
         items = PanelQueue.ordered(items, frontPinned: frontPinned, isNeeds: \.isNeeds)
+    }
+
+    /// The front item keeps its place: the user types a note on it or started answering
+    /// it, or it is a cleared needs item held on screen (see `NeedsHold`).
+    private var frontPinned: Bool {
+        textMode || current?.engaged == true || current?.closedEntry != nil
     }
 
     /// Commands for needs items: "resolve ID" (Claude saw it done) and "answered
@@ -515,8 +520,10 @@ final class Coordinator: ObservableObject {
         }
         if let existing = items.first(where: { $0.needsID == id }), current?.id != existing.id {
             items.removeAll { $0.id == existing.id }
-            let firstNeeds = items.firstIndex(where: \.isNeeds) ?? items.count
-            items.insert(existing, at: textMode ? max(firstNeeds, 1) : firstNeeds)
+            // A pinned front item stays first, even when it is a needs item itself.
+            let searchFrom = frontPinned && !items.isEmpty ? 1 : 0
+            let firstNeeds = items[searchFrom...].firstIndex(where: \.isNeeds) ?? items.count
+            items.insert(existing, at: firstNeeds)
             changed()
         } else {
             queueNeeds(record, evenWhilePaused: true)

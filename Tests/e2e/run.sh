@@ -702,6 +702,26 @@ expect "a needs item waits behind the request" "$(control state)" "items=2 kind=
 expect "cleared while it waits, it never shows" "$(control state)" "items=1 kind=permission"
 control press dismiss > /dev/null; wait $client
 expect "and nothing is left" "$(control state)" "items=0"
+# An item opened from the menu bar goes behind a held item and the request waiting on it.
+out=$("$STEW" needs "Renew the certificate")
+LATER=$(id_of "$out")
+control press dismiss > /dev/null
+out=$("$STEW" needs "Restart the build agent")
+HELD=$(id_of "$out")
+"$STEW" needs resolve "$HELD" > /dev/null
+"$STEW" permit --action "behind the held item" --reason "y" > "$WORK/out" & client=$!
+wait_items 2
+control open "$LATER" > /dev/null
+wait_items 3
+expect "opening an item keeps the held one in front" "$(control state)" "items=3 kind=needs"
+expect "still held" "$(control state)" "front=$HELD closed=resolvedByClaude"
+close_held
+expect "the waiting request comes next, not the opened item" "$(control state)" "items=2 kind=permission"
+control press dismiss > /dev/null; wait $client
+expect "then the opened item" "$(control state)" "items=1 kind=needs"
+expect "the one from the menu bar" "$(control state)" "front=$LATER"
+"$STEW" needs resolve "$LATER" > /dev/null
+close_held
 sleep 0.2
 expect "resolve is recorded" "$(needs_count resolvedByClaude 'Approve the release in App Store Connect')" "1"
 out=$("$STEW" needs resolve nosuchid); code=$?
