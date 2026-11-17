@@ -18,6 +18,8 @@ public struct LinkNotificationAction: Equatable, Sendable {
         case enterInApp
         /// Opens the request in the app, for a permission that needs the extra confirmation.
         case review
+        /// A notification's OK: the user saw it.
+        case acknowledge
     }
 
     public var identifier: String
@@ -43,7 +45,6 @@ public struct LinkNotificationContent: Equatable, Sendable {
     public var title: String
     public var subtitle: String
     public var body: String
-    /// Nil for notifications, which have no actions.
     public var categoryIdentifier: String?
     public var actions: [LinkNotificationAction]
     /// Groups notifications per Mac in Notification Center.
@@ -92,6 +93,10 @@ public enum LinkPresentation {
     /// Opens the secret input in the app, where its masked field is.
     public static let enterInAppAction = "enterInApp"
     public static let enterInAppTitle = "Enter in app"
+    /// A notification's only action: OK, which clears it here and in the Mac panel.
+    public static let notifyCategory = "stew.notify"
+    public static let acknowledgeAction = "ok"
+    public static let acknowledgeTitle = "OK"
 
     /// Whether the app may offer a field for this secret input.
     public static func takesSecretInApp(_ request: LinkRequest) -> Bool {
@@ -156,7 +161,7 @@ public enum LinkPresentation {
     public static func categoryIdentifier(_ request: LinkRequest) -> String? {
         switch request.request.prompt {
         case .notify:
-            return nil
+            return notifyCategory
         case .needs(let needs):
             return needs.hasCustomAnswers ? needsCategoryPrefix + request.requestId : needsCategory
         case .permission:
@@ -195,7 +200,7 @@ public enum LinkPresentation {
         let moreTime = LinkNotificationAction(identifier: moreTimeAction, title: moreTimeTitle(request.extendBy ?? 0), role: .moreTime)
         switch request.request.prompt {
         case .notify:
-            return []
+            return [LinkNotificationAction(identifier: acknowledgeAction, title: acknowledgeTitle, role: .acknowledge)]
         case .needs(let needs):
             // Done and the other answers need no Face ID: they only tell Claude how to go
             // on, they run nothing.
@@ -427,6 +432,9 @@ public enum LinkPresentation {
         case doneAction:
             guard case .needs = request.request.prompt else { return nil }
             return .done
+        case acknowledgeAction:
+            guard case .notify = request.request.prompt else { return nil }
+            return .done
         case _ where identifier.hasPrefix(needsAnswerActionPrefix):
             guard case .needs(let needs) = request.request.prompt,
                   let index = Int(identifier.dropFirst(needsAnswerActionPrefix.count)),
@@ -519,7 +527,7 @@ public enum LinkRefusal {
         case (.moreTime, _):
             if request.queued { return clockNotStarted }
             return request.deadline == nil ? noTimeLimit : nil
-        case (.deny, .permission), (.answers, .question), (.done, .needs):
+        case (.deny, .permission), (.answers, .question), (.done, .needs), (.done, .notify):
             return nil
         case (.viewing, _), (.left, _):
             // Only the clock depends on these; a request without one simply ignores them.

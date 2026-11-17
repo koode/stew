@@ -94,6 +94,9 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     /// One entry per question, in order.
     case answers([LinkQuestionAnswer])
     /// A needs item is done. "Not now" sends nothing: on the Mac it changes nothing.
+    /// For a notification: the user saw it (OK), and the Mac panel lets it go. A Mac from
+    /// before this refuses it as an answer that does not fit; the phone then clears the
+    /// notification on its own.
     case done
     /// One of a needs item's other answers, by its label. The Mac refuses a label the
     /// item does not offer. Done stays `done`, also with a label of its own, so a phone

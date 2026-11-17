@@ -375,6 +375,11 @@ final class PhoneLink: ObservableObject {
                 return refuse("This request cannot wait for later.")
             }
             return LinkResult(requestId: requestId, accepted: true, message: "Waiting for you to enter it on \(macName).")
+        case (.done, .notify(let notify)) where notify.action == nil:
+            // OK on the phone: the user saw it, so the panel lets it go, as its own OK does.
+            answeredBy[item.id] = pairingId
+            coordinator.respond(item, StewResponse(status: .acknowledged))
+            return LinkResult(requestId: requestId, accepted: true, message: "Cleared on \(macName).")
         case (.answers(let answers), .question(let set)):
             guard let flow = QuestionFlow(set: set, linkAnswers: answers) else {
                 return refuse("Answer every question, with one choice where only one is allowed.")

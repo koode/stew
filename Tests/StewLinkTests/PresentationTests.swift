@@ -106,14 +106,17 @@ private let twoQuestions = Prompt.question(QuestionSet(questions: [
         #expect(content.body.contains("Open stew to answer 2 questions."))
     }
 
-    @Test func notifyHasNoActions() {
+    @Test func notifyHasOnlyOK() {
         let prompt = Prompt.notify(NotifyRequest(title: "Tests passed", body: "212 of 212", level: .success))
         let content = LinkPresentation.notification(for: linkRequest(prompt, deadline: nil, extendBy: nil), pairingId: "pair", time: clock)
         #expect(content.title == "Tests passed")
         #expect(content.subtitle == "Done · stew-build")
         #expect(content.body == "212 of 212\nStudio")
-        #expect(content.categoryIdentifier == nil)
-        #expect(content.actions.isEmpty)
+        #expect(content.categoryIdentifier == LinkPresentation.notifyCategory)
+        #expect(content.actions.map(\.identifier) == [LinkPresentation.acknowledgeAction])
+        #expect(content.actions.map(\.title) == ["OK"])
+        #expect(content.actions.map(\.role) == [.acknowledge])
+        #expect(content.actions.allSatisfy { !$0.requiresAuthentication && !$0.isDestructive })
     }
 
     @Test func needsItemShowsWhatThePanelShowsWithDoneAndNotNow() {
