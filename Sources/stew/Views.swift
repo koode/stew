@@ -243,7 +243,8 @@ struct Header: View {
 }
 
 /// Time left to answer, and the "more time" button. Paused while typing a note, and
-/// gone once the user started answering the request: it then waits for them.
+/// stopped once the user started answering the request: it then waits for them, up to
+/// the caller's hard limit when it has one ("Waits up to 29:40").
 struct TimeLimit: View {
     @ObservedObject var item: Item
     @ObservedObject var coordinator: Coordinator
@@ -270,7 +271,7 @@ struct TimeLimit: View {
                 } else if let deadline = item.deadline {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = deadline.timeIntervalSince(context.date)
-                        Text(Self.format(remaining))
+                        Text(item.engaged ? "Waits up to \(Self.format(remaining))" : Self.format(remaining))
                             .foregroundStyle(remaining <= 30 ? Tone.orange.color : Ink.secondary)
                     }
                 } else if let remaining = item.pausedRemaining {
@@ -280,7 +281,7 @@ struct TimeLimit: View {
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .fixedSize()
-            .help(item.engaged ? "You started answering, so this waits for you" : Self.runsOutText(item.request))
+            .help(helpText)
             if !item.engaged {
                 Button { coordinator.perform(.extend) } label: {
                     HStack(spacing: 4) {
@@ -297,6 +298,12 @@ struct TimeLimit: View {
                 .help("More time")
             }
         }
+    }
+
+    private var helpText: String {
+        guard item.engaged else { return Self.runsOutText(item.request) }
+        guard item.deadline != nil else { return "You started answering, so this waits for you" }
+        return "You started answering, so this waits for you, up to the longest the caller can wait"
     }
 
     static func format(_ seconds: TimeInterval) -> String {

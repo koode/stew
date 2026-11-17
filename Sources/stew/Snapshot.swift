@@ -482,6 +482,23 @@ enum Snapshot {
             coordinator.choose(option: 0)
             coordinator.choose(option: 2)
         }),
+        ("question-answering", { coordinator in
+            // One of two questions answered from Claude Code's hook: the clock stopped, and
+            // the request waits up to the hook's own limit, ahead of the one behind it.
+            let item = Item(request: StewRequest(session: session, prompt: .question(QuestionSet(questions: [
+                Question(question: "Which database should the staging site use?", header: "Database", options: [
+                    QuestionOption(label: "Postgres", description: "Same as production"),
+                    QuestionOption(label: "SQLite", description: "One file, reset on every deploy"),
+                ]),
+                Question(question: "Should the deploy run the migrations?", header: "Migrations", options: [
+                    QuestionOption(label: "Yes", description: ""),
+                    QuestionOption(label: "No", description: "Run them by hand after a backup"),
+                ]),
+            ])), maxWait: 1780), connection: nil)
+            coordinator.show(item)
+            coordinator.show(permission(branchCommand, risk: .off))
+            coordinator.choose(option: 0)
+        }),
         ("notify", { coordinator in
             coordinator.show(Item(request: StewRequest(session: session, prompt: .notify(NotifyRequest(
                 title: "Build finished: 25 of 25 tests passed",
