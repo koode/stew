@@ -161,16 +161,20 @@ final class RiskChecker {
             for: permission, session: session, recentUserMessages: recent,
             gitStatus: gitStatus(workingDirectory: workingDirectory)
         )
-        let outputPath = Paths.cacheDirectory + "/codex-verdict-\(UUID().uuidString).json"
-        defer { try? FileManager.default.removeItem(atPath: outputPath) }
-        // Runs from the cache folder, so no project AGENTS.md or config is read.
+        // A fresh folder in the temporary folder, outside the home folder and any git
+        // repository, so no AGENTS.md above it applies and Codex finds no project there.
+        let runFolder = NSTemporaryDirectory() + "stew-risk-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: runFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: runFolder) }
+        let outputPath = runFolder + "/verdict.json"
         let printed = try runProcess(
             codex,
             RiskCheck.codexArguments(model: config.codexModel, instructionsPath: instructions, schemaPath: schema, outputPath: outputPath),
             stdin: Data(input.utf8),
-            directory: Paths.cacheDirectory,
+            directory: runFolder,
             timeout: config.timeoutSeconds,
-            environment: codexChildEnvironment()
+            environment: codexChildEnvironment(),
+            errorsAtEnd: true
         )
         // The final message goes to the output file and to stdout; the file holds it alone.
         let output = FileManager.default.contents(atPath: outputPath).flatMap { $0.isEmpty ? nil : $0 } ?? printed
@@ -341,17 +345,42 @@ final class RiskChecker {
         return RiskCheck.recentUserMessages(transcript: data, limit: limit)
     }
 
+    /// `errorsAtEnd`: the reason for a failure is at the end of the error output, not at
+    /// its start, as with `codex exec`.
     private static func runProcess(
         _ tool: String, _ arguments: [String], stdin: Data?, directory: String, timeout: TimeInterval,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil, errorsAtEnd: Bool = false
     ) throws -> Data {
         let result = try runProcessResult(tool, arguments, stdin: stdin, directory: directory, timeout: timeout, environment: environment)
         if result.output.isEmpty {
-            let message = String(decoding: result.errors.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = errorsAtEnd
+                ? RiskCheck.errorTail(result.errors)
+                : String(decoding: result.errors.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let name = URL(fileURLWithPath: tool).lastPathComponent
             throw CheckFailure(description: message.isEmpty ? "\(name) exited with \(result.status)" : message)
         }
         return result.output
+    }
+
+    /// Seconds between SIGTERM and SIGKILL for a tool that ran past its time limit.
+    static let killGrace: TimeInterval = 3
+    /// Seconds to wait for the pipes to close once the tool has exited.
+    static let drainGrace: TimeInterval = 2
+
+    /// The two pipe drains write here from their own queues.
+    private final class ProcessOutput: @unchecked Sendable {
+        private let lock = NSLock()
+        private var output = Data()
+        private var errors = Data()
+
+        func setOutput(_ data: Data) { lock.lock(); output = data; lock.unlock() }
+        func setErrors(_ data: Data) { lock.lock(); errors = data; lock.unlock() }
+
+        var values: (Data, Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (output, errors)
+        }
     }
 
     struct ProcessResult {
@@ -377,28 +406,41 @@ final class RiskChecker {
         process.standardError = errors
         process.standardInput = input
         try process.run()
-        if let stdin {
-            input.fileHandleForWriting.write(stdin)
+        // After the time limit the tool gets SIGTERM, and SIGKILL if it is still running a
+        // few seconds later, so a tool that ignores SIGTERM cannot keep a request checking.
+        let timer = DispatchWorkItem {
+            guard process.isRunning else { return }
+            process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
         }
-        try? input.fileHandleForWriting.close()
-
-        let timer = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
+        // The input goes in the background: a tool that never reads it cannot block us.
+        DispatchQueue.global().async {
+            if let stdin { input.fileHandleForWriting.write(stdin) }
+            try? input.fileHandleForWriting.close()
+        }
         // Drain both pipes while waiting so a chatty child cannot block on a full pipe.
-        var outputData = Data()
-        var errorData = Data()
+        let drained = ProcessOutput()
         let group = DispatchGroup()
         group.enter()
-        DispatchQueue.global().async { outputData = output.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        DispatchQueue.global().async { drained.setOutput(output.fileHandleForReading.readDataToEndOfFile()); group.leave() }
         group.enter()
-        DispatchQueue.global().async { errorData = errors.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        DispatchQueue.global().async { drained.setErrors(errors.fileHandleForReading.readDataToEndOfFile()); group.leave() }
         process.waitUntilExit()
-        group.wait()
+        // A child the tool started can keep the pipes open after the tool is gone, so the
+        // drain gets a bounded wait; its readers finish on their own when that child ends.
+        let finished = group.wait(timeout: .now() + drainGrace) == .success
         timer.cancel()
 
         if process.terminationReason == .uncaughtSignal {
             throw CheckFailure(description: "timed out after \(Int(timeout)) s")
         }
+        guard finished else {
+            throw CheckFailure(description: "\(URL(fileURLWithPath: tool).lastPathComponent) exited but left its output open")
+        }
+        let (outputData, errorData) = drained.values
         return ProcessResult(status: process.terminationStatus, output: outputData, errors: errorData)
     }
 

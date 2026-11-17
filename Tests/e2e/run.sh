@@ -1490,6 +1490,24 @@ else
   expect "risk: a missing codex CLI is named" "$state" "risk=failed: codex CLI not found; set classifier.codexPath"
 fi
 control press deny > /dev/null; wait $client
+# A failing codex: the reason comes from the end of its error output, not its header.
+risk_config ',"backend":"codex"'
+echo "error" > "$STEW_CODEX_STUB_STATE"
+codex_permit > "$WORK/out" & client=$!
+wait_items 1
+expect "risk: a codex failure names the error, not the startup header" "$(wait_checked)" "risk=failed: ERROR: the model is not available on your plan"
+control press deny > /dev/null; wait $client
+# A codex that ignores SIGTERM and leaves a child on its output: killed after the
+# time limit, so the request does not stay in the checking state.
+risk_config ',"backend":"codex","timeoutSeconds":1'
+echo "hang" > "$STEW_CODEX_STUB_STATE"
+started=$(date +%s)
+codex_permit > "$WORK/out" & client=$!
+wait_items 1
+expect "risk: a codex that ignores SIGTERM times out" "$(wait_checked)" "risk=failed: timed out after 1 s"
+elapsed=$(( $(date +%s) - started ))
+(( elapsed < 8 )) && pass "risk: the timeout does not wait for the hung codex" || fail "risk: the timeout does not wait for the hung codex" "${elapsed} s"
+control press deny > /dev/null; wait $client
 rm -f "$STEW_CODEX_STUB_STATE"
 
 risk_config ""
@@ -1507,12 +1525,17 @@ for argument in "--sandbox" "read-only" "--ephemeral" "--ignore-user-config" "--
   grep -qxF -- "$argument" <<< "$codex_log" || fail "risk: codex exec gets $argument" "$codex_log"
 done
 pass "risk: codex exec runs read-only, tool-free and unsaved"
-expect "risk: codex exec runs from the cache folder" "$codex_log" "$(basename "$WORK")/cache"
+run_folder=$(grep -m1 -- "--- exec in" "$STEW_CODEX_STUB_LOG" | sed 's/--- exec in //')
+[[ "$run_folder" == *"/stew-risk-"* && "$run_folder" != "$HOME"* && ! -e "$run_folder" ]] \
+  && pass "risk: codex exec runs from a fresh folder outside the home folder, removed afterwards" \
+  || fail "risk: codex exec runs from a fresh folder outside the home folder, removed afterwards" "$run_folder"
+for argument in "project_doc_max_bytes=0" "skills.include_instructions=false" "skills.bundled.enabled=false"; do
+  grep -qxF -- "$argument" <<< "$codex_log" || fail "risk: codex exec gets $argument" "$codex_log"
+done
 expect "risk: Codex gets the same input as Claude" "$codex_log" '"command":"git push --force origin main"'
 policy_prompt=$(cat "$WORK"/cache/codex-policy-*.txt)
 [[ "$policy_prompt" == *'"hard_deny":['* && "$policy_prompt" != *"these are stew's defaults"* ]] \
   && pass "risk: the rules are Claude Code's when it has them" || fail "risk: the rules are Claude Code's when it has them" "$policy_prompt"
-[[ -z "$(ls "$WORK"/cache/codex-verdict-* 2>/dev/null)" ]] && pass "risk: the verdict file is removed" || fail "risk: the verdict file is removed" "$(ls "$WORK/cache")"
 
 "$STEW" permit --action "Force-push main" --command "git push --force origin main" --reason "rebased" > "$WORK/out" & client=$!
 wait_items 1; wait_checked > /dev/null

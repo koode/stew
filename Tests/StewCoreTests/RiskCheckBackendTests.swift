@@ -73,6 +73,9 @@ import Testing
             "-c", "features.hooks=false",
             "-c", "features.memories=false",
             "-c", "history.persistence=\"none\"",
+            "-c", "project_doc_max_bytes=0",
+            "-c", "skills.include_instructions=false",
+            "-c", "skills.bundled.enabled=false",
             "-c", "model_reasoning_effort=\"low\"",
             "-c", "model_instructions_file=\"/Users/me/Library/Caches/stew/codex-policy-1a.txt\"",
             "--output-schema", "/Users/me/Library/Caches/stew/risk-schema-2b.json",
@@ -112,6 +115,19 @@ import Testing
             try RiskCheck.parse(codexOutput: Data(#"{"verdict":"maybe","summary":"x"}"#.utf8))
         }
         #expect(throws: RiskCheck.CheckError.self) { try RiskCheck.parse(codexOutput: Data("[1]".utf8)) }
+    }
+
+    @Test func theErrorIsTakenFromTheEndOfCodexOutput() {
+        let header = (1...40).map { "header line \($0): workdir, model, sandbox" }.joined(separator: "\n")
+        let errors = Data((header + "\nERROR: model gpt-6-luna is not available on your plan\n").utf8)
+        #expect(RiskCheck.errorTail(errors) == "ERROR: model gpt-6-luna is not available on your plan")
+        // Without a line that names an error: the whole lines at the end, none cut off.
+        let noError = RiskCheck.errorTail(Data((header + "\nconnection reset by peer\n").utf8))
+        #expect(noError.hasSuffix("connection reset by peer"))
+        #expect(noError.hasPrefix("header line"), "a cut-off first line is dropped")
+        #expect(noError.utf8.count <= 300)
+        #expect(RiskCheck.errorTail(Data("short error\n".utf8)) == "short error")
+        #expect(RiskCheck.errorTail(Data()) == "")
     }
 
     @Test func onlyAChatGPTLoginRunsTheCheck() {

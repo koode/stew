@@ -1,7 +1,8 @@
 #!/bin/bash
 # Stands in for the codex CLI in the risk check tests, so no test runs the real one.
 # `login status` reports a ChatGPT login, or what STEW_CODEX_STUB_STATE's file says
-# ("apikey" or "none"). `exec` writes a fixed verdict to the --output-last-message file
+# ("apikey" or "none"). With "error" exec prints a long startup header and then an error
+# and fails; with "hang" it ignores SIGTERM and keeps a child on its output for a while. `exec` writes a fixed verdict to the --output-last-message file
 # and to stdout, rating the command by a few words in it. STEW_CODEX_STUB_LOG, when
 # set, collects each argument of each exec on a line of its own, then the input.
 state=""
@@ -14,6 +15,16 @@ if [[ "$1" == "login" && "$2" == "status" ]]; then
   esac
 fi
 [[ "$1" == "exec" ]] || { echo "codex-stub: unexpected $*" >&2; exit 2; }
+if [[ "$state" == "error" ]]; then
+  for line in $(seq 1 30); do echo "startup header line $line: workdir, model, sandbox, approval" >&2; done
+  echo "ERROR: the model is not available on your plan" >&2
+  exit 1
+fi
+if [[ "$state" == "hang" ]]; then
+  trap '' TERM
+  sleep 8
+  exit 0
+fi
 input=$(cat)
 output=""
 previous=""

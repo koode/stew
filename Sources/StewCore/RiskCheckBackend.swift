@@ -111,8 +111,12 @@ extension RiskCheck {
 
     /// The `codex exec` arguments for a check. Nothing reaches a shell: each value is one
     /// argument. Codex runs read-only with no tools at all (no shell, no web search, no
-    /// apps or subagents), no approvals, no hooks, no user config (so no MCP servers or
-    /// profiles) and no saved session, from a folder outside any project.
+    /// apps or subagents), no approvals, no hooks, no user config.toml (so no MCP servers
+    /// or profiles), no execpolicy rules and no saved session. Its built-in instructions
+    /// are replaced by the check's, project AGENTS.md files are off
+    /// (`project_doc_max_bytes=0`) and the skills catalog is left out of the context.
+    /// The global AGENTS.md in the Codex home still loads: no documented switch turns it
+    /// off, and the login lives in that same home.
     public static func codexArguments(model: String, instructionsPath: String, schemaPath: String, outputPath: String) -> [String] {
         [
             "exec",
@@ -131,12 +135,31 @@ extension RiskCheck {
             "-c", "features.hooks=false",
             "-c", "features.memories=false",
             "-c", "history.persistence=\"none\"",
+            "-c", "project_doc_max_bytes=0",
+            "-c", "skills.include_instructions=false",
+            "-c", "skills.bundled.enabled=false",
             "-c", "model_reasoning_effort=\"low\"",
             "-c", "model_instructions_file=\(tomlString(instructionsPath))",
             "--output-schema", schemaPath,
             "--output-last-message", outputPath,
             codexPrompt,
         ]
+    }
+
+    /// The end of a tool's error output: the whole lines in its last `limit` bytes, from
+    /// the last line that mentions an error when one does. Codex prints a startup header
+    /// first and the error last, so the end says what went wrong.
+    public static func errorTail(_ errors: Data, limit: Int = 300) -> String {
+        var tail = errors.suffix(limit)
+        if errors.count > limit, let newline = tail.firstIndex(of: 0x0A) {
+            tail = tail[(newline + 1)...]
+        }
+        let lines = String(decoding: tail, as: UTF8.self)
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let start = lines.lastIndex { $0.lowercased().contains("error") } ?? 0
+        return lines.isEmpty ? "" : lines[start...].joined(separator: "\n")
     }
 
     /// A TOML basic string, for a `-c key=value` override.
