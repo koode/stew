@@ -61,8 +61,8 @@ struct PhoneSettingsTab: View {
                             Notice(.success, "Paired with \(justPaired). Requests can now go to it.")
                         }
                         if let error = link.pairingError {
-                            if let plan = link.pairingPlan {
-                                Notice(.error, error, action: ("See plans", { NSWorkspace.shared.open(plan.upgradeURL) }))
+                            if link.pairingPlan != nil {
+                                Notice(.error, error, action: ("Open Account", { model.tab = .account }))
                             } else {
                                 Notice(.error, error)
                             }
@@ -76,7 +76,8 @@ struct PhoneSettingsTab: View {
                                 PairedPhoneRow(
                                     pairing: pairing, status: link.statuses[pairing.pairingId],
                                     onTest: { link.sendTest(to: pairing.pairingId) },
-                                    onUnpair: { unpairing = pairing }
+                                    onUnpair: { unpairing = pairing },
+                                    onPlan: { model.tab = .account }
                                 )
                             }
                             if !pairingInProgress {
@@ -162,6 +163,8 @@ struct PairedPhoneRow: View {
     /// Sends a test notification; false when it could not go.
     let onTest: () -> Bool
     let onUnpair: () -> Void
+    /// Opens Settings ▸ Account, where the plan is.
+    let onPlan: () -> Void
     /// Set for a few seconds after Send test, so the button says what happened.
     @State private var testSent = false
 
@@ -181,9 +184,9 @@ struct PairedPhoneRow: View {
             }
             Spacer()
             connection
-            if let plan = neededPlan {
-                Button("See plans") { NSWorkspace.shared.open(plan.upgradeURL) }
-                    .help("Open \(plan.upgradeURL.absoluteString)")
+            if neededPlan != nil {
+                Button("Open Account", action: onPlan)
+                    .help("Sign in and choose a plan in Settings ▸ Account")
             } else {
                 Button(testSent ? "Sent" : "Send test") {
                     guard onTest() else { return }
@@ -215,7 +218,7 @@ struct PairedPhoneRow: View {
         case .failed: StatusPill(text: "Relay unreachable", tone: Tone.orange.color).help("stew keeps retrying.")
         case .refused: StatusPill(text: "Relay refused this Mac", tone: Tone.orange.color).help("Check that this Mac's clock is right. stew keeps retrying.")
         case .stopped(.unsupportedProtocol): StatusPill(text: "Update stew", tone: Tone.orange.color).help("The relay needs a newer stew.")
-        case .stopped(.planRequired(let plan)): StatusPill(text: "Plan needed", tone: Tone.orange.color).help("\(plan.message) stew tries again on its next start.")
+        case .stopped(.planRequired(let plan)): StatusPill(text: "Plan needed", tone: Tone.orange.color).help("\(plan.message) stew connects again once your plan reaches the relay.")
         case .stopped: StatusPill(text: "Pairing gone", tone: Tone.orange.color).help("The relay no longer knows this pairing. Unpair, then pair again.")
         case .connecting, nil: StatusPill(text: "Connecting…", tone: Ink.secondary)
         }
