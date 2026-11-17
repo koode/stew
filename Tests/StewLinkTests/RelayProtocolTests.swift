@@ -236,6 +236,28 @@ struct RelayProtocolTests {
         #expect(String(decoding: try LinkJSON.encode(RelayLease(lease: "a.b")), as: UTF8.self) == #"{"lease":"a.b"}"#)
     }
 
+    @Test func infoIsAskedAgainForALeaseWhenTheRelayHadNone() {
+        let withoutLeases = RelayProbe.v2(RelayInfo(protocols: [2]))
+        let withLeases = RelayProbe.v2(RelayInfo(protocols: [2], leases: true))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: withoutLeases, age: 3600, purpose: .use))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: withoutLeases, age: 59, purpose: .lease))
+        #expect(RelayInfoRefresh.shouldAsk(cached: withoutLeases, age: 60, purpose: .lease))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: withLeases, age: 3600, purpose: .lease))
+    }
+
+    @Test func infoIsAskedAgainAfterAPlanStop() {
+        #expect(RelayInfoRefresh.shouldAsk(cached: .v2(RelayInfo(protocols: [2], leases: true)), age: 0, purpose: .planStop))
+        #expect(RelayInfoRefresh.shouldAsk(cached: .v2(RelayInfo(protocols: [2])), age: 0, purpose: .planStop))
+    }
+
+    @Test func infoWithoutV2IsAskedAgainAfterTenMinutes() {
+        #expect(RelayInfoRefresh.shouldAsk(cached: nil, age: 0, purpose: .use))
+        #expect(RelayInfoRefresh.shouldAsk(cached: .unknown, age: 0, purpose: .use))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: .v1, age: 599, purpose: .use))
+        #expect(RelayInfoRefresh.shouldAsk(cached: .v1, age: 600, purpose: .use))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: .unsupported, age: 599, purpose: .lease))
+    }
+
     @Test func infoSaysWhetherTheRelayTakesLeases() {
         let withLeases = RelayProbe.decide(status: 200, body: Data(#"{"protocols":[1,2],"leases":true}"#.utf8))
         guard case .v2(let info) = withLeases else {

@@ -156,6 +156,7 @@ final class PhoneLink: ObservableObject {
         // this Mac cannot use.
         let lease = self.lease
         var claimedLease: String?
+        if lease != nil { connection.infoPurpose = .lease }
         connection.post("claim", signed: true, body: { version in
             switch version {
             case .v2:
@@ -197,7 +198,9 @@ final class PhoneLink: ObservableObject {
         guard let store, let lease else { return }
         for pairing in pairings {
             let pairingId = pairing.pairingId
-            RelayVersions.shared.resolve(relay: pairing.relay) { [weak self] probe in
+            // Asks the relay again when what it said before had no leases: it may take
+            // them now, and the cached answer would otherwise hold until a restart.
+            RelayVersions.shared.resolve(relay: pairing.relay, purpose: .lease) { [weak self] probe in
                 guard let self, self.pairings.contains(where: { $0.pairingId == pairingId }) else { return }
                 let accepts: Bool
                 if case .v2(let info) = probe { accepts = info.acceptsLeases } else { accepts = false }

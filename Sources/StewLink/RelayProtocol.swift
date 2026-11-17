@@ -79,6 +79,42 @@ public enum RelayProbe: Equatable, Sendable {
     }
 }
 
+/// When a client asks a relay for GET /v2/info again instead of using what it learned.
+/// A v2 answer is otherwise kept for the life of the process, so nothing on the network
+/// can talk the client back down to v1.
+public enum RelayInfoRefresh {
+    /// A relay without v2 may have been upgraded since.
+    public static let recheckWithoutV2After: TimeInterval = 600
+    /// The soonest a v2 relay that did not take leases is asked again for a lease: it may
+    /// have been updated since, and a lease that never reaches it leaves a paid Mac
+    /// refused until a restart.
+    public static let recheckForLeasesAfter: TimeInterval = 60
+
+    public enum Purpose: Equatable, Sendable {
+        /// Any call: the protocol version is what matters.
+        case use
+        /// A lease is ready to send.
+        case lease
+        /// The relay just stopped a link for want of a plan: what it supports may have changed.
+        case planStop
+    }
+
+    public static func shouldAsk(cached: RelayProbe?, age: TimeInterval, purpose: Purpose) -> Bool {
+        switch cached {
+        case nil, .unknown?:
+            return true
+        case .v1?, .unsupported?:
+            return age >= recheckWithoutV2After
+        case .v2(let info)?:
+            switch purpose {
+            case .use: return false
+            case .lease: return !info.acceptsLeases && age >= recheckForLeasesAfter
+            case .planStop: return true
+            }
+        }
+    }
+}
+
 /// The relay's HTTP errors are JSON, `{"error": "<code>"}`. A client acts on the code, not
 /// on the status: a proxy in front of the relay may put a page of its own in place of the
 /// relay's response. Cloudflare does so for an origin's 502 and 504, so v2 uses neither,

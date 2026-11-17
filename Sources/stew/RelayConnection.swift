@@ -2,12 +2,10 @@ import Foundation
 import StewLink
 
 /// Which relay protocol each relay address speaks, from GET /v2/info, kept for the life of
-/// the process. A relay that answered v2 is never asked again, so nothing on the network can
-/// talk this Mac back down to v1; one without v2 is asked again after a while, since it may
-/// have been upgraded. Main queue only.
+/// the process. When to ask again is `RelayInfoRefresh`'s rule; a later answer never takes
+/// a v2 relay back to v1. Main queue only.
 final class RelayVersions {
     static let shared = RelayVersions()
-    static let recheckWithoutV2After: TimeInterval = 600
 
     private var known: [String: (probe: RelayProbe, at: Date)] = [:]
     private var waiting: [String: [(RelayProbe) -> Void]] = [:]
@@ -17,20 +15,11 @@ final class RelayVersions {
         return URLSession(configuration: configuration)
     }()
 
-    func resolve(relay: String, completion: @escaping (RelayProbe) -> Void) {
-        if let entry = known[relay] {
-            switch entry.probe {
-            case .v2:
-                completion(entry.probe)
-                return
-            case .v1, .unsupported:
-                if Date().timeIntervalSince(entry.at) < Self.recheckWithoutV2After {
-                    completion(entry.probe)
-                    return
-                }
-            case .unknown:
-                break
-            }
+    func resolve(relay: String, purpose: RelayInfoRefresh.Purpose = .use, completion: @escaping (RelayProbe) -> Void) {
+        let entry = known[relay]
+        if let entry, !RelayInfoRefresh.shouldAsk(cached: entry.probe, age: Date().timeIntervalSince(entry.at), purpose: purpose) {
+            completion(entry.probe)
+            return
         }
         if waiting[relay] != nil {
             waiting[relay]?.append(completion)
@@ -91,6 +80,9 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     private(set) var version: RelayVersion?
     /// What the relay's /v2/info said, once known; nil for a v1 relay.
     private(set) var info: RelayInfo?
+    /// Why this connection asks for /v2/info: `.lease` when it carries a lease, so a relay
+    /// that did not take leases before is asked again.
+    var infoPurpose: RelayInfoRefresh.Purpose = .use
     /// Called on the main queue with each new frame from the relay.
     var onFrame: ((RelayFrame) -> FrameHandling)?
     /// Called on the main queue whenever the socket's status changes.
@@ -116,7 +108,7 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
 
     /// Learns which protocol the relay speaks, once per relay and process.
     func resolveVersion(_ completion: @escaping (RelayProbe) -> Void) {
-        RelayVersions.shared.resolve(relay: relay) { [weak self] probe in
+        RelayVersions.shared.resolve(relay: relay, purpose: infoPurpose) { [weak self] probe in
             if let self, let version = probe.version {
                 self.version = version
                 if case .v2(let info) = probe {
