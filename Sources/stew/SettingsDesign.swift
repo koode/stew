@@ -14,7 +14,7 @@ enum Brand {
 
 extension SettingsTab {
     /// The order of the tab bar.
-    static let order: [SettingsTab] = [.general, .keys, .claude, .phone, .approvals, .history]
+    static let order: [SettingsTab] = [.general, .keys, .claude, .phone, .account, .approvals, .history]
 
     var title: String {
         switch self {
@@ -22,6 +22,7 @@ extension SettingsTab {
         case .keys: "Keys"
         case .claude: "Claude Code"
         case .phone: "iPhone"
+        case .account: "Account"
         case .approvals: "Approvals"
         case .history: "History"
         }
@@ -33,6 +34,7 @@ extension SettingsTab {
         case .keys: "keyboard"
         case .claude: "terminal"
         case .phone: "iphone"
+        case .account: "person.crop.circle"
         case .approvals: "lock.open"
         case .history: "clock.arrow.circlepath"
         }
@@ -45,6 +47,7 @@ extension SettingsTab {
         case .keys: "Shortcuts that answer the panel from any app."
         case .claude: "How Claude Code's blocked calls, questions and needs reach stew."
         case .phone: "Answer requests on your iPhone while you are away from the Mac."
+        case .account: "Only the iPhone relay needs a plan. Everything else in stew is free."
         case .approvals: "Calls that auto mode blocks but these approvals let through without asking."
         case .history: "Every finished request, with what Claude was told."
         }

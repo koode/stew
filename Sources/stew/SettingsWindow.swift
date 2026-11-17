@@ -6,7 +6,7 @@ import StewCore
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general, keys, claude, approvals, history
     var id: String { rawValue }
-    case phone
+    case phone, account
 }
 
 /// Reads and writes ~/.config/stew/config.json. Every change is checked and saved at once.
@@ -200,6 +200,7 @@ struct SettingsView: View {
     let updater: Updater
     var pause = PauseModel()
     var link: PhoneLink = .shared
+    var account: AccountModel = .shared
     /// Starting state of the iPhone pane, for `stew snapshot`.
     var phoneSample = PhonePaneSample()
 
@@ -227,6 +228,7 @@ struct SettingsView: View {
         case .keys: KeySettings(model: model)
         case .claude: ClaudeSettingsTab(model: model)
         case .phone: PhoneSettingsTab(model: model, link: link, sample: phoneSample)
+        case .account: AccountSettingsTab(account: account)
         case .approvals: ApprovalsView(model: approvals)
         case .history: HistoryView(model: history)
         }

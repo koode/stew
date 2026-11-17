@@ -6,7 +6,7 @@ import StewCore
 ///
 /// Order matters: the hooks go first, while the binary they call still exists, so
 /// Claude Code never calls a missing stew. The shell completion files the installer
-/// wrote and the iPhone pairings in the login keychain go too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
+/// wrote, and the iPhone pairings and the account session in the login keychain, go too. ~/.config/stew stays, and so do allow rules stew wrote into projects'
 /// .claude/settings.local.json.
 ///
 /// `keepApp` leaves Stew.app itself in place, for a package manager that removes it: the
@@ -46,9 +46,14 @@ enum Uninstaller {
         remove(Paths.home + "/Library/Application Support/stew", &failures)
         // The keychain is not inside the home folder, so the installer tests (which set
         // STEW_INSTALL_LAUNCHCTL_LOG and a temporary HOME) must leave it alone.
-        if ProcessInfo.processInfo.environment["STEW_INSTALL_LAUNCHCTL_LOG"] == nil,
-           PhoneStore.removeKeychainItems() {
-            print("removed the iPhone pairings from the login keychain")
+        if ProcessInfo.processInfo.environment["STEW_INSTALL_LAUNCHCTL_LOG"] == nil {
+            if PhoneStore.removeKeychainItems() {
+                print("removed the iPhone pairings from the login keychain")
+            }
+            // Only this Mac's session; the account and its plan stay.
+            if KeychainAccountTokenStore.removeAll() {
+                print("removed the stew account session from the login keychain")
+            }
         }
 
         if failures == 0 {

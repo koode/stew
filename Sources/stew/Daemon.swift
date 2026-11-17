@@ -226,6 +226,12 @@ enum Daemon {
             exit(1)
         }
         PhoneLink.shared.start(coordinator: coordinator)
+        // The headless test daemon keeps its session in a file next to its socket, so tests
+        // never touch the keychain.
+        let accountStore: AccountTokenStore = Paths.headless
+            ? FileAccountTokenStore(path: (Paths.socket as NSString).deletingLastPathComponent + "/account-session")
+            : KeychainAccountTokenStore()
+        AccountModel.shared.start(store: accountStore) { lease in PhoneLink.shared.forwardLease(lease) }
         for terminating in [SIGTERM, SIGINT] {
             signal(terminating, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: terminating, queue: .main)
