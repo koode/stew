@@ -88,6 +88,8 @@ The first time stew starts with no hooks installed for any agent, it opens a set
 4. **iPhone:** whether you are signed in and have a paired iPhone, with buttons to Settings → Account and Settings → iPhone.
 5. **Done:** where the menu bar icon is, how to reopen Settings and this window, and [stewcli.com/help](https://stewcli.com/help).
 
+![The setup window: skill and hooks installed for Claude Code and Codex](docs/images/setup-agents-installed-light.png)
+
 Closing the window, at any step, sets `"setup": {"completed": true}` in the config, so it does not open by itself again. Until then, opening Stew.app opens it instead of Settings. Reopen it any time with Set up stew… in the menu bar menu or in Settings → General.
 
 ### Let your agent set it up
@@ -140,7 +142,11 @@ What hooks cannot change:
 3. If the time to answer runs out, you close the panel, or stew is not running, stew decides nothing and Codex shows its own approval prompt in the terminal. Answer it there; such a request is not answered late from History.
 4. The `Stop` and `UserPromptSubmit` hooks do what they do for Claude Code: needs items from a `needs input:` line, and late answers to `stew` calls from that session.
 
+![Codex asks to run a command, in stew](docs/images/permission-codex-light.png)
+
 **Trust the hooks in Codex.** Codex runs a new or changed hook only after you review and trust it ([Codex hooks](https://learn.chatgpt.com/docs/hooks)). After installing, open `/hooks` in Codex and trust the stew hooks. Codex asks again when a hook changes, for example after the path to stew changes. `stew hooks status --agent codex` reminds you, and warns when `[features] hooks = false` in `~/.codex/config.toml` turns all hooks off.
+
+![Settings, Agents, with Claude Code and Codex](docs/images/settings-agents-codex-light.png)
 
 What Codex does not have, so stew does not do for it: auto mode and its retry after a block, standing approvals (Allow more…), and the AskUserQuestion tool. Codex does not say whether anyone is at the terminal either, so its needs items appear only with "Needs you from agents" set to Always in stew. Codex needs 0.122 or later for `PermissionRequest` hooks; versions before 0.129 run hooks without the trust step.
 
@@ -168,6 +174,8 @@ What Claude sessions wait on most is something only you can do: log in, buy more
 - When you come back to the Mac, the notice counts what still needs you ("2 things need you"), and an item you put off with Not now shows once more.
 - When Claude or the session ends an item that has been on screen for less than 5 seconds, it stays until it has shown 5 seconds in all, closed: how it ended (such as "Answered in session") takes the place of its buttons, as in History, and ⌘. closes it sooner. So a panel never flashes by before you can read it. An item that ends while it still waits behind a request goes at once.
 - Open items survive a restart. They end when you press Done or Decline, when Claude runs `stew needs resolve ID` after it sees the thing got done, or (for items from the hook below) when you write to that session.
+
+![A needs item the session ended, held on screen with how it ended](docs/images/needs-cleared-light.png)
 
 Claude or Codex can make one with `stew needs` (the skill tells it when). With the hooks, the agent also makes one by itself: when a turn ends with a line that starts with `needs input:`, the `Stop` hook turns that line into the title, a numbered list after it into the steps, code blocks in the message into commands, and up to 4 web addresses outside the code blocks into links. A session has at most one of these at a time, and none while it has an open item from `stew needs`. The `UserPromptSubmit` hook clears it as soon as you send that session a message, and a later turn that ends without a `needs input:` line clears it too (Moved on in the history). Claude Code also runs `UserPromptSubmit` for scheduled tasks, background agents reporting back and messages from other sessions, so those clear the item as well. By default this happens only in unattended Claude Code sessions (background and remote); Codex does not say whether anyone is watching, so for Codex it needs `"always"`. Change it in `stew settings` → Agents → "Needs you from agents", or with `"autoNeeds"` in the config: `"unattended"`, `"always"` or `"never"`.
 
@@ -231,6 +239,8 @@ Answers print as one JSON line. `stew --help` lists every command and flag.
 Permission requests, questions and inputs get 1 minute by default (`responseTimeout`). The clock starts when the request reaches the front of the panel, and it pauses while the note field or "Allow more…" is open. ⌘E adds 2 more minutes (`extendBy`) as often as you like. When the time runs out, the answer is `"status":"timeout"` with a note telling Claude you may be away, that it should continue another way or ask again later, and that a late answer may still follow (see Late answers). `--timeout SECONDS` overrides the limit for one call, and `--timeout 0` turns it off.
 
 Once you start answering a request, its clock stops for good: when you type into it (a note, an answer, an input's value), move between its questions (⌘] and ⌘[, or a click on a tab), pick an option that does not send the answer yet (one question of several, a multiple choice, a scope under "Allow more…"), or press ⌘↩ before it can be sent. The request then waits for you and is not sent to your iPhone. The panel shows "No time limit", or "Waits up to 29:40" when the caller has a hard limit (`maxWait`): Claude Code's hooks set one to stay inside Claude Code's own hook timeout, and stew cannot extend it.
+
+![One of two questions answered: the clock shows how long the caller still waits](docs/images/question-answering-light.png)
 
 While you answer one request, the ones that arrive meanwhile wait behind it, and their clocks do not run. When you answer or close it, the next one's clock starts fresh with the full time, or with what is left of its hard limit when that is less. A request whose hard limit runs out while it waits times out where it is, and Claude is told you were answering another request.
 
@@ -296,6 +306,8 @@ Waiting requests and late answers are in `~/Library/Application Support/stew/lat
 When a request stays open while you are away from your Mac, stew can send it to your iPhone as a notification you can answer: Approve (Face ID first on a locked phone), Deny, More time, a question's options, a typed reply to an input, or Done and the other answers on a needs item. A secret input is typed on the Mac or in the stew app's masked field, never in a notification; the notification offers Enter in app, Give me 5 min and I'll enter it later. The answer goes back to the Mac, end-to-end encrypted through a relay that cannot read it. It needs the stew iPhone app, which is distributed through TestFlight while stew is in beta. Pair a phone in `stew settings` → iPhone.
 
 The iPhone relay is the one part of stew that needs a plan; everything else is free and works without an account. Sign in with your email in `stew settings` → Account (a link and a 6-digit code arrive by email) to start a free trial, subscribe or manage billing. [docs/PHONE.md](docs/PHONE.md) explains when requests are sent, the security model and the wire protocol.
+
+![Settings, Account, during the free trial](docs/images/settings-account-trial-light.png)
 
 ## Keys
 
