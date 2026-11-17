@@ -224,4 +224,28 @@ struct RelayProtocolTests {
         #expect(Set(v2.keys) == ["macSigningKey", "registrationTokenHash"])
         #expect(v2["registrationTokenHash"] as? String == code.registrationTokenHash)
     }
+
+    @Test func claimCarriesALeaseOnlyWhenGiven() throws {
+        let identity = LinkIdentity()
+        let code = PairingCode.generate(relay: "https://relay.example.com", macName: "Studio", macKeys: identity.publicKeys)
+        let body = try LinkJSON.encode(RelayClaimV2(code: code, identity: identity, lease: "payload.signature"))
+        let claim = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(Set(claim.keys) == ["macSigningKey", "registrationTokenHash", "lease"])
+        #expect(claim["lease"] as? String == "payload.signature")
+        #expect(String(decoding: try LinkJSON.encode(RelayLease(lease: "a.b")), as: UTF8.self) == #"{"lease":"a.b"}"#)
+    }
+
+    @Test func infoSaysWhetherTheRelayTakesLeases() {
+        let withLeases = RelayProbe.decide(status: 200, body: Data(#"{"protocols":[1,2],"leases":true}"#.utf8))
+        guard case .v2(let info) = withLeases else {
+            Issue.record("expected v2")
+            return
+        }
+        #expect(info.acceptsLeases)
+        guard case .v2(let older) = RelayProbe.decide(status: 200, body: Data(#"{"protocols":[2]}"#.utf8)) else {
+            Issue.record("expected v2")
+            return
+        }
+        #expect(!older.acceptsLeases)
+    }
 }

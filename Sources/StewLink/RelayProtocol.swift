@@ -33,12 +33,18 @@ public struct RelayInfo: Codable, Equatable, Sendable {
     public var pongTimeoutSeconds: Double?
     public var idleCloseSeconds: Double?
     public var answerTimeoutSeconds: Double?
+    /// True when the relay takes account leases: PUT /v2/pairings/{id}/lease, and a
+    /// `lease` in the claim.
+    public var leases: Bool?
 
-    public init(protocols: [Int], heartbeatSeconds: Double? = nil, pongTimeoutSeconds: Double? = nil) {
+    public init(protocols: [Int], heartbeatSeconds: Double? = nil, pongTimeoutSeconds: Double? = nil, leases: Bool? = nil) {
         self.protocols = protocols
         self.heartbeatSeconds = heartbeatSeconds
         self.pongTimeoutSeconds = pongTimeoutSeconds
+        self.leases = leases
     }
+
+    public var acceptsLeases: Bool { leases == true }
 }
 
 /// What a client learns from asking a relay for GET /v2/info.
@@ -223,14 +229,26 @@ extension RelayAuth {
 }
 
 /// Body of the Mac's v2 claim. The auth header, signed by `macSigningKey`, proves the Mac
-/// holds the key.
+/// holds the key. `lease`, sent only to a relay that takes leases, gives the pairing the
+/// account's plan from the start.
 public struct RelayClaimV2: Codable, Equatable, Sendable {
     public var macSigningKey: Data
     public var registrationTokenHash: String
+    public var lease: String?
 
-    public init(code: PairingCode, identity: LinkIdentity) {
+    public init(code: PairingCode, identity: LinkIdentity, lease: String? = nil) {
         macSigningKey = identity.publicKeys.signing
         registrationTokenHash = code.registrationTokenHash
+        self.lease = lease
+    }
+}
+
+/// Body of PUT /v2/pairings/{id}/lease.
+public struct RelayLease: Codable, Equatable, Sendable {
+    public var lease: String
+
+    public init(lease: String) {
+        self.lease = lease
     }
 }
 

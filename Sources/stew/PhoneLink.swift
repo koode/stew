@@ -45,6 +45,10 @@ final class PhoneLink: ObservableObject {
     private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, confirmation: PhoneConfirmation?, at: Date)] = [:]
     private var timer: Timer?
     let macName = Host.current().localizedName ?? "Mac"
+    /// The account's lease, from its last refresh; nil when signed out or without a plan.
+    private(set) var lease: String?
+    /// The lease each pairing's relay last took, so the same one does not go twice.
+    private var sentLeases: [String: String] = [:]
 
     static let recentLifetime: TimeInterval = 3600
     /// The longest a request waits on the relay when it has no time limit.
@@ -127,6 +131,7 @@ final class PhoneLink: ObservableObject {
     }
 
     private func forget(_ pairingId: String) {
+        sentLeases[pairingId] = nil
         store?.remove(pairingId)
         pairings = store?.pairings ?? []
         disconnect(pairingId)
@@ -149,14 +154,20 @@ final class PhoneLink: ObservableObject {
         let connection = RelayConnection(pairingId: code.pairingId, relay: relay, identity: identity)
         // The connection asks the relay for its protocol first, so a code never names a relay
         // this Mac cannot use.
+        let lease = self.lease
+        var claimedLease: String?
         connection.post("claim", signed: true, body: { version in
             switch version {
-            case .v2: try? LinkJSON.encode(RelayClaimV2(code: code, identity: identity))
-            case .v1: (try? RelayClaim(code: code, identity: identity)).flatMap { try? LinkJSON.encode($0) }
+            case .v2:
+                claimedLease = LeaseForwarding.claimLease(lease, relayAcceptsLeases: connection.info?.acceptsLeases == true)
+                return try? LinkJSON.encode(RelayClaimV2(code: code, identity: identity, lease: claimedLease))
+            case .v1:
+                return (try? RelayClaim(code: code, identity: identity)).flatMap { try? LinkJSON.encode($0) }
             }
         }) { [weak self] result in
             connection.stop()
             guard let self else { return }
+            if result.ok, let claimedLease { self.sentLeases[code.pairingId] = claimedLease }
             guard result.ok else {
                 if let plan = result.planRequired {
                     Log.write("phone: the relay at \(relay) needs a plan to pair: \(plan.message) (\(plan.upgradeURL.absoluteString))")
@@ -174,6 +185,41 @@ final class PhoneLink: ObservableObject {
             self.save(pairing)
             self.connect(pairing)
             self.pairingCode = code
+        }
+    }
+
+    /// Takes the lease from an account refresh and sends it to every pairing's relay that
+    /// takes leases. A refusal or an unreachable relay is logged and nothing else: the
+    /// link keeps running as it was. A pairing the relay stopped for want of a plan
+    /// connects again once its relay has the lease.
+    func forwardLease(_ lease: String?) {
+        self.lease = lease
+        guard let store, let lease else { return }
+        for pairing in pairings {
+            let pairingId = pairing.pairingId
+            RelayVersions.shared.resolve(relay: pairing.relay) { [weak self] probe in
+                guard let self, self.pairings.contains(where: { $0.pairingId == pairingId }) else { return }
+                let accepts: Bool
+                if case .v2(let info) = probe { accepts = info.acceptsLeases } else { accepts = false }
+                guard LeaseForwarding.decide(lease: lease, relayAcceptsLeases: accepts, lastSent: self.sentLeases[pairingId]) == .send,
+                      let body = try? LinkJSON.encode(RelayLease(lease: lease)) else { return }
+                // A connection of its own: the pairing's link may be stopped, and nothing
+                // this call does may change it.
+                let connection = RelayConnection(pairingId: pairingId, relay: pairing.relay, identity: store.identity)
+                connection.call("PUT", "lease", signed: true, body: { _ in body }) { [weak self] result in
+                    connection.stop()
+                    guard let self else { return }
+                    guard result.ok else {
+                        Log.write("phone: the relay did not take the lease for pairing \(pairingId): \(result.status) \(result.errorCode ?? "")")
+                        return
+                    }
+                    self.sentLeases[pairingId] = lease
+                    if case .stopped(.planRequired) = self.statuses[pairingId], let current = self.pairings.first(where: { $0.pairingId == pairingId }) {
+                        self.disconnect(pairingId)
+                        self.connect(current)
+                    }
+                }
+            }
         }
     }
 

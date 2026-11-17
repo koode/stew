@@ -89,6 +89,8 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     private var sequence = RelaySequence()
     private var authFailures = 0
     private(set) var version: RelayVersion?
+    /// What the relay's /v2/info said, once known; nil for a v1 relay.
+    private(set) var info: RelayInfo?
     /// Called on the main queue with each new frame from the relay.
     var onFrame: ((RelayFrame) -> FrameHandling)?
     /// Called on the main queue whenever the socket's status changes.
@@ -117,7 +119,10 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         RelayVersions.shared.resolve(relay: relay) { [weak self] probe in
             if let self, let version = probe.version {
                 self.version = version
-                if case .v2(let info) = probe, let seconds = info.heartbeatSeconds, seconds > 0 { self.heartbeatInterval = seconds }
+                if case .v2(let info) = probe {
+                    self.info = info
+                    if let seconds = info.heartbeatSeconds, seconds > 0 { self.heartbeatInterval = seconds }
+                }
             }
             completion(probe)
         }
@@ -379,6 +384,11 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     /// version, so it is made once the version is known. `signed` adds the v2 auth header.
     /// Status 0 means the relay was unreachable; 426 that it speaks no version stew knows.
     func post(_ action: String, signed: Bool, body makeBody: @escaping (RelayVersion) -> Data?, completion: ((PostResult) -> Void)? = nil) {
+        call("POST", action, signed: signed, body: makeBody, completion: completion)
+    }
+
+    /// Sends JSON to a pairing call with any method; otherwise exactly as `post`.
+    func call(_ method: String, _ action: String, signed: Bool, body makeBody: @escaping (RelayVersion) -> Data?, completion: ((PostResult) -> Void)? = nil) {
         resolveVersion { [weak self] probe in
             guard let self else { return }
             guard !self.stopped else {
@@ -391,14 +401,14 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
             }
             guard let target = URL(string: self.relay + version.pairingPath(self.pairingId, action)), let body = makeBody(version) else { return }
             var request = URLRequest(url: target)
-            request.httpMethod = "POST"
+            request.httpMethod = method
             request.httpBody = body
             request.timeoutInterval = 20
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             if version == .v2 {
                 request.setValue("2", forHTTPHeaderField: RelayProtocol.versionHeader)
                 let path = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? target.path
-                if signed, let header = try? RelayAuth.header(method: "POST", path: path, side: .mac, body: body, identity: self.identity) {
+                if signed, let header = try? RelayAuth.header(method: method, path: path, side: .mac, body: body, identity: self.identity) {
                     request.setValue(header, forHTTPHeaderField: "authorization")
                 }
             }
