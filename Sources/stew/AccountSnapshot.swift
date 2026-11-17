@@ -51,6 +51,9 @@ enum AccountSnapshot {
             Scenario(name: "payment-problem", account: account(
                 AccountPlan(status: .pastDue, currentPeriodEnd: now.addingTimeInterval(4 * day), interval: .month), entitled: true
             )),
+            Scenario(name: "gift", account: account(
+                AccountPlan(status: .gift, trialEndsAt: now.addingTimeInterval(-40 * day), giftEndsAt: now.addingTimeInterval(60 * day)), entitled: true
+            )),
             Scenario(name: "expired", account: account(
                 AccountPlan(status: .expired, trialEndsAt: now.addingTimeInterval(-3 * day)), entitled: false
             )),

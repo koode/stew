@@ -126,7 +126,7 @@ struct AccountSettingsTab: View {
                         }
                     }
                 }
-                subscribe
+                subscribe(summary)
                 if summary.hasBilling {
                     SettingRow(hint: "Change the payment method, see invoices or cancel, on a Stripe page in your browser.") {
                         LabeledContent("Billing") {
@@ -156,7 +156,7 @@ struct AccountSettingsTab: View {
     }
 
     @ViewBuilder
-    private var subscribe: some View {
+    private func subscribe(_ summary: AccountPlanSummary) -> some View {
         if account.paymentWait != nil {
             SettingRow(hint: "Finish the checkout in your browser. This page updates by itself once the payment is through.") {
                 LabeledContent("Subscribe") {
@@ -167,7 +167,7 @@ struct AccountSettingsTab: View {
                 }
             }
         } else if !account.offers.isEmpty {
-            SettingRow(hint: "Checkout opens in your browser.") {
+            SettingRow(hint: summary.subscribeHint) {
                 LabeledContent("Subscribe") {
                     HStack(spacing: 8) {
                         ForEach(account.offers, id: \.url) { offer in

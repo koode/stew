@@ -280,6 +280,8 @@ public struct AccountPlanSummary: Equatable, Sendable {
     public var hint: String
     /// Whether billing has something to manage: the account paid at some point.
     public var hasBilling: Bool
+    /// The line under the offers.
+    public var subscribeHint = "Checkout opens in your browser."
 
     /// Days left, counted up: 30 hours is 2 days.
     public static func daysLeft(until end: Date, now: Date) -> Int {
@@ -287,6 +289,10 @@ public struct AccountPlanSummary: Equatable, Sendable {
     }
 
     public init(plan: AccountPlan, now: Date, dateText: (Date) -> String) {
+        var plan = plan
+        let liveGift = plan.giftEndsAt.map { $0 > now } ?? (plan.status == .gift)
+        // A gift that has ended no longer counts: the plan shows as it would without it.
+        if plan.status == .gift, !liveGift { plan.status = .expired }
         let paidName: String
         switch plan.interval {
         case .month: paidName = "stew Pro, monthly"
@@ -340,11 +346,22 @@ public struct AccountPlanSummary: Equatable, Sendable {
             status = "Expired"
             tone = .attention
             hint = "Subscribe to use the iPhone relay again."
+        case .gift:
+            name = "stew Pro (gift)"
+            status = "Active"
+            tone = .good
+            hint = plan.giftEndsAt.map { "Gift ends \(dateText($0))." } ?? "The gift has no end date."
+            subscribeHint = "Subscribe to keep stew Pro after the gift ends."
         case .other(let raw):
             name = paidName
             status = raw.replacingOccurrences(of: "_", with: " ").capitalized
             tone = .neutral
             hint = "Update stew to see more about this plan."
+        }
+        // A gift beside a paid plan: the paid plan shows, and the gift only when it
+        // reaches past the paid period.
+        if plan.status != .gift, liveGift, let giftEnd = plan.giftEndsAt, giftEnd > (plan.currentPeriodEnd ?? .distantPast) {
+            hint += "\nGift until \(dateText(giftEnd))."
         }
     }
 }

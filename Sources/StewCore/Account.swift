@@ -30,6 +30,8 @@ public struct AccountConfig: Codable, Equatable, Sendable {
 /// keeps its name and counts as not paid, so a newer server never breaks the pane.
 public enum AccountPlanStatus: Equatable, Sendable, Codable {
     case trial, active, pastDue, canceled, expired
+    /// A gift from stew is what entitles, with no live paid subscription.
+    case gift
     case other(String)
 
     public init(rawValue: String) {
@@ -39,6 +41,7 @@ public enum AccountPlanStatus: Equatable, Sendable, Codable {
         case "past_due": self = .pastDue
         case "canceled": self = .canceled
         case "expired": self = .expired
+        case "gift": self = .gift
         default: self = .other(rawValue)
         }
     }
@@ -50,6 +53,7 @@ public enum AccountPlanStatus: Equatable, Sendable, Codable {
         case .pastDue: "past_due"
         case .canceled: "canceled"
         case .expired: "expired"
+        case .gift: "gift"
         case .other(let name): name
         }
     }
@@ -101,16 +105,20 @@ public struct AccountPlan: Codable, Equatable, Sendable {
     public var currentPeriodEnd: Date?
     public var cancelAtPeriodEnd: Bool
     public var interval: AccountBillingInterval?
+    /// When a gifted membership ends. Reported with a paid plan too, whose status then
+    /// stays as it is.
+    public var giftEndsAt: Date?
 
     public init(
         status: AccountPlanStatus, trialEndsAt: Date? = nil, currentPeriodEnd: Date? = nil, cancelAtPeriodEnd: Bool = false,
-        interval: AccountBillingInterval? = nil
+        interval: AccountBillingInterval? = nil, giftEndsAt: Date? = nil
     ) {
         self.status = status
         self.trialEndsAt = trialEndsAt
         self.currentPeriodEnd = currentPeriodEnd
         self.cancelAtPeriodEnd = cancelAtPeriodEnd
         self.interval = interval
+        self.giftEndsAt = giftEndsAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -120,6 +128,7 @@ public struct AccountPlan: Codable, Equatable, Sendable {
         currentPeriodEnd = try container.decodeIfPresent(Date.self, forKey: .currentPeriodEnd)
         cancelAtPeriodEnd = try container.decodeIfPresent(Bool.self, forKey: .cancelAtPeriodEnd) ?? false
         interval = try container.decodeIfPresent(AccountBillingInterval.self, forKey: .interval)
+        giftEndsAt = try container.decodeIfPresent(Date.self, forKey: .giftEndsAt)
     }
 }
 

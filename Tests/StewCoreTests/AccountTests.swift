@@ -109,8 +109,20 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(account.lease == nil)
     }
 
+    @Test func readsAGift() throws {
+        let json = #"{"id":"a","email":"e@x.io","plan":{"status":"gift","giftEndsAt":"2026-12-01T10:00:00Z"},"entitled":true,"offers":[{"interval":"year","label":"Yearly","url":"https://buy.stripe.com/y"}]}"#
+        let account = try AccountClient.decodeAccount(Data(json.utf8))
+        #expect(account.plan.status == .gift)
+        #expect(account.plan.giftEndsAt == Date(timeIntervalSince1970: 1_796_119_200))
+        #expect(account.openableOffers(server: server).map(\.label) == ["Yearly"])
+        let withoutGift = try AccountClient.decodeAccount(Data(accountJSON.utf8))
+        #expect(withoutGift.plan.giftEndsAt == nil)
+        let nullGift = #"{"id":"a","email":"e@x.io","plan":{"status":"active","giftEndsAt":null},"entitled":true}"#
+        #expect(try AccountClient.decodeAccount(Data(nullGift.utf8)).plan.giftEndsAt == nil)
+    }
+
     @Test func readsEveryKnownStatus() {
-        let names = ["trial": AccountPlanStatus.trial, "active": .active, "past_due": .pastDue, "canceled": .canceled, "expired": .expired]
+        let names = ["trial": AccountPlanStatus.trial, "active": .active, "past_due": .pastDue, "canceled": .canceled, "expired": .expired, "gift": .gift]
         for (name, status) in names {
             #expect(AccountPlanStatus(rawValue: name) == status)
             #expect(status.rawValue == name)
@@ -571,6 +583,43 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(expiredTrial.status == "Expired")
         #expect(!expiredTrial.hasBilling)
         #expect(summary(AccountPlan(status: .expired, interval: .year)).hasBilling)
+    }
+
+    @Test func giftOnly() {
+        let plan = summary(AccountPlan(status: .gift, giftEndsAt: now.addingTimeInterval(60 * 86_400)))
+        #expect(plan.name == "stew Pro (gift)")
+        #expect(plan.status == "Active")
+        #expect(plan.tone == .good)
+        #expect(plan.hint == "Gift ends D60.")
+        #expect(plan.subscribeHint == "Subscribe to keep stew Pro after the gift ends.")
+        #expect(!plan.hasBilling)
+        #expect(summary(AccountPlan(status: .gift)).hint == "The gift has no end date.")
+    }
+
+    @Test func giftBesideAPaidPlanShowsThePaidPlan() {
+        let longerGift = summary(AccountPlan(
+            status: .active, currentPeriodEnd: now.addingTimeInterval(20 * 86_400), interval: .month, giftEndsAt: now.addingTimeInterval(90 * 86_400)
+        ))
+        #expect(longerGift.name == "stew Pro, monthly")
+        #expect(longerGift.status == "Active")
+        #expect(longerGift.hint == "Renews D20.\nGift until D90.")
+        #expect(longerGift.subscribeHint == "Checkout opens in your browser.")
+        let shorterGift = summary(AccountPlan(
+            status: .active, currentPeriodEnd: now.addingTimeInterval(20 * 86_400), interval: .month, giftEndsAt: now.addingTimeInterval(10 * 86_400)
+        ))
+        #expect(shorterGift.hint == "Renews D20.")
+    }
+
+    @Test func anEndedGiftFallsBackToTheNormalStatus() {
+        let ended = summary(AccountPlan(status: .gift, giftEndsAt: now.addingTimeInterval(-86_400)))
+        #expect(ended.status == "Expired")
+        #expect(ended.name == "Trial")
+        #expect(ended.hint == "Subscribe to use the iPhone relay again.")
+        #expect(ended.subscribeHint == "Checkout opens in your browser.")
+        let paidAfterGift = summary(AccountPlan(
+            status: .active, currentPeriodEnd: now.addingTimeInterval(20 * 86_400), interval: .year, giftEndsAt: now.addingTimeInterval(-86_400)
+        ))
+        #expect(paidAfterGift.hint == "Renews D20.")
     }
 
     @Test func anUnknownStatusShowsItsName() {
