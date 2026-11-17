@@ -9,9 +9,11 @@ enum NeedsStyle {
 }
 
 /// What the agent needs the user to do: the steps, commands to copy, links to open, the
-/// other answers the agent offered, and Done or Not now. No time limit, so no clock.
+/// other answers the agent offered, and Done or Not now. No time limit, so no clock. Once
+/// its session cleared it, how it ended takes the buttons' place, as in History.
 struct NeedsBody: View {
     let needs: NeedsRequest
+    @ObservedObject var item: Item
     var agent: CodingAgent = .claudeCode
     @ObservedObject var coordinator: Coordinator
     var interactive: Bool
@@ -79,7 +81,9 @@ struct NeedsBody: View {
                 )
             }
             // A long Done label gets a row of its own, still at the bottom right.
-            if coordinator.showsButtons {
+            if let closedEntry = item.closedEntry {
+                OutcomeBanner(entry: closedEntry)
+            } else if coordinator.showsButtons {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         secondaryButtons(keymap)

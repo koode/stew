@@ -153,6 +153,53 @@ private func item(_ id: String, title: String = "Log in", in itemSession: Sessio
     }
 }
 
+@Suite struct NeedsHoldTests {
+    let start = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+    private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+
+    @Test func clearedSoonAfterShowingStaysForTheRest() {
+        var screenTime = ScreenTime()
+        screenTime.shown(at: at(0))
+        #expect(NeedsHold.until(screenTime, now: at(1)) == at(5))
+        #expect(NeedsHold.until(screenTime, now: at(4.5)) == at(5))
+    }
+
+    @Test func clearedAfterTheMinimumGoesAtOnce() {
+        var screenTime = ScreenTime()
+        screenTime.shown(at: at(0))
+        #expect(NeedsHold.until(screenTime, now: at(5)) == nil)
+        #expect(NeedsHold.until(screenTime, now: at(6)) == nil)
+    }
+
+    @Test func neverShownGoesAtOnce() {
+        #expect(NeedsHold.until(ScreenTime(), now: at(1)) == nil)
+    }
+
+    @Test func notOnScreenNowGoesAtOnceEvenIfItShowedBefore() {
+        var screenTime = ScreenTime()
+        screenTime.shown(at: at(0))
+        screenTime.hidden(at: at(2))
+        #expect(NeedsHold.until(screenTime, now: at(3)) == nil)
+    }
+
+    @Test func timeAddsUpAcrossStretchesAtTheFront() {
+        var screenTime = ScreenTime()
+        screenTime.shown(at: at(0))
+        screenTime.hidden(at: at(2))
+        screenTime.shown(at: at(10))
+        // A repeated "shown" keeps the start of the stretch.
+        screenTime.shown(at: at(11))
+        #expect(screenTime.total(at: at(12)) == 4)
+        #expect(NeedsHold.until(screenTime, now: at(12)) == at(13))
+        #expect(NeedsHold.until(screenTime, now: at(13)) == nil)
+    }
+
+    @Test func theMinimumIsFiveSeconds() {
+        #expect(NeedsHold.minimumVisible == 5)
+    }
+}
+
 @Suite struct ReturnSummaryTests {
     @Test func countsMissedRequestsAndOpenNeeds() throws {
         #expect(ReturnSummary.notice(missedCount: 0, needsCount: 0) == nil)

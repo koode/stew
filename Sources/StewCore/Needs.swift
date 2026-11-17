@@ -273,6 +273,52 @@ public enum PanelQueue {
     }
 }
 
+/// How long an item has been on screen: the front of the panel, which shows whenever it
+/// has an item. Time adds up across every stretch at the front.
+public struct ScreenTime: Equatable, Sendable {
+    /// Seconds on screen in stretches that have ended.
+    public private(set) var earlier: TimeInterval = 0
+    /// When the current stretch began; nil while the item is not on screen.
+    public private(set) var since: Date?
+
+    public init() {}
+
+    public var isShown: Bool { since != nil }
+
+    /// The item is at the front now. Repeated calls keep the stretch's start.
+    public mutating func shown(at now: Date) {
+        if since == nil { since = now }
+    }
+
+    /// The item is not at the front now.
+    public mutating func hidden(at now: Date) {
+        guard let since else { return }
+        earlier += max(0, now.timeIntervalSince(since))
+        self.since = nil
+    }
+
+    public func total(at now: Date) -> TimeInterval {
+        earlier + (since.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+    }
+}
+
+/// A needs item the session cleared (Claude saw it done, the user wrote to the session,
+/// or a later turn moved on) while it was on screen stays there, closed, until it has
+/// been on screen `minimumVisible` in all. Otherwise a panel could appear and vanish
+/// before the user had time to read what it was about. One that is not on screen when
+/// it is cleared, such as one still waiting behind a request, goes at once: the panel
+/// never showed it, or showed it earlier and moved on.
+public enum NeedsHold {
+    public static let minimumVisible: TimeInterval = 5
+
+    /// When the cleared item may leave the panel. Nil: at once.
+    public static func until(_ screenTime: ScreenTime, now: Date) -> Date? {
+        guard screenTime.isShown else { return nil }
+        let left = minimumVisible - screenTime.total(at: now)
+        return left > 0 ? now.addingTimeInterval(left) : nil
+    }
+}
+
 /// The notice shown when the user comes back to the Mac: requests that timed out while
 /// they were away, and things that still need them. Nil when there is neither.
 public enum ReturnSummary {

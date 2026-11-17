@@ -526,6 +526,21 @@ enum Snapshot {
                 doneLabel: "Logged in"
             )))
         }),
+        ("needs-cleared", { coordinator in
+            // The user wrote to the session a moment after the item showed: it stays,
+            // closed, until it has been on screen long enough to read.
+            let needs = NeedsRequest(
+                title: "Log in to npm so I can publish 2.4.0",
+                why: "The publish step failed with E401: this machine has no npm login.",
+                steps: ["Run the command below in a terminal.", "Finish the login in the browser window it opens."],
+                commands: [NeedsCommand(command: "npm login --auth-type=web")],
+                doneLabel: "Logged in"
+            )
+            let item = needsItem(needs)
+            coordinator.show(item)
+            let record = NeedsItem(id: "3f9a1c2e", created: Date(), session: session, needs: needs)
+            item.closedEntry = HistoryEntry.record(record, outcome: .answeredInSession, note: nil, ended: Date())
+        }),
         ("needs-note", { coordinator in
             coordinator.show(needsItem(NeedsRequest(
                 title: "Approve the TestFlight build in App Store Connect",

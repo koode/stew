@@ -116,7 +116,7 @@ struct ItemCard: View {
             case .question:
                 QuestionBody(item: item, coordinator: coordinator, interactive: interactive)
             case .needs(let needs):
-                NeedsBody(needs: needs, agent: item.request.session.codingAgent, coordinator: coordinator, interactive: interactive)
+                NeedsBody(needs: needs, item: item, agent: item.request.session.codingAgent, coordinator: coordinator, interactive: interactive)
             case .input(let input):
                 InputBody(input: input, item: item, coordinator: coordinator, interactive: interactive)
             }
@@ -238,7 +238,7 @@ struct Header: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
         }
         .buttonStyle(.plain)
-        .help(item.isNeeds ? "Not now: it stays open in the menu bar" : "Dismiss without answering")
+        .help(item.closedEntry != nil ? "Close" : item.isNeeds ? "Not now: it stays open in the menu bar" : "Dismiss without answering")
     }
 }
 

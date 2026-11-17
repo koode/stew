@@ -42,7 +42,13 @@ final class Item: ObservableObject, Identifiable {
     @Published var explaining = false
     /// Time left, kept while the clock is paused for typing a note or picking a grant.
     @Published var pausedRemaining: TimeInterval?
+    /// Ends the item: its clock or hard limit, or the end of a cleared needs item's hold.
     var timer: DispatchWorkItem?
+    /// How long it has been at the front of the panel.
+    var screenTime = ScreenTime()
+    /// A needs item its session cleared while it was on screen: how it ended. It stays,
+    /// closed, until it has shown long enough to read; see `NeedsHold`.
+    @Published var closedEntry: HistoryEntry?
     /// Open on a paired phone: the clock pauses while the user reads it there.
     @Published var viewing: ViewingPause?
     /// Fires when the viewing pause ends, to resume the clock or time out at the cap.
@@ -408,7 +414,8 @@ final class Coordinator: ObservableObject {
 
     /// Needs items wait behind everything else; see `PanelQueue`.
     private func arrangeQueue() {
-        items = PanelQueue.ordered(items, frontPinned: textMode || current?.engaged == true, isNeeds: \.isNeeds)
+        let frontPinned = textMode || current?.engaged == true || current?.closedEntry != nil
+        items = PanelQueue.ordered(items, frontPinned: frontPinned, isNeeds: \.isNeeds)
     }
 
     /// Commands for needs items: "resolve ID" (Claude saw it done) and "answered
@@ -533,7 +540,7 @@ final class Coordinator: ObservableObject {
         onNeedsFinished?(record, outcome)
         answerWaiter(id, StewResponse(status: status, note: note, id: id, answer: answer))
         if let panelItem = items.first(where: { $0.needsID == id }) {
-            remove(panelItem)
+            if byUser { remove(panelItem) } else { removeCleared(panelItem, entry: entry) }
         } else {
             changed()
         }
@@ -552,6 +559,27 @@ final class Coordinator: ObservableObject {
         }
         guard label != nil, record.needs.answers.indices.contains(answerIndex) else { return false }
         return finishNeeds(id: id, outcome: .answered, status: .answered, note: note, answer: label, answeredOn: device)
+    }
+
+    /// The session cleared a needs item: it leaves the panel at once, or, when it is on
+    /// screen, shows closed for the rest of `NeedsHold.minimumVisible` first. Its answer
+    /// can no longer go anywhere, so an open note field closes.
+    private func removeCleared(_ item: Item, entry: HistoryEntry) {
+        trackScreenTime()
+        guard let until = NeedsHold.until(item.screenTime, now: Date()) else {
+            remove(item)
+            return
+        }
+        item.closedEntry = entry
+        draft = ""
+        setTextMode(false)
+        let work = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item else { return }
+            self.remove(item)
+        }
+        item.timer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, until.timeIntervalSinceNow), execute: work)
+        changed()
     }
 
     /// "Not now": out of the panel, still open in the menu bar. A waiting caller keeps waiting.
@@ -647,7 +675,7 @@ final class Coordinator: ObservableObject {
         var clockState = "none"
         if let deadline = current?.deadline { clockState = "running:\(Int(deadline.timeIntervalSinceNow.rounded()))" }
         if let remaining = current?.pausedRemaining { clockState = "paused:\(Int(remaining.rounded()))" }
-        let needsState = "needs=\(needsStore.items.count) parked=\(needsStore.items.filter(\.parked).count) front=\(current?.needsID ?? "-")"
+        let needsState = "needs=\(needsStore.items.count) parked=\(needsStore.items.filter(\.parked).count) front=\(current?.needsID ?? "-") closed=\(current?.closedEntry?.outcome.rawValue ?? "-")"
         var inputState = "-"
         if let item = current, let input = item.input {
             switch input.check(item.inputText) {
@@ -1165,9 +1193,18 @@ final class Coordinator: ObservableObject {
     }
 
     private func changed() {
+        trackScreenTime()
         syncTimer()
         onChange?()
         if isIdle { onIdle?() }
+    }
+
+    /// The front item is on screen; the others wait unseen.
+    private func trackScreenTime() {
+        let now = Date()
+        for item in items {
+            if item === current { item.screenTime.shown(at: now) } else { item.screenTime.hidden(at: now) }
+        }
     }
 
     /// The user started answering the request on screen (see `Item.engaged`): its clock
@@ -1368,6 +1405,11 @@ final class Coordinator: ObservableObject {
             return
         }
         guard let item = current else { return }
+        if item.closedEntry != nil {
+            // The session already handled it: closing it is all that is left to do.
+            if action == .dismiss { remove(item) }
+            return
+        }
         let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         switch (item.request.prompt, action) {
         case (_, .extend):
@@ -1465,7 +1507,7 @@ final class Coordinator: ObservableObject {
     }
 
     func choose(option index: Int) {
-        if historyPreview == .ended { return }
+        if historyPreview == .ended || current?.closedEntry != nil { return }
         if let item = current, item.isNeeds {
             let note = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             if let id = item.needsID { answerNeeds(id: id, answerIndex: index, note: note.isEmpty ? nil : note) }
@@ -1557,6 +1599,7 @@ final class Coordinator: ObservableObject {
         case .notify:
             bindings.append((keymap[.approve], .action(.approve)))
         case .needs(let needs):
+            guard item.closedEntry == nil else { break }
             for index in needs.answers.indices.prefix(NeedsRequest.maxAnswers) {
                 bindings.append((keymap.options[index], .option(index)))
             }

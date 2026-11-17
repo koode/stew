@@ -670,11 +670,37 @@ expect "--timeout without --wait is refused" "$code$(cat "$WORK/err")" "64stew: 
 "$STEW" needs "x" --link "file:///Applications/Calculator.app" 2> "$WORK/err"; code=$?
 expect "a link that is not http is refused" "$code$(cat "$WORK/err")" "64stew: \"file:///Applications/Calculator.app\" is not an http or https URL"
 
+# A needs item the session clears stays on screen, closed, until it showed 5 s.
+now() { python3 -c 'import time;print(time.time())'; }
+# The user closes a held item, so a test goes on without waiting out the 5 s.
+close_held() { [[ "$(control state)" == *" closed=-"* ]] || control press dismiss > /dev/null; }
 out=$("$STEW" needs "Approve the release in App Store Connect")
+shown=$(now)
 REL=$(id_of "$out")
+sleep 1
 out=$("$STEW" needs resolve "$REL"); code=$?
 expect "resolve from the CLI" "$out$code" "{\"id\":\"$REL\",\"status\":\"resolved\"}0"
-expect "resolved item leaves the panel" "$(control state)" "items=0"
+state=$(control state)
+expect "cleared 1 s after it showed, it stays on screen" "$state" "items=1 kind=needs"
+expect "closed, saying how it ended" "$state" "needs=0 parked=0 front=$REL closed=resolvedByClaude"
+expect "a closed item only closes" "$state" "keys=⌘. notice"
+control press approve > /dev/null
+expect "Done on a closed item does nothing" "$(control state)" "items=1 kind=needs"
+wait_items 0
+held=$(python3 -c 'import sys;print(f"{float(sys.argv[2])-float(sys.argv[1]):.1f}")' "$shown" "$(now)")
+python3 -c 'import sys;sys.exit(0 if 4.8<=float(sys.argv[1])<=6.0 else 1)' "$held" && pass "it leaves once it showed 5 s" || fail "it leaves once it showed 5 s" "left after $held s"
+out=$("$STEW" needs "Confirm the DNS change")
+sleep 6
+"$STEW" needs resolve "$(id_of "$out")" > /dev/null
+expect "cleared after 6 s on screen, it goes at once" "$(control state)" "items=0"
+"$STEW" permit --action "first" --reason "y" > "$WORK/out" & client=$!
+wait_items 1
+out=$("$STEW" needs "Check the invoice")
+expect "a needs item waits behind the request" "$(control state)" "items=2 kind=permission"
+"$STEW" needs resolve "$(id_of "$out")" > /dev/null
+expect "cleared while it waits, it never shows" "$(control state)" "items=1 kind=permission"
+control press dismiss > /dev/null; wait $client
+expect "and nothing is left" "$(control state)" "items=0"
 sleep 0.2
 expect "resolve is recorded" "$(needs_count resolvedByClaude 'Approve the release in App Store Connect')" "1"
 out=$("$STEW" needs resolve nosuchid); code=$?
@@ -793,6 +819,7 @@ expect "open item is back after a restart" "$state" "items=1 kind=needs"
 expect "parked item stays parked after a restart" "$state" "needs=2 parked=1 front=$ROT"
 "$STEW" needs resolve "$ROT" > /dev/null
 "$STEW" needs resolve "$SIGN" > /dev/null
+close_held
 expect "nothing open" "$(control state)" "items=0 kind=none"
 
 # Stop hook: a "needs input:" line in Claude's last message becomes an item, for
@@ -833,11 +860,13 @@ expect "other sessions keep theirs" "$(control state)" "needs=1"
 sleep 0.2
 expect "answered in session is recorded" "$(needs_count answeredInSession 'log in to the registry again')" "1"
 prompt_hook auto-3 > /dev/null
+close_held
 expect "every automatic item answered" "$(control state)" "items=0 kind=none"
 # A later turn that ends without the line: the session moved on, its item goes.
 stop_hook auto-6 "$NEEDS_MESSAGE" 0 > /dev/null
 expect "an item to move on from" "$(control state)" "needs=1 "
 stop_hook auto-6 "Pushed. All green." 0 > /dev/null
+close_held
 expect "a turn without the line ends the automatic item" "$(control state)" "items=0 kind=none"
 sleep 0.2
 expect "moved on is recorded" "$(needs_count movedOn 'log in to the registry')" "1"
@@ -849,12 +878,14 @@ expect "an open stew needs item blocks the automatic one" "$(control state)" "ne
 stop_hook auto-7 "Waiting for the login." 0 > /dev/null
 expect "moving on leaves the stew needs item" "$(control state)" "needs=1 parked=0 front=$CLI"
 "$STEW" needs resolve "$CLI" > /dev/null
+close_held
 # The Stop input of an older Claude Code has no last_assistant_message: read the transcript.
 printf '%s\n' "$(python3 -c 'import json;print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":"needs input: approve the deploy"}]}}))')" > "$WORK/transcript.jsonl"
 python3 -c 'import json,sys;print(json.dumps({"session_id":"auto-4","cwd":sys.argv[1],"hook_event_name":"Stop","transcript_path":sys.argv[2]}))' "$PROJ" "$WORK/transcript.jsonl" \
   | CLAUDE_CODE_SESSION_ATTENDED=0 "$STEW" hook stop
 expect "transcript fallback" "$("$STEW" needs list)" "e2e · approve the deploy"
 prompt_hook auto-4 > /dev/null
+close_held
 expect "prompt hook ignores input without a session" "[$(echo '{}' | "$STEW" hook prompt)]" "[]"
 
 # hooks install adds Stop and UserPromptSubmit, once, and keeps other hooks
@@ -1061,6 +1092,7 @@ expect "the waiting needs item follows" "$state" "items=1 kind=needs"
 expect "the waiting item is the one from the pause" "$state" "front=$KEY"
 expect "Open history on the summary marks them seen" "$(control menu)" "count=1 dot=false paused=false"
 "$STEW" needs resolve "$KEY" > /dev/null
+close_held
 
 # A pause ends by itself, and needs items that waited come into the panel.
 control pausefor 1 > /dev/null
@@ -1073,6 +1105,7 @@ state=$(control state)
 expect "the waiting item shows when it ends" "$state" "items=1 kind=needs"
 expect "the waiting item is the one from the pause" "$state" "front=$BADGE"
 "$STEW" needs resolve "$BADGE" > /dev/null
+close_held
 
 # A pause survives a daemon restart.
 "$STEW" pause 5 > /dev/null
