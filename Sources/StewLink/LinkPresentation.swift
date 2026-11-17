@@ -186,6 +186,7 @@ public enum LinkPresentation {
     /// preview does. It needs the session's id. A secret only from a Mac that takes it typed
     /// in the app; the notification never has a field for it.
     public static func canAnswerLate(_ request: LinkRequest) -> Bool {
+        if request.agentAsksOnTimeout == true { return false }
         if case .input(let input) = request.request.prompt, input.secret, !takesSecretInApp(request) { return false }
         return LateMailbox.canAnswerLate(request.request)
     }

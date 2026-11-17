@@ -529,7 +529,8 @@ final class PhoneLink: ObservableObject {
         }
         // A secret the user chose to enter later can come from the app too, like one
         // that timed out.
-        if outcome == .timedOut || (outcome == .later && entry.sent.secretInApp == true) {
+        // A request whose agent asks in its own prompt on a timeout takes no late answer.
+        if (outcome == .timedOut && entry.sent.agentAsksOnTimeout != true) || (outcome == .later && entry.sent.secretInApp == true) {
             lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date())
         }
         resolve(item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering, agent: item.request.session.codingAgent)
@@ -681,7 +682,7 @@ final class PhoneLink: ObservableObject {
             macName: macName,
             // A blocked call's explanation comes after the request; the phone shows it as
             // the panel does.
-            request: Self.withoutOrigin(item.requestWithExplanation),
+            request: Self.withoutCallKey(item.requestWithExplanation),
             receivedAt: item.received,
             deadline: deadline,
             queued: queued,
@@ -691,7 +692,8 @@ final class PhoneLink: ObservableObject {
             confirmation: confirmation(for: item),
             viewingOn: coordinator.flatMap { $0.isViewing(item) ? item.viewing?.phoneName : nil },
             secretInApp: item.input?.secret == true ? true : nil,
-            explaining: item.explaining ? true : nil
+            explaining: item.explaining ? true : nil,
+            agentAsksOnTimeout: item.request.origin?.agentAsksOnTimeout == true ? true : nil
         )
     }
 
@@ -702,10 +704,11 @@ final class PhoneLink: ObservableObject {
         return SeverityRules.phoneConfirmation(item.risk.assessment?.severity, config: coordinator.config.classifier)
     }
 
-    /// The origin holds the raw tool input of a blocked call, which only the Mac needs.
-    private static func withoutOrigin(_ request: StewRequest) -> StewRequest {
+    /// The call key is the raw tool input of a blocked call, which only the Mac needs and
+    /// which can hold a secret.
+    static func withoutCallKey(_ request: StewRequest) -> StewRequest {
         var stripped = request
-        stripped.origin = nil
+        stripped.origin?.callKey = nil
         return stripped
     }
 

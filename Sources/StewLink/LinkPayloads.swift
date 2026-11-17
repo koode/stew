@@ -43,6 +43,10 @@ public struct LinkRequest: Codable, Equatable, Sendable {
     /// explanation follows in an update, inside `PermissionRequest.blocked`. Nil from an
     /// older Mac, and once the check ended.
     public var explaining: Bool?
+    /// True when the agent asks in its own prompt once the time runs out, as Codex does
+    /// for an approval: the user answers there, so the phone offers no late answer. Nil
+    /// from an older Mac, and for every other request.
+    public var agentAsksOnTimeout: Bool?
 
     public init(
         requestId: String,
@@ -57,7 +61,8 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         confirmation: PhoneConfirmation? = nil,
         viewingOn: String? = nil,
         secretInApp: Bool? = nil,
-        explaining: Bool? = nil
+        explaining: Bool? = nil,
+        agentAsksOnTimeout: Bool? = nil
     ) {
         self.requestId = requestId
         self.macName = macName
@@ -72,6 +77,7 @@ public struct LinkRequest: Codable, Equatable, Sendable {
         self.viewingOn = viewingOn
         self.secretInApp = secretInApp
         self.explaining = explaining
+        self.agentAsksOnTimeout = agentAsksOnTimeout
     }
 }
 
