@@ -51,6 +51,35 @@ public enum RiskCheckBackend: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// How the panel and the iPhone name the rules a verdict comes from. Only Claude Code's
+/// auto mode rules may be called "your auto mode rules"; a check against stew's default
+/// rules says it is stew's.
+public enum RiskWording {
+    public static func checking(defaultRules: Bool) -> String {
+        defaultRules ? "Checking against stew's default rules…" : "Checking against your auto mode rules…"
+    }
+
+    /// The banner's title for the check's verdict. A call auto mode really blocked keeps
+    /// "Auto mode blocked this": that verdict is Claude Code's own.
+    public static func verdict(_ verdict: RiskAssessment.Verdict, defaultRules: Bool) -> String {
+        let subject = defaultRules ? "stew's check" : "Auto mode"
+        switch verdict {
+        case .allow: return "\(subject) would allow this"
+        case .softDeny: return "\(subject) would block this"
+        case .hardDeny: return "\(subject) never allows this"
+        }
+    }
+}
+
+extension RiskCheckBackend {
+    /// Whether a check that is about to start will use stew's default rules, for the
+    /// banner while it runs: only Codex checks without them, when Claude Code cannot give
+    /// its rules. The check itself says for sure once it knows.
+    public static func expectsDefaultRules(engines: [RiskCheckEngine], claudeRulesAvailable: Bool) -> Bool {
+        engines.first == .codex && !claudeRulesAvailable
+    }
+}
+
 extension RiskCheck {
     /// Codex's small, fast model, for focused high-volume work such as classification
     /// ("Luna, for clear, repeatable tasks": https://learn.chatgpt.com/docs/models).

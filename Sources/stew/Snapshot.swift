@@ -283,6 +283,24 @@ enum Snapshot {
         ("permission-checking", { coordinator in
             coordinator.show(permission(branchCommand, risk: .checking, timeout: 600))
         }),
+        // The same check against stew's default rules, as when Codex checks without
+        // Claude Code: neither banner may name the user's auto mode rules.
+        ("permission-checking-default-rules", { coordinator in
+            let item = permission(branchCommand, risk: .checking, timeout: 600)
+            item.checkUsesDefaultRules = true
+            coordinator.show(item)
+        }),
+        ("permission-soft-deny-default-rules", { coordinator in
+            coordinator.show(permission(branchCommand, risk: .done(RiskAssessment(
+                verdict: .softDeny,
+                risk: .high,
+                rule: "Git Destructive",
+                summary: "Deletes release/2.1 on origin, a shared release branch. Your request said \"tidy the repo\" and did not name remote branches.",
+                severity: .high,
+                reversibility: "Deleted remote branches can be pushed again from a local copy.",
+                defaultRules: true
+            ))))
+        }),
         ("permission-soft-deny", { coordinator in
             coordinator.show(permission(branchCommand, risk: .done(RiskAssessment(
                 verdict: .softDeny,

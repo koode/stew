@@ -429,13 +429,16 @@ struct RiskBanner: View {
     var command: String? = nil
     /// The agent that retries an approved blocked call.
     var agent: CodingAgent = .claudeCode
+    /// The running check uses stew's default rules, so the banner must not name the
+    /// user's auto mode rules.
+    var checkUsesDefaultRules = false
 
     var body: some View {
         switch state {
         case .off:
             EmptyView()
         case .checking:
-            banner(tint: Ink.secondary, symbol: nil, title: "Checking against your auto mode rules…", detail: nil)
+            banner(tint: Ink.secondary, symbol: nil, title: RiskWording.checking(defaultRules: checkUsesDefaultRules), detail: nil)
         case .failed(let reason):
             banner(tint: Ink.secondary, symbol: "questionmark.diamond", title: "Risk check unavailable", detail: reason)
         case .blocked(let blocked):
@@ -473,11 +476,7 @@ struct RiskBanner: View {
         let title: String
 
         init(_ assessment: RiskAssessment) {
-            switch assessment.verdict {
-            case .allow: title = "Auto mode would allow this"
-            case .softDeny: title = "Auto mode would block this"
-            case .hardDeny: title = "Auto mode never allows this"
-            }
+            title = RiskWording.verdict(assessment.verdict, defaultRules: assessment.usesDefaultRules)
             if assessment.verdict == .hardDeny || assessment.severity == .critical {
                 tint = Tone.red.color
                 symbol = "xmark.octagon.fill"
@@ -611,7 +610,10 @@ struct PermissionBody: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .help(permission.action)
             }
-            RiskBanner(state: item.risk, explaining: item.explaining, command: permission.command, agent: agent)
+            RiskBanner(
+                state: item.risk, explaining: item.explaining, command: permission.command, agent: agent,
+                checkUsesDefaultRules: item.checkUsesDefaultRules
+            )
             if let command = permission.command, !command.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     SectionLabel(text: "Command")

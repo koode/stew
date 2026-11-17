@@ -20,21 +20,48 @@ final class RiskChecker {
     }
 
     /// Calls back on the main queue for the daemon; any queue is fine for the CLI.
-    func check(_ permission: PermissionRequest, session: SessionInfo, completion: @escaping (Result<RiskAssessment, Error>) -> Void) {
+    /// `rulesKnown` says, before the model runs, whether the check uses stew's default
+    /// rules, so the banner names the right rules while it waits.
+    func check(
+        _ permission: PermissionRequest, session: SessionInfo,
+        rulesKnown: ((Bool) -> Void)? = nil,
+        completion: @escaping (Result<RiskAssessment, Error>) -> Void
+    ) {
         let config = self.config
         Self.queue.async {
-            let result = Result { try Self.runCheck(permission, session: session, config: config) }
-            if Thread.isMainThread || !Self.mainLoopRunning {
-                completion(result)
-            } else {
-                DispatchQueue.main.async { completion(result) }
+            let result = Result {
+                try Self.runCheck(permission, session: session, config: config) { defaultRules in
+                    guard let rulesKnown else { return }
+                    Self.onMain { rulesKnown(defaultRules) }
+                }
             }
+            Self.onMain { completion(result) }
         }
+    }
+
+    private static func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread || !mainLoopRunning {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    /// Whether a check about to start will use stew's default rules, from what is quick to
+    /// see: Codex checks first, and no claude (or rules file) is there to give the rules.
+    static func expectsDefaultRules(session: SessionInfo, config: StewConfig.ClassifierConfig) -> Bool {
+        let engines = RiskCheckBackend(configValue: config.backend).engines(for: session.codingAgent)
+        let claudeRulesAvailable = ProcessInfo.processInfo.environment["STEW_POLICY_FILE"] != nil
+            || Paths.claudeBinary(configured: config.claudePath) != nil
+        return RiskCheckBackend.expectsDefaultRules(engines: engines, claudeRulesAvailable: claudeRulesAvailable)
     }
 
     static var mainLoopRunning = false
 
-    private static func runCheck(_ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig) throws -> RiskAssessment {
+    private static func runCheck(
+        _ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig,
+        rulesKnown: (Bool) -> Void
+    ) throws -> RiskAssessment {
         let engines = RiskCheckBackend(configValue: config.backend).engines(for: session.codingAgent)
         var tools: [RiskCheckEngine: String] = [:]
         let chosen = RiskCheckBackend.choose(engines) { engine in
@@ -49,8 +76,11 @@ final class RiskChecker {
         case .success(let engine):
             let tool = tools[engine]!
             switch engine {
-            case .claude: return try runClaudeCheck(permission, session: session, config: config, claude: tool)
-            case .codex: return try runCodexCheck(permission, session: session, config: config, codex: tool)
+            case .claude:
+                rulesKnown(false)
+                return try runClaudeCheck(permission, session: session, config: config, claude: tool)
+            case .codex:
+                return try runCodexCheck(permission, session: session, config: config, codex: tool, rulesKnown: rulesKnown)
             }
         case .failure(let error):
             throw CheckFailure(description: error.description)
@@ -107,19 +137,23 @@ final class RiskChecker {
         )
         var assessment = try RiskCheck.parse(cliOutput: output)
         assessment.riskyPart = RiskCheck.riskyPart(assessment.riskyPart, in: permission.command)
+        assessment.defaultRules = nil
         return assessment
     }
 
     /// The same check through `codex exec`: the same input and the same verdict shape, so
     /// the panel and the iPhone show it the same way.
     private static func runCodexCheck(
-        _ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig, codex: String
+        _ permission: PermissionRequest, session: SessionInfo, config: StewConfig.ClassifierConfig, codex: String,
+        rulesKnown: (Bool) -> Void
     ) throws -> RiskAssessment {
         let workingDirectory = expand(session.cwd) ?? Paths.home
         // Claude Code's rules when it is there to give them, else stew's defaults.
         let claude = Paths.claudeBinary(configured: config.claudePath)
-        let policy = claude.flatMap { try? policyJSON(workingDirectory: workingDirectory, claude: $0) }
-            .map { String(decoding: $0, as: UTF8.self) } ?? RiskCheck.defaultPolicyJSON
+        let claudePolicy = claude.flatMap { try? policyJSON(workingDirectory: workingDirectory, claude: $0) }
+            .map { String(decoding: $0, as: UTF8.self) }
+        let policy = claudePolicy ?? RiskCheck.defaultPolicyJSON
+        rulesKnown(claudePolicy == nil)
         let instructions = try cacheFile(named: "codex-policy", contents: RiskCheck.systemPrompt(policyJSON: policy), suffix: "txt")
         let schema = try cacheFile(named: "risk-schema", contents: RiskCheck.schema, suffix: "json")
         let recent = recentUserMessages(sessionID: session.id, agent: session.codingAgent, limit: config.recentUserMessages)
@@ -142,6 +176,7 @@ final class RiskChecker {
         let output = FileManager.default.contents(atPath: outputPath).flatMap { $0.isEmpty ? nil : $0 } ?? printed
         var assessment = try RiskCheck.parse(codexOutput: output)
         assessment.riskyPart = RiskCheck.riskyPart(assessment.riskyPart, in: permission.command)
+        assessment.defaultRules = claudePolicy == nil ? true : nil
         return assessment
     }
 

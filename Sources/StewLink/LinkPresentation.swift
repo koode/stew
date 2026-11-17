@@ -253,6 +253,13 @@ public enum LinkPresentation {
         }
     }
 
+    /// The Mac's check judged the call against stew's default rules, not the user's auto
+    /// mode rules. Never for a call auto mode really blocked: that verdict is auto mode's.
+    public static func checkUsedDefaultRules(_ request: LinkRequest) -> Bool {
+        guard case .permission(let permission) = request.request.prompt, permission.blocked == nil else { return false }
+        return request.risk?.usesDefaultRules == true
+    }
+
     /// The risk check's verdict on the call: the Mac's own check, or for a call auto mode
     /// blocked, stew's explanation of it, which the Mac adds once its check is done.
     public static func assessment(_ request: LinkRequest) -> RiskAssessment? {
@@ -294,12 +301,12 @@ public enum LinkPresentation {
         switch request.request.prompt {
         case .permission(let permission):
             if request.hardDeny {
-                lines.append("Auto mode never allows this. Approve it on your Mac, or deny it here.")
+                lines.append("\(RiskWording.verdict(.hardDeny, defaultRules: checkUsedDefaultRules(request))). Approve it on your Mac, or deny it here.")
             } else if let blocked = permission.blocked {
                 lines.append((["Auto mode blocked this", blocked.category].compactMap { $0 }).joined(separator: " · "))
                 if let summary = blocked.explanation?.summary, !summary.isEmpty { lines.append(CommandText.masked(summary)) }
             } else if let risk = request.risk, risk.verdict == .softDeny {
-                lines.append((["Auto mode would block this", risk.ruleName].compactMap { $0 }).joined(separator: " · "))
+                lines.append(([RiskWording.verdict(.softDeny, defaultRules: risk.usesDefaultRules), risk.ruleName].compactMap { $0 }).joined(separator: " · "))
             }
             if let line = severityLine(assessment(request)) { lines.append(line) }
             lines.append(permission.action)
@@ -482,7 +489,13 @@ public enum LinkRefusal {
         agentAsksOnTimeout ? agent.asksInItsOwnPrompt : "\(agent.name) was told you did not respond in time."
     }
 
-    public static let macOnly = "Approve this on your Mac. Auto mode never allows it, so the phone can only deny it."
+    public static let macOnly = macOnly(defaultRules: false)
+
+    /// `defaultRules`: the "never allows" verdict came from stew's check against its
+    /// default rules, not from auto mode.
+    public static func macOnly(defaultRules: Bool) -> String {
+        "Approve this on your Mac. \(defaultRules ? "stew's check" : "Auto mode") never allows it, so the phone can only deny it."
+    }
 
     public static func closed(_ outcome: LinkOutcome?, macName: String, agent: CodingAgent = .claudeCode, agentAsksOnTimeout: Bool = false) -> String {
         switch outcome {
@@ -505,7 +518,11 @@ public enum LinkRefusal {
 
     public static let alreadyAnswered = "You already answered this request."
     public static let viewingCapReached = "The clock is no longer paused for this request: it was open on your iPhone for the longest time stew pauses it."
-    public static let riskChecking = "Your Mac is still checking this command against your auto mode rules. Try again in a few seconds."
+    public static let riskChecking = riskChecking(defaultRules: false)
+
+    public static func riskChecking(defaultRules: Bool) -> String {
+        "Your Mac is still checking this command against \(defaultRules ? "stew's default rules" : "your auto mode rules"). Try again in a few seconds."
+    }
     /// An answer older than this is refused, so a relay that held it back cannot apply it
     /// after the user has moved on.
     public static let answerLifetime: TimeInterval = 30
@@ -541,7 +558,7 @@ public enum LinkRefusal {
         }
         switch (choice, request.request.prompt) {
         case (.approve, .permission):
-            return request.hardDeny ? macOnly : nil
+            return request.hardDeny ? macOnly(defaultRules: LinkPresentation.checkUsedDefaultRules(request)) : nil
         case (.moreTime, _):
             if request.queued { return clockNotStarted }
             return request.deadline == nil ? noTimeLimit : nil

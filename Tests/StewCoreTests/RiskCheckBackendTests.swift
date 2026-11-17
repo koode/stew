@@ -148,3 +148,35 @@ import Testing
         #expect(RiskCheck.recentUserMessages(codexSession: data, limit: 0).isEmpty)
     }
 }
+
+@Suite struct RiskWordingTests {
+    @Test func onlyAutoModeRulesAreCalledTheUsersAutoModeRules() {
+        #expect(RiskWording.checking(defaultRules: false) == "Checking against your auto mode rules…")
+        #expect(RiskWording.checking(defaultRules: true) == "Checking against stew's default rules…")
+        #expect(RiskWording.verdict(.allow, defaultRules: false) == "Auto mode would allow this")
+        #expect(RiskWording.verdict(.softDeny, defaultRules: false) == "Auto mode would block this")
+        #expect(RiskWording.verdict(.hardDeny, defaultRules: false) == "Auto mode never allows this")
+        #expect(RiskWording.verdict(.allow, defaultRules: true) == "stew's check would allow this")
+        #expect(RiskWording.verdict(.softDeny, defaultRules: true) == "stew's check would block this")
+        #expect(RiskWording.verdict(.hardDeny, defaultRules: true) == "stew's check never allows this")
+    }
+
+    @Test func onlyCodexWithoutClaudesRulesExpectsTheDefaults() {
+        #expect(RiskCheckBackend.expectsDefaultRules(engines: [.codex, .claude], claudeRulesAvailable: false))
+        #expect(!RiskCheckBackend.expectsDefaultRules(engines: [.codex, .claude], claudeRulesAvailable: true))
+        #expect(!RiskCheckBackend.expectsDefaultRules(engines: [.claude, .codex], claudeRulesAvailable: false))
+        #expect(!RiskCheckBackend.expectsDefaultRules(engines: [], claudeRulesAvailable: false))
+    }
+
+    @Test func theFlagTravelsAndOlderVerdictsLeaveItOut() throws {
+        let assessment = RiskAssessment(verdict: .softDeny, risk: .high, rule: "Git Destructive", summary: "x", defaultRules: true)
+        let encoded = try JSONEncoder().encode(assessment)
+        #expect(String(decoding: encoded, as: UTF8.self).contains(#""default_rules":true"#))
+        #expect(try JSONDecoder().decode(RiskAssessment.self, from: encoded).usesDefaultRules)
+        let older = try JSONDecoder().decode(RiskAssessment.self, from: Data(#"{"verdict":"allow","risk":"low","rule":null,"summary":"x"}"#.utf8))
+        #expect(older.defaultRules == nil)
+        #expect(!older.usesDefaultRules)
+        #expect(!String(decoding: try JSONEncoder().encode(older), as: UTF8.self).contains("default_rules"))
+        #expect(!RiskCheck.schema.contains("default_rules"), "the model never sets it")
+    }
+}

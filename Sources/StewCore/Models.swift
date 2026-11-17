@@ -424,13 +424,24 @@ public struct RiskAssessment: Codable, Equatable, Sendable {
     /// The shortest part of the command that carries the risk, copied exactly from it, so
     /// the panel can point at it in a long command. Nil when none does.
     public var riskyPart: String?
+    /// True when the check judged against stew's default rules because Claude Code's auto
+    /// mode rules were not there. Set by stew, never by the model; nil for auto mode rules
+    /// and from an older Mac.
+    public var defaultRules: Bool?
 
     enum CodingKeys: String, CodingKey {
         case verdict, risk, rule, summary, severity, reversibility
         case riskyPart = "risky_part"
+        case defaultRules = "default_rules"
     }
 
-    public init(verdict: Verdict, risk: Level, rule: String?, summary: String, severity: Severity? = nil, reversibility: String? = nil, riskyPart: String? = nil) {
+    /// The verdict says what stew's own rules decide, not what auto mode would do.
+    public var usesDefaultRules: Bool { defaultRules == true }
+
+    public init(
+        verdict: Verdict, risk: Level, rule: String?, summary: String, severity: Severity? = nil, reversibility: String? = nil,
+        riskyPart: String? = nil, defaultRules: Bool? = nil
+    ) {
         self.verdict = verdict
         self.risk = risk
         self.rule = rule
@@ -438,6 +449,7 @@ public struct RiskAssessment: Codable, Equatable, Sendable {
         self.severity = severity
         self.reversibility = reversibility
         self.riskyPart = riskyPart
+        self.defaultRules = defaultRules
     }
 
     /// The reversibility line as the panel and the phone show it, or nil when empty.

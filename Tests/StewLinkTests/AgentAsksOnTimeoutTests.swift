@@ -88,3 +88,44 @@ private func codexApproval(agentAsksOnTimeout: Bool?) -> LinkRequest {
         #expect(refusal?.hasSuffix("Codex asks in its own prompt instead.") == true)
     }
 }
+
+@Suite struct DefaultRulesPresentationTests {
+    private func checked(_ verdict: RiskAssessment.Verdict, defaultRules: Bool?, blocked: Bool = false) -> LinkRequest {
+        let call = BlockedCall(toolName: "Bash", category: "Destructive", reason: "[Destructive]", hardDeny: verdict == .hardDeny, projectRoot: "/tmp", suggestions: [])
+        return LinkRequest(
+            requestId: "request1", macName: "Studio",
+            request: StewRequest(
+                session: SessionInfo(name: "web-app", id: "019a", cwd: "/tmp", agent: .codex),
+                prompt: .permission(PermissionRequest(action: "Run a shell command", command: "git push --force", reason: "x", blocked: blocked ? call : nil))
+            ),
+            receivedAt: received, deadline: received.addingTimeInterval(60), queued: false, extendBy: 60,
+            hardDeny: verdict == .hardDeny,
+            risk: RiskAssessment(verdict: verdict, risk: .high, rule: "Git Destructive", summary: "Force-pushes.", defaultRules: defaultRules)
+        )
+    }
+
+    @Test func theNotificationNamesStewsRulesForADefaultRulesVerdict() {
+        let body = LinkPresentation.notification(for: checked(.softDeny, defaultRules: true), pairingId: "pair") { _ in "10:00" }.body
+        #expect(body.contains("stew's check would block this · Git Destructive"))
+        #expect(!body.contains("Auto mode"))
+        let hard = LinkPresentation.notification(for: checked(.hardDeny, defaultRules: true), pairingId: "pair") { _ in "10:00" }.body
+        #expect(hard.contains("stew's check never allows this. Approve it on your Mac, or deny it here."))
+        #expect(LinkRefusal.beforeSending(.approve, for: checked(.hardDeny, defaultRules: true), now: received)
+            == "Approve this on your Mac. stew's check never allows it, so the phone can only deny it.")
+    }
+
+    @Test func autoModeVerdictsKeepTheirWording() {
+        let body = LinkPresentation.notification(for: checked(.softDeny, defaultRules: nil), pairingId: "pair") { _ in "10:00" }.body
+        #expect(body.contains("Auto mode would block this · Git Destructive"))
+        #expect(LinkRefusal.beforeSending(.approve, for: checked(.hardDeny, defaultRules: nil), now: received) == LinkRefusal.macOnly)
+        // A call auto mode really blocked is auto mode's verdict, whatever the check used.
+        let blocked = LinkPresentation.notification(for: checked(.hardDeny, defaultRules: true, blocked: true), pairingId: "pair") { _ in "10:00" }.body
+        #expect(blocked.contains("Auto mode never allows this. Approve it on your Mac, or deny it here."))
+        #expect(!LinkPresentation.checkUsedDefaultRules(checked(.softDeny, defaultRules: true, blocked: true)))
+    }
+
+    @Test func theCheckingRefusalNamesTheRules() {
+        #expect(LinkRefusal.riskChecking == "Your Mac is still checking this command against your auto mode rules. Try again in a few seconds.")
+        #expect(LinkRefusal.riskChecking(defaultRules: true) == "Your Mac is still checking this command against stew's default rules. Try again in a few seconds.")
+    }
+}

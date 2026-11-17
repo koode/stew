@@ -42,7 +42,7 @@ final class PhoneLink: ObservableObject {
     /// Requests that timed out on phones, by request id: which phones had them, and
     /// whether auto mode never allows them, so a phone can answer them late but not
     /// approve what only the Mac may. Memory only: after a restart only the Mac answers late.
-    private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, confirmation: PhoneConfirmation?, at: Date)] = [:]
+    private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, confirmation: PhoneConfirmation?, at: Date, defaultRules: Bool)] = [:]
     private var timer: Timer?
     let macName = Host.current().localizedName ?? "Mac"
     /// The account's lease, from its last refresh; nil when signed out or without a plan.
@@ -394,8 +394,10 @@ final class PhoneLink: ObservableObject {
         let note = answer.note.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         switch (answer.choice, item.request.prompt) {
         case (.approve, .permission):
-            guard !item.isHardDeny else { return refuse(LinkRefusal.macOnly) }
-            if case .checking = item.risk { return refuse(LinkRefusal.riskChecking) }
+            guard !item.isHardDeny else {
+                return refuse(LinkRefusal.macOnly(defaultRules: item.blocked == nil && item.risk.assessment?.usesDefaultRules == true))
+            }
+            if case .checking = item.risk { return refuse(LinkRefusal.riskChecking(defaultRules: item.checkUsesDefaultRules)) }
             // A stale or forged notification action, or an app from before severity,
             // cannot skip the extra confirmation a high or critical request asks for.
             guard SeverityRules.acceptsPhoneApproval(confirmation: confirmation(for: item), confirmed: answer.confirmed) else {
@@ -534,7 +536,9 @@ final class PhoneLink: ObservableObject {
         // that timed out.
         // A request whose agent asks in its own prompt on a timeout takes no late answer.
         if (outcome == .timedOut && entry.sent.agentAsksOnTimeout != true) || (outcome == .later && entry.sent.secretInApp == true) {
-            lateAnswerable[item.id.uuidString] = (entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date())
+            lateAnswerable[item.id.uuidString] = (
+                entry.pairingIds, item.isHardDeny, entry.sent.confirmation, Date(), LinkPresentation.checkUsedDefaultRules(entry.sent)
+            )
         }
         resolve(
             item.id.uuidString, pairingIds: entry.pairingIds, outcome: outcome, answering: answering,
@@ -562,7 +566,7 @@ final class PhoneLink: ObservableObject {
         let response: StewResponse
         switch (answer.choice, request.prompt) {
         case (.approve, .permission):
-            guard !sent.hardDeny else { return refuse(LinkRefusal.macOnly) }
+            guard !sent.hardDeny else { return refuse(LinkRefusal.macOnly(defaultRules: sent.defaultRules)) }
             guard SeverityRules.acceptsPhoneApproval(confirmation: sent.confirmation, confirmed: answer.confirmed) else {
                 return refuse(LinkRefusal.needsConfirmation)
             }

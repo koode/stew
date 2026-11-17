@@ -40,6 +40,8 @@ final class Item: ObservableObject, Identifiable {
     @Published var deadline: Date?
     /// stew's own risk check of a blocked call is still running.
     @Published var explaining = false
+    /// The running check uses stew's default rules, not Claude Code's auto mode rules.
+    @Published var checkUsesDefaultRules = false
     /// Time left, kept while the clock is paused for typing a note or picking a grant.
     @Published var pausedRemaining: TimeInterval?
     /// Ends the item: its clock or hard limit, or the end of a cleared needs item's hold.
@@ -383,7 +385,12 @@ final class Coordinator: ObservableObject {
             if config.classifier.enabled { explain(blocked, permission, of: item) }
         } else if case .permission(let permission) = request.prompt, config.classifier.enabled {
             item.risk = .checking
-            RiskChecker(config: config.classifier).check(permission, session: request.session) { [weak self, weak item] result in
+            item.checkUsesDefaultRules = RiskChecker.expectsDefaultRules(session: request.session, config: config.classifier)
+            RiskChecker(config: config.classifier).check(permission, session: request.session, rulesKnown: { [weak self, weak item] defaultRules in
+                guard let item, item.checkUsesDefaultRules != defaultRules else { return }
+                item.checkUsesDefaultRules = defaultRules
+                self?.changed()
+            }) { [weak self, weak item] result in
                 guard let item else { return }
                 switch result {
                 case .success(let assessment):
