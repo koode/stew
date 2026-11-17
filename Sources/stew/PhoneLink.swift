@@ -441,8 +441,10 @@ final class PhoneLink: ObservableObject {
                 return refuse("This request cannot wait for later.")
             }
             return LinkResult(requestId: requestId, accepted: true, message: "Waiting for you to enter it on \(macName).")
-        case (.done, .notify(let notify)) where notify.action == nil:
-            // OK on the phone: the user saw it, so the panel lets it go, as its own OK does.
+        case (.done, .notify):
+            // OK on the phone: the user saw it, so the panel lets it go, as its own close
+            // does. A notice's action (open History, install an update) belongs to this
+            // Mac, so it does not run from the phone.
             answeredBy[item.id] = pairingId
             coordinator.respond(item, StewResponse(status: .acknowledged))
             return LinkResult(requestId: requestId, accepted: true, message: "Cleared on \(macName).")
