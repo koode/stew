@@ -174,10 +174,14 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
 
 @Suite struct AccountClientTests {
     @Test func startsASignIn() async throws {
-        let (client, transport) = client([.http(200, #"{"signInId":"sgn_1","pollToken":"p","expiresAt":"2026-12-01T10:10:00Z"}"#)])
+        let (client, transport) = client([
+            .http(200, #"{"signInId":"sgn_1","pollToken":"p","expiresAt":"2026-12-01T10:10:00Z"}"#, headers: ["Date": "Tue, 01 Dec 2026 10:00:00 GMT"]),
+        ])
         let started = try await client.startSignIn(email: "abby@example.com", deviceName: "Abby's MacBook Pro")
         #expect(started.signInId == "sgn_1")
         #expect(started.pollToken == "p")
+        #expect(started.serverDate == Date(timeIntervalSince1970: 1_796_119_200))
+        #expect(started.lifetime == 600)
         let request = try #require(transport.requests.first)
         #expect(request.httpMethod == "POST")
         #expect(request.url?.absoluteString == "https://account.stewcli.com/v1/sign-in")
@@ -185,6 +189,13 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(request.value(forHTTPHeaderField: "content-type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "authorization") == nil)
         #expect(bodyObject(request) == ["email": "abby@example.com", "deviceName": "Abby's MacBook Pro"])
+    }
+
+    @Test func startsASignInWithoutADateHeader() async throws {
+        let (client, _) = client([.http(200, #"{"signInId":"sgn_1","pollToken":"p","expiresAt":"2026-12-01T10:10:00Z"}"#)])
+        let started = try await client.startSignIn(email: "abby@example.com", deviceName: "Studio")
+        #expect(started.serverDate == nil)
+        #expect(started.lifetime == nil)
     }
 
     @Test func pollsPendingThenApproved() async throws {
@@ -353,13 +364,27 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(flow.email == " abby@example.com ")
     }
 
-    @Test func endsAtTheExpiryTimeWithoutAnAnswer() {
-        var flow = waitingFlow()
-        flow.tick(now: start.expiresAt.addingTimeInterval(-1))
+    @Test func endsWhenTheTimeTheServerGaveRunsOut() {
+        // The server answered at 12:00:00 with an expiry at 12:10:00; this Mac's clock
+        // runs an hour ahead.
+        let serverNow = Date(timeIntervalSince1970: 1_800_000_000)
+        let timed = SignInStart(signInId: "sgn_2", pollToken: "poll", expiresAt: serverNow.addingTimeInterval(600), serverDate: serverNow)
+        let macNow = serverNow.addingTimeInterval(3600)
+        var flow = SignInFlow(email: "abby@example.com")
+        _ = flow.send()
+        flow.sent(.success(timed), now: macNow)
+        flow.tick(now: macNow.addingTimeInterval(599))
         #expect(flow.shouldPoll)
-        flow.tick(now: start.expiresAt)
+        flow.tick(now: macNow.addingTimeInterval(600))
         #expect(!flow.shouldPoll)
         #expect(flow.problem == .expired)
+    }
+
+    @Test func withoutTheServersDateOnlyItsRefusalEndsTheSignIn() {
+        var flow = waitingFlow()
+        #expect(flow.localDeadline == nil)
+        flow.tick(now: start.expiresAt.addingTimeInterval(3600))
+        #expect(flow.shouldPoll)
     }
 
     @Test func takesOnlySixDigits() {

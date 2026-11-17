@@ -24,6 +24,10 @@ public struct SignInFlow: Equatable, Sendable {
     public private(set) var sentTo: String?
     /// The last code sent to the server, so only a changed code clears "not right".
     public private(set) var checkedCode: String?
+    /// When the pending sign-in expires on this Mac's clock: the time it arrived plus the
+    /// time the server said it had left. Nil when the server sent no Date header; its 410
+    /// then ends the sign-in.
+    public private(set) var localDeadline: Date?
 
     public init(email: String = "") {
         self.email = email
@@ -62,12 +66,13 @@ public struct SignInFlow: Equatable, Sendable {
         return trimmedEmail
     }
 
-    public mutating func sent(_ result: Result<SignInStart, AccountError>) {
+    public mutating func sent(_ result: Result<SignInStart, AccountError>, now: Date = Date()) {
         guard phase == .sending else { return }
         switch result {
         case .success(let start):
             phase = .waiting(start)
             sentTo = trimmedEmail
+            localDeadline = start.lifetime.map { now.addingTimeInterval($0) }
             problem = nil
         case .failure(let error):
             phase = .enterEmail
@@ -92,6 +97,7 @@ public struct SignInFlow: Equatable, Sendable {
         problem = nil
         sentTo = nil
         checkedCode = nil
+        localDeadline = nil
     }
 
     /// Starts checking a code; returns the sign-in to send it with, or nil when the code
@@ -143,9 +149,10 @@ public struct SignInFlow: Equatable, Sendable {
         }
     }
 
-    /// The sign-in ran past its expiry without an answer.
+    /// The sign-in ran past its expiry without an answer. Measured from when it arrived,
+    /// never against the server's time, so a Mac clock that runs ahead cannot end it early.
     public mutating func tick(now: Date) {
-        guard let start = pending, now >= start.expiresAt else { return }
+        guard pending != nil, let localDeadline, now >= localDeadline else { return }
         expire()
     }
 
@@ -154,6 +161,7 @@ public struct SignInFlow: Equatable, Sendable {
         problem = .expired
         sentTo = nil
         checkedCode = nil
+        localDeadline = nil
     }
 
     private mutating func finish() {
@@ -161,6 +169,7 @@ public struct SignInFlow: Equatable, Sendable {
         problem = nil
         sentTo = nil
         checkedCode = nil
+        localDeadline = nil
     }
 }
 

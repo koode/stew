@@ -214,12 +214,26 @@ struct Lossy<Value: Decodable>: Decodable {
 public struct SignInStart: Codable, Equatable, Sendable {
     public var signInId: String
     public var pollToken: String
+    /// On the server's clock.
     public var expiresAt: Date
+    /// The response's Date header: the server's clock when it answered. Not in the body.
+    public var serverDate: Date?
 
-    public init(signInId: String, pollToken: String, expiresAt: Date) {
+    private enum CodingKeys: String, CodingKey {
+        case signInId, pollToken, expiresAt
+    }
+
+    public init(signInId: String, pollToken: String, expiresAt: Date, serverDate: Date? = nil) {
         self.signInId = signInId
         self.pollToken = pollToken
         self.expiresAt = expiresAt
+        self.serverDate = serverDate
+    }
+
+    /// How long the sign-in had left when the server answered, independent of this Mac's
+    /// clock; nil without the server's Date header.
+    public var lifetime: TimeInterval? {
+        serverDate.map { max(0, expiresAt.timeIntervalSince($0)) }
     }
 }
 
@@ -359,7 +373,10 @@ public struct AccountClient: Sendable {
     public var host: String { server.host ?? server.absoluteString }
 
     public func startSignIn(email: String, deviceName: String) async throws -> SignInStart {
-        try await call("POST", "/v1/sign-in", body: ["email": email, "deviceName": deviceName])
+        let (data, response) = try await send("POST", "/v1/sign-in", token: nil, body: ["email": email, "deviceName": deviceName])
+        var start: SignInStart = try Self.decode(data)
+        start.serverDate = response.value(forHTTPHeaderField: "date").flatMap(AccountTime.httpDate)
+        return start
     }
 
     public func pollSignIn(_ start: SignInStart) async throws -> SignInPoll {
@@ -424,15 +441,18 @@ public struct AccountClient: Sendable {
     }
 
     private func call<Reply: Decodable>(_ method: String, _ path: String, token: String? = nil, body: [String: String]? = nil) async throws -> Reply {
-        let data = try await send(method, path, token: token, body: body)
+        try Self.decode(try await send(method, path, token: token, body: body).data)
+    }
+
+    private static func decode<Reply: Decodable>(_ data: Data) throws -> Reply {
         do {
-            return try Self.decoder.decode(Reply.self, from: data)
+            return try decoder.decode(Reply.self, from: data)
         } catch {
             throw AccountError.badResponse
         }
     }
 
-    private func send(_ method: String, _ path: String, token: String?, body: [String: String]?) async throws -> Data {
+    private func send(_ method: String, _ path: String, token: String?, body: [String: String]?) async throws -> (data: Data, response: HTTPURLResponse) {
         let request: URLRequest
         do {
             request = try self.request(method, path, token: token, body: body)
@@ -450,7 +470,7 @@ public struct AccountClient: Sendable {
         guard (200..<300).contains(http.statusCode) else {
             throw AccountError.read(status: http.statusCode, body: data, retryAfterHeader: http.value(forHTTPHeaderField: "retry-after"))
         }
-        return data
+        return (data, http)
     }
 
     /// ISO 8601 times, with or without fractional seconds.
@@ -471,6 +491,15 @@ public struct AccountClient: Sendable {
 }
 
 enum AccountTime {
+    /// An HTTP Date header: "Tue, 17 Nov 2026 13:30:55 GMT".
+    static func httpDate(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: text)
+    }
+
     static func parse(_ text: String) -> Date? {
         if let date = try? Date(text, strategy: .iso8601) { return date }
         return try? Date(text, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true))
