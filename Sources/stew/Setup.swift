@@ -163,19 +163,52 @@ enum Setup {
             note("No \(location.displayFolder) folder, so the \(agent.productName) skill was skipped.")
             return
         }
-        let source = app + "/Contents/Resources/skill/SKILL.md"
-        let folder = location.skillFolder
-        let fileManager = FileManager.default
         do {
-            guard let skill = fileManager.contents(atPath: source) else { throw SetupError("\(source) is missing") }
-            try fileManager.createDirectory(atPath: folder, withIntermediateDirectories: true)
-            try skill.write(to: URL(fileURLWithPath: folder + "/SKILL.md"), options: .atomic)
-            try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: folder + "/SKILL.md")
-            step("Installed the \(agent.productName) skill in \(SessionResolver.abbreviate(folder, home: Paths.home))")
+            try copySkill(from: app, for: agent)
+            step("Installed the \(agent.productName) skill in \(SessionResolver.abbreviate(location.skillFolder, home: Paths.home))")
         } catch {
             print("could not install the \(agent.productName) skill: \(error)")
             failures += 1
         }
+    }
+
+    private static func copySkill(from app: String, for agent: CodingAgent) throws {
+        let source = app + "/Contents/Resources/skill/SKILL.md"
+        let folder = skillLocation(for: agent).skillFolder
+        let fileManager = FileManager.default
+        guard let skill = fileManager.contents(atPath: source) else { throw SetupError("\(source) is missing") }
+        try fileManager.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try skill.write(to: URL(fileURLWithPath: folder + "/SKILL.md"), options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: folder + "/SKILL.md")
+    }
+
+    /// The setup window's Install for one agent: the skill as `stew setup` installs it,
+    /// then the hooks as `stew hooks install --agent` does.
+    static func installAgent(_ agent: CodingAgent) throws {
+        guard let app = AppVersion.appBundle(forExecutable: Paths.executable) else {
+            throw SetupError("this stew is not inside Stew.app, so it has no skill to install")
+        }
+        let location = skillLocation(for: agent)
+        guard directoryExists(location.agentFolder) else {
+            throw SetupError("there is no \(location.displayFolder) folder for the \(agent.productName) skill")
+        }
+        try copySkill(from: app, for: agent)
+        try Hooks.install(agent: agent)
+    }
+
+    /// What of stew an agent has, read from its folders and hook file.
+    static func agentSetup(_ agent: CodingAgent) -> AgentSetup {
+        let location = skillLocation(for: agent)
+        let command: String = switch agent {
+        case .claudeCode: "claude"
+        case .codex: "codex"
+        }
+        return AgentSetup(
+            agent: agent,
+            presence: .detect(configFolderExists: directoryExists(location.agentFolder), commandFound: Paths.command(command) != nil),
+            hooks: Hooks.hookState(for: agent),
+            skillInstalled: FileManager.default.fileExists(atPath: location.skillFolder + "/SKILL.md")
+        )
     }
 
     private static func directoryExists(_ path: String) -> Bool {

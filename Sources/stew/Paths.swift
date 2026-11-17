@@ -60,12 +60,18 @@ enum Paths {
 
     /// `claude` from config, then the usual install places, then PATH.
     static func claudeBinary(configured: String?) -> String? {
+        if let configured, FileManager.default.isExecutableFile(atPath: configured) { return configured }
+        return command("claude")
+    }
+
+    /// A command in the usual install places, then PATH. The daemon starts from launchd
+    /// with a short PATH, so the install places come first.
+    static func command(_ name: String) -> String? {
         let fileManager = FileManager.default
-        if let configured, fileManager.isExecutableFile(atPath: configured) { return configured }
-        let candidates = [home + "/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+        let candidates = [home + "/.local/bin/\(name)", "/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)"]
         if let found = candidates.first(where: fileManager.isExecutableFile(atPath:)) { return found }
         let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
-        return pathEntries.map { "\($0)/claude" }.first(where: fileManager.isExecutableFile(atPath:))
+        return pathEntries.map { "\($0)/\(name)" }.first(where: fileManager.isExecutableFile(atPath:))
     }
 }
 
