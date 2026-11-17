@@ -42,6 +42,19 @@ enum Setup {
 
         linkCommand(tool: tool, binDirectory: options.binDirectory, homebrewProvidesCommand: homebrew, &failures)
 
+        // Before the daemon starts: it opens the setup window when no agent has hooks.
+        if options.withHooks {
+            for agent in options.hookAgents {
+                step("Installing the \(agent.productName) hooks")
+                do {
+                    try Hooks.install(agent: agent)
+                } catch {
+                    print("could not install the \(agent.productName) hooks: \(error)")
+                    failures += 1
+                }
+            }
+        }
+
         step("Starting the daemon (LaunchAgent \(Paths.launchAgentLabel))")
         if !startDaemon(executable: tool, domain: domain) { failures += 1 }
 
@@ -59,18 +72,6 @@ enum Setup {
         } else if options.withCompletions {
             step("Installing shell completion")
             if CompletionInstaller.install() != 0 { note("Shell completion was not installed completely; see above.") }
-        }
-
-        if options.withHooks {
-            for agent in options.hookAgents {
-                step("Installing the \(agent.productName) hooks")
-                do {
-                    try Hooks.install(agent: agent)
-                } catch {
-                    print("could not install the \(agent.productName) hooks: \(error)")
-                    failures += 1
-                }
-            }
         }
 
         if failures == 0 {
