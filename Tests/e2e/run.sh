@@ -393,6 +393,12 @@ control choose 1 > /dev/null; wait $client
 clock=$(control state | grep -o 'clock=running:[0-9]*' | cut -d: -f2)
 [[ "${clock:-99}" -le 2 ]] && pass "a request that waited shows the hard limit it has left" || fail "a request that waited shows the hard limit it has left" "clock=$clock"
 wait $second
+"$STEW" permit --action "front with a running clock" --reason "y" --timeout 60 > "$WORK/out" & client=$!
+wait_items 1
+raw_request permission 60 2 > "$WORK/second" & second=$!
+wait $second
+expect "behind a request nobody is answering, the hard limit gives the plain note" "$(cat "$WORK/second")" "The user didn't respond within 2 s."
+control press dismiss > /dev/null; wait $client
 # A phone that opened the request and never said it left: its viewing cap ends an
 # unanswered request, but not one the user started answering on the Mac.
 echo '{"classifier":{"enabled":false},"sound":"","phone":{"viewingCap":2}}' > "$STEW_CONFIG"

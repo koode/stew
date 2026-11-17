@@ -246,6 +246,19 @@ public struct StewRequest: Codable, Equatable, Sendable {
         }
     }
 
+    /// The note for a request that timed out. At the caller's hard limit Claude has
+    /// waited all of it (`maxWait`), whatever the clock showed; when the request still
+    /// waited behind one the user was answering (`behindAnswer`), the note says the user
+    /// was busy. Otherwise the clock ran out after `grantedSeconds`, or, for a request
+    /// whose clock never started, after `elapsed` since it arrived.
+    public func expiryNote(atHardLimit: Bool, behindAnswer: Bool, grantedSeconds: Double, elapsed: Double) -> String {
+        if atHardLimit {
+            let waited = maxWait ?? elapsed
+            return behindAnswer ? queuedTimeoutNote(after: waited) : timeoutNote(after: waited)
+        }
+        return timeoutNote(after: grantedSeconds > 0 ? grantedSeconds : elapsed)
+    }
+
     /// The note Claude gets when the caller's hard limit passed while the request still
     /// waited behind another one the user was answering, so the user never saw it.
     public func queuedTimeoutNote(after seconds: Double) -> String {

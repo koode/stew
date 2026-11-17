@@ -1289,10 +1289,12 @@ final class Coordinator: ObservableObject {
     /// Times the request out now. Also used when a phone answer arrives the moment the
     /// time ran out, before the timer fired, so it can go as a late answer.
     func expire(_ item: Item, reason: String? = nil) {
-        // At the caller's hard limit Claude has waited all of it, whatever the clock showed.
         let atHardLimit = item.latestDeadline.map { $0.timeIntervalSinceNow <= 1 } ?? false
-        let waited = atHardLimit ? item.request.maxWait ?? item.grantedSeconds : item.grantedSeconds
-        let timeout = item === current ? item.request.timeoutNote(after: waited) : item.request.queuedTimeoutNote(after: waited)
+        let behindAnswer = item !== current && (current?.engaged == true || current?.closedEntry != nil)
+        let timeout = item.request.expiryNote(
+            atHardLimit: atHardLimit, behindAnswer: behindAnswer,
+            grantedSeconds: item.grantedSeconds, elapsed: Date().timeIntervalSince(item.received)
+        )
         let note = [timeout, reason].compactMap { $0 }.joined(separator: " ")
         respond(item, StewResponse(status: .timeout, note: note, risk: item.risk.assessment))
     }

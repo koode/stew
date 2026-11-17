@@ -677,6 +677,25 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(question.queuedTimeoutNote(after: 3).contains("within 3 s. Continue with a safe choice"))
     }
 
+    @Test func expiryNotePicksTheReasonAndTheRealWait() {
+        let request = StewRequest(session: session, prompt: .permission(PermissionRequest(action: "a", reason: "r")), maxWait: 1780)
+        // Waited behind a request the user was answering, up to the hard limit.
+        #expect(request.expiryNote(atHardLimit: true, behindAnswer: true, grantedSeconds: 0, elapsed: 1780)
+            .hasPrefix("The user was answering another request in stew and didn't get to this one within 30 min."))
+        // At the hard limit otherwise: the whole wait, not the time limit.
+        #expect(request.expiryNote(atHardLimit: true, behindAnswer: false, grantedSeconds: 60, elapsed: 1780)
+            .hasPrefix("The user didn't respond within 30 min."))
+        // The clock ran out: the time it gave.
+        #expect(request.expiryNote(atHardLimit: false, behindAnswer: false, grantedSeconds: 60, elapsed: 90)
+            .hasPrefix("The user didn't respond within 1 min."))
+        // Never "within 0 s": a clock that never started counts from arrival.
+        #expect(request.expiryNote(atHardLimit: false, behindAnswer: false, grantedSeconds: 0, elapsed: 42)
+            .hasPrefix("The user didn't respond within 42 s."))
+        // Behind an answer but not at the hard limit is no reason to say the user was busy.
+        #expect(request.expiryNote(atHardLimit: false, behindAnswer: true, grantedSeconds: 0, elapsed: 42)
+            .hasPrefix("The user didn't respond within 42 s."))
+    }
+
     @Test func answeringKeysEngageButTimeAndModeKeysDoNot() {
         #expect(HotkeyAction.next.engages)
         #expect(HotkeyAction.previous.engages)
