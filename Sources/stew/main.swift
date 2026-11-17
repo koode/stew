@@ -414,7 +414,7 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
             print("  \(keymap[action].description.padding(toLength: 8, withPad: " ", startingAt: 0)) \(action.rawValue)")
         }
         print("  \(keymap.options.map(\.description).joined(separator: " ")) options 1-4")
-        print("  approve gets +\(keymap.hardDenyExtra.symbols) when the check says auto mode would hard deny")
+        print("  approve gets +\(keymap.hardDenyExtra.symbols) when the check says it never allows the call")
 
     case "_control":
         // Test hook: the daemon accepts simulated input only in headless mode.

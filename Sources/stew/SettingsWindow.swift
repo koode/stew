@@ -453,7 +453,7 @@ struct KeySettings: View {
                     }
                 }
                 Section("Hard deny") {
-                    SettingRow(hint: "Approving a call that auto mode would never allow needs this key as well as Approve.") {
+                    SettingRow(hint: "Approving a call that is never allowed, by auto mode or by the check, needs this key as well as Approve.") {
                         Picker("Extra key past a hard deny", selection: Binding(
                             get: { model.config.hardDenyExtra },
                             set: { value in model.update { $0.hardDenyExtra = value } }
@@ -639,7 +639,7 @@ struct AgentsSettingsTab: View {
                             Text("Opus").tag("opus")
                         }
                     }
-                    SettingRow(hint: "The check also rates how bad an action is if it runs: low, medium, high or critical risk, with a line on whether it can be undone. Critical actions take \(strongApproveText) to approve, like calls auto mode never allows.") {
+                    SettingRow(hint: "The check also rates how bad an action is if it runs: low, medium, high or critical risk, with a line on whether it can be undone. Critical actions take \(strongApproveText) to approve, like calls the check says are never allowed.") {
                         Toggle("Stronger approve for critical", isOn: classifierBinding(\.criticalNeedsStrongApprove))
                     }
                     .disabled(!model.config.classifier.enabled)
