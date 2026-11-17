@@ -49,6 +49,8 @@ final class PhoneLink: ObservableObject {
     private(set) var lease: String?
     /// The lease each pairing's relay last took, so the same one does not go twice.
     private var sentLeases: [String: String] = [:]
+    /// The lease each pairing was sent again after its relay stopped it for want of a plan.
+    private var leaseRetries: [String: String] = [:]
 
     static let recentLifetime: TimeInterval = 3600
     /// The longest a request waits on the relay when it has no time limit.
@@ -132,6 +134,7 @@ final class PhoneLink: ObservableObject {
 
     private func forget(_ pairingId: String) {
         sentLeases[pairingId] = nil
+        leaseRetries[pairingId] = nil
         store?.remove(pairingId)
         pairings = store?.pairings ?? []
         disconnect(pairingId)
@@ -195,32 +198,37 @@ final class PhoneLink: ObservableObject {
     /// connects again once its relay has the lease.
     func forwardLease(_ lease: String?) {
         self.lease = lease
-        guard let store, let lease else { return }
+        guard let lease else { return }
         for pairing in pairings {
-            let pairingId = pairing.pairingId
             // Asks the relay again when what it said before had no leases: it may take
             // them now, and the cached answer would otherwise hold until a restart.
-            RelayVersions.shared.resolve(relay: pairing.relay, purpose: .lease) { [weak self] probe in
-                guard let self, self.pairings.contains(where: { $0.pairingId == pairingId }) else { return }
-                let accepts: Bool
-                if case .v2(let info) = probe { accepts = info.acceptsLeases } else { accepts = false }
-                guard LeaseForwarding.decide(lease: lease, relayAcceptsLeases: accepts, lastSent: self.sentLeases[pairingId]) == .send,
-                      let body = try? LinkJSON.encode(RelayLease(lease: lease)) else { return }
-                // A connection of its own: the pairing's link may be stopped, and nothing
-                // this call does may change it.
-                let connection = RelayConnection(pairingId: pairingId, relay: pairing.relay, identity: store.identity)
-                connection.call("PUT", "lease", signed: true, body: { _ in body }) { [weak self] result in
-                    connection.stop()
-                    guard let self else { return }
-                    guard result.ok else {
-                        Log.write("phone: the relay did not take the lease for pairing \(pairingId): \(result.status) \(result.errorCode ?? "")")
-                        return
-                    }
-                    self.sentLeases[pairingId] = lease
-                    if case .stopped(.planRequired) = self.statuses[pairingId], let current = self.pairings.first(where: { $0.pairingId == pairingId }) {
-                        self.disconnect(pairingId)
-                        self.connect(current)
-                    }
+            sendLease(lease, to: pairing, purpose: .lease)
+        }
+    }
+
+    private func sendLease(_ lease: String, to pairing: MacPairing, purpose: RelayInfoRefresh.Purpose) {
+        guard let store else { return }
+        let pairingId = pairing.pairingId
+        RelayVersions.shared.resolve(relay: pairing.relay, purpose: purpose) { [weak self] probe in
+            guard let self, self.pairings.contains(where: { $0.pairingId == pairingId }) else { return }
+            let accepts: Bool
+            if case .v2(let info) = probe { accepts = info.acceptsLeases } else { accepts = false }
+            guard LeaseForwarding.decide(lease: lease, relayAcceptsLeases: accepts, lastSent: self.sentLeases[pairingId]) == .send,
+                  let body = try? LinkJSON.encode(RelayLease(lease: lease)) else { return }
+            // A connection of its own: the pairing's link may be stopped, and nothing
+            // this call does may change it.
+            let connection = RelayConnection(pairingId: pairingId, relay: pairing.relay, identity: store.identity)
+            connection.call("PUT", "lease", signed: true, body: { _ in body }) { [weak self] result in
+                connection.stop()
+                guard let self else { return }
+                guard result.ok else {
+                    Log.write("phone: the relay did not take the lease for pairing \(pairingId): \(result.status) \(result.errorCode ?? "")")
+                    return
+                }
+                self.sentLeases[pairingId] = lease
+                if case .stopped(.planRequired) = self.statuses[pairingId], let current = self.pairings.first(where: { $0.pairingId == pairingId }) {
+                    self.disconnect(pairingId)
+                    self.connect(current)
                 }
             }
         }
@@ -274,9 +282,17 @@ final class PhoneLink: ObservableObject {
             // Kept, with the reason in its status, so the user decides: pair again or update.
             Log.write("phone: the relay stopped pairing \(pairingId): \(reason)")
         case .planRequired(let plan):
-            // Kept, with the plan in its status: the user picks a plan, then stew connects
-            // again on its next start.
+            // Kept, with the plan in its status: the link connects again once the relay
+            // takes a lease for it.
             Log.write("phone: the relay needs a plan for pairing \(pairingId): \(plan.message) (\(plan.upgradeURL.absoluteString))")
+            // The lease may have reached the relay just before this refusal, or the relay
+            // may take leases only now: send it once more, asking the relay afresh what it
+            // takes. Once per lease, so a relay that keeps refusing gets no loop.
+            guard LeaseForwarding.retryAfterPlanStop(lease: lease, lastRetried: leaseRetries[pairingId]), let lease,
+                  let pairing = pairings.first(where: { $0.pairingId == pairingId }) else { return }
+            leaseRetries[pairingId] = lease
+            sentLeases[pairingId] = nil
+            sendLease(lease, to: pairing, purpose: .planStop)
         }
     }
 

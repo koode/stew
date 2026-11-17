@@ -443,6 +443,14 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(LeaseForwarding.decide(lease: "a.b", relayAcceptsLeases: true, lastSent: "a.b") == .alreadySent)
     }
 
+    @Test func retriesOncePerLeaseAfterAPlanStop() {
+        #expect(LeaseForwarding.retryAfterPlanStop(lease: "a.b", lastRetried: nil))
+        #expect(!LeaseForwarding.retryAfterPlanStop(lease: "a.b", lastRetried: "a.b"))
+        #expect(LeaseForwarding.retryAfterPlanStop(lease: "c.d", lastRetried: "a.b"))
+        #expect(!LeaseForwarding.retryAfterPlanStop(lease: nil, lastRetried: nil))
+        #expect(!LeaseForwarding.retryAfterPlanStop(lease: "", lastRetried: nil))
+    }
+
     @Test func putsTheLeaseInAClaimOnlyForARelayThatTakesLeases() {
         #expect(LeaseForwarding.claimLease("a.b", relayAcceptsLeases: true) == "a.b")
         #expect(LeaseForwarding.claimLease("a.b", relayAcceptsLeases: false) == nil)

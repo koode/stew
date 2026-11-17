@@ -222,6 +222,15 @@ public enum LeaseForwarding {
         return lease == lastSent ? .alreadySent : .send
     }
 
+    /// Whether to send the lease once more after the relay stopped a pairing for want of
+    /// a plan. The lease may have reached the relay just before the refusal, so the link
+    /// would otherwise stay stopped; once per lease, so a relay that keeps refusing gets
+    /// no loop.
+    public static func retryAfterPlanStop(lease: String?, lastRetried: String?) -> Bool {
+        guard let lease, !lease.isEmpty else { return false }
+        return lease != lastRetried
+    }
+
     /// The lease to put in a claim body: only for a relay that takes leases.
     public static func claimLease(_ lease: String?, relayAcceptsLeases: Bool) -> String? {
         guard relayAcceptsLeases, let lease, !lease.isEmpty else { return nil }
