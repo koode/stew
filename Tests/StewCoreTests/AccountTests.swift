@@ -430,6 +430,20 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
     }
 }
 
+@Suite struct AccountSessionGenerationTests {
+    @Test func aCallFromAnEndedSessionNoLongerCounts() {
+        var generation = AccountSessionGeneration()
+        let refreshStarted = generation.current
+        #expect(generation.isCurrent(refreshStarted))
+        generation.advance()
+        #expect(!generation.isCurrent(refreshStarted))
+        let afterSignIn = generation.current
+        generation.advance()
+        #expect(!generation.isCurrent(afterSignIn))
+        #expect(generation.isCurrent(generation.current))
+    }
+}
+
 @Suite struct LeaseForwardingTests {
     @Test func sendsANewLeaseToARelayThatTakesLeases() {
         #expect(LeaseForwarding.decide(lease: "a.b", relayAcceptsLeases: true, lastSent: nil) == .send)

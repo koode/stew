@@ -39,7 +39,9 @@ final class AccountModel: ObservableObject {
     /// keychain.
     private var store: AccountTokenStore?
     private var lastRefresh: Date?
-    private var refreshing = false
+    /// The session generation a refresh in flight started in, if any.
+    private var refreshingIn: Int?
+    private var generation = AccountSessionGeneration()
     private var polling = false
     private var pollTimer: Timer?
     private var paymentTimer: Timer?
@@ -173,6 +175,7 @@ final class AccountModel: ObservableObject {
     }
 
     private func finishSignIn(_ session: SignedIn) {
+        generation.advance()
         stopPolling()
         code = ""
         do {
@@ -189,11 +192,15 @@ final class AccountModel: ObservableObject {
 
     /// Asks for the account again. The lease in it goes on to the relay.
     func refresh() {
-        guard let token = store?.read(), !refreshing, let client = client() else { return }
-        refreshing = true
+        let started = generation.current
+        guard refreshingIn != started, let token = store?.read(), let client = client() else { return }
+        refreshingIn = started
         run({ try await client.account(token: token) }) { [weak self] result in
             guard let self else { return }
-            self.refreshing = false
+            if self.refreshingIn == started { self.refreshingIn = nil }
+            // Signed out, deleted or signed in again meanwhile: this answer is for a
+            // session that is gone.
+            guard self.generation.isCurrent(started) else { return }
             switch result {
             case .success(let account):
                 self.problem = nil
@@ -254,9 +261,11 @@ final class AccountModel: ObservableObject {
         guard let token = store?.read(), busy == nil, let client = client() else { return }
         busy = .billing
         let server = client.server
+        let started = generation.current
         run({ try await client.billingPortal(token: token) }) { [weak self] result in
             guard let self else { return }
             self.busy = nil
+            guard self.generation.isCurrent(started) else { return }
             switch result {
             case .success(let url) where AccountOffer.mayOpen(url, server: server):
                 self.problem = nil
@@ -308,6 +317,7 @@ final class AccountModel: ObservableObject {
     }
 
     private func endSession(notice: String?) {
+        generation.advance()
         store?.delete()
         stopWaitingForPayment()
         paymentOutcome = nil

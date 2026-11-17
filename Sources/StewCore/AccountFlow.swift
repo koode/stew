@@ -192,6 +192,25 @@ public struct PaymentWait: Equatable, Sendable {
     }
 }
 
+/// Which session the Mac is in. A call takes the generation when it starts, and its result
+/// counts only while that is still current: a refresh that comes back after a sign-out, a
+/// deletion or a new sign-in must not bring back the session it started in, nor send its
+/// lease on.
+public struct AccountSessionGeneration: Equatable, Sendable {
+    public private(set) var current = 0
+
+    public init() {}
+
+    /// A session ended or began.
+    public mutating func advance() {
+        current += 1
+    }
+
+    public func isCurrent(_ started: Int) -> Bool {
+        started == current
+    }
+}
+
 /// When the Mac asks for the account again on its own.
 public enum AccountRefresh {
     /// At launch, then once a day, so a renewed plan reaches the relay before its lease
