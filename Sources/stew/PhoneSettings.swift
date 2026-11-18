@@ -17,6 +17,7 @@ struct PhonePaneSample {
 struct PhoneSettingsTab: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var link: PhoneLink
+    @ObservedObject var account: AccountModel
     @State private var unpairing: MacPairing?
     /// The phone that was just confirmed, for the success message.
     @State private var justPaired: String?
@@ -34,14 +35,19 @@ struct PhoneSettingsTab: View {
 
     private let sample: PhonePaneSample
 
-    init(model: SettingsModel, link: PhoneLink, sample: PhonePaneSample = PhonePaneSample()) {
+    init(model: SettingsModel, link: PhoneLink, account: AccountModel = .shared, sample: PhonePaneSample = PhonePaneSample()) {
         self.model = model
         self.link = link
+        self.account = account
         self.sample = sample
         _justPaired = State(initialValue: sample.justPaired)
     }
 
     private var pairingInProgress: Bool { link.confirming != nil || link.pairingCode != nil }
+
+    private var gate: PhonePlanGate {
+        PhonePlanGate.decide(relayRequiresPlan: link.relayRequiresPlan[model.config.phone.relay], account: account.account)
+    }
 
     var body: some View {
         SettingsPane(tab: .phone) {
@@ -67,7 +73,11 @@ struct PhoneSettingsTab: View {
                                 Notice(.error, error)
                             }
                         }
-                        if link.paired.isEmpty {
+                        if link.paired.isEmpty, let message = gate.message {
+                            EmptyState(symbol: "iphone", title: PhonePlanGate.title, message: message) {
+                                subscribeButton
+                            }
+                        } else if link.paired.isEmpty {
                             EmptyState(symbol: "iphone", title: "No iPhone paired yet", message: Self.pairHint) {
                                 pairButton
                             }
@@ -80,7 +90,9 @@ struct PhoneSettingsTab: View {
                                     onPlan: { model.tab = .account }
                                 )
                             }
-                            if !pairingInProgress {
+                            if !pairingInProgress, gate != .open {
+                                SettingRow(hint: "\(PhonePlanGate.title). \(gate.message ?? "")") { subscribeButton }
+                            } else if !pairingInProgress {
                                 SettingRow(hint: Self.pairHint) { pairButton }
                             }
                         }
@@ -137,6 +149,8 @@ struct PhoneSettingsTab: View {
                 }
             }
         }
+        .onAppear { link.checkRelayPlan(relay: model.config.phone.relay) }
+        .onChange(of: model.config.phone.relay) { link.checkRelayPlan(relay: model.config.phone.relay) }
         .confirmationDialog(
             "Unpair \(unpairing?.phoneName ?? "this iPhone")?",
             isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
@@ -146,6 +160,12 @@ struct PhoneSettingsTab: View {
         } message: { _ in
             Text("Requests stop going to this iPhone, and it removes this Mac.")
         }
+    }
+
+    /// Settings ▸ Account has the sign-in and the plans.
+    private var subscribeButton: some View {
+        Button(PhonePlanGate.subscribe) { model.tab = .account }
+            .buttonStyle(.borderedProminent)
     }
 
     private var pairButton: some View {

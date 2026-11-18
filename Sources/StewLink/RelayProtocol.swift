@@ -36,15 +36,20 @@ public struct RelayInfo: Codable, Equatable, Sendable {
     /// True when the relay takes account leases: PUT /v2/pairings/{id}/lease, and a
     /// `lease` in the claim.
     public var leases: Bool?
+    /// True when the relay refuses a Mac without a running lease (402 `plan_required`), so
+    /// pairing an iPhone needs stew Pro.
+    public var plans: Bool?
 
-    public init(protocols: [Int], heartbeatSeconds: Double? = nil, pongTimeoutSeconds: Double? = nil, leases: Bool? = nil) {
+    public init(protocols: [Int], heartbeatSeconds: Double? = nil, pongTimeoutSeconds: Double? = nil, leases: Bool? = nil, plans: Bool? = nil) {
         self.protocols = protocols
         self.heartbeatSeconds = heartbeatSeconds
         self.pongTimeoutSeconds = pongTimeoutSeconds
         self.leases = leases
+        self.plans = plans
     }
 
     public var acceptsLeases: Bool { leases == true }
+    public var requiresPlan: Bool { plans == true }
 }
 
 /// What a client learns from asking a relay for GET /v2/info.
@@ -89,6 +94,9 @@ public enum RelayInfoRefresh {
     /// have been updated since, and a lease that never reaches it leaves a paid Mac
     /// refused until a restart.
     public static let recheckForLeasesAfter: TimeInterval = 60
+    /// How long Settings ▸ iPhone trusts what a relay said about needing a plan. Plans can be
+    /// switched on at the relay while stew runs.
+    public static let recheckPlanGateAfter: TimeInterval = 600
 
     public enum Purpose: Equatable, Sendable {
         /// Any call: the protocol version is what matters.
@@ -97,6 +105,8 @@ public enum RelayInfoRefresh {
         case lease
         /// The relay just stopped a link for want of a plan: what it supports may have changed.
         case planStop
+        /// Settings ▸ iPhone decides whether pairing needs stew Pro.
+        case planGate
     }
 
     public static func shouldAsk(cached: RelayProbe?, age: TimeInterval, purpose: Purpose) -> Bool {
@@ -110,6 +120,7 @@ public enum RelayInfoRefresh {
             case .use: return false
             case .lease: return !info.acceptsLeases && age >= recheckForLeasesAfter
             case .planStop: return true
+            case .planGate: return age >= recheckPlanGateAfter
             }
         }
     }

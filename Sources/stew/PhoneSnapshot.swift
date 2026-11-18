@@ -18,6 +18,10 @@ enum PhoneSnapshot {
         var relay: String?
         /// Tall enough to show the relay row at the bottom of the pane.
         var tall = false
+        /// The relay needs a plan to pair (`plans` in GET /v2/info).
+        var relayRequiresPlan = false
+        /// The signed-in account, nil when signed out.
+        var account: Account?
     }
 
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
@@ -40,6 +44,10 @@ enum PhoneSnapshot {
             state: .waiting, createdAt: Date().addingTimeInterval(-139)
         )
         let connected: [String: RelayConnection.Status] = ["samplepaired": .connected, "samplesecond": .failed("offline")]
+        let expired = Account(
+            id: "acc_sample", email: "jamie@example.com",
+            plan: AccountPlan(status: .expired, trialEndsAt: created.addingTimeInterval(-3 * 86_400)), entitled: false
+        )
         let samplePlan = RelayPlanRequired(message: "A second iPhone needs a stew plan.", upgradeURL: "https://stewcli.com/plans")
         let scenarios = [
             Scenario(name: "empty"),
@@ -50,12 +58,19 @@ enum PhoneSnapshot {
             Scenario(name: "paired", pairings: [paired, second], statuses: connected, sample: PhonePaneSample(justPaired: "Work iPhone")),
             Scenario(name: "plan", pairings: [paired, second], statuses: ["samplepaired": .connected, "samplesecond": .stopped(.planRequired(samplePlan))]),
             Scenario(name: "plan-pairing", plan: samplePlan),
+            Scenario(name: "pro-signed-out", relayRequiresPlan: true),
+            Scenario(name: "pro-expired", pairings: [paired], statuses: ["samplepaired": .stopped(.planRequired(samplePlan))], relayRequiresPlan: true, account: expired),
             Scenario(name: "relay", pairings: [paired], statuses: connected, tall: true),
             Scenario(name: "relay-own", pairings: [paired], statuses: connected, relay: "http://localhost:4000", tall: true),
         ]
         let link = PhoneLink.shared
         for scenario in scenarios {
-            link.showSample(pairings: scenario.pairings, statuses: scenario.statuses, code: scenario.code, error: scenario.error, plan: scenario.plan, store: store)
+            let relayPlans = scenario.relayRequiresPlan ? [scenario.relay ?? PhoneConfig.defaultRelay: true] : [:]
+            link.showSample(
+                pairings: scenario.pairings, statuses: scenario.statuses, code: scenario.code, error: scenario.error, plan: scenario.plan,
+                relayRequiresPlan: relayPlans, store: store
+            )
+            AccountModel.shared.showSample(account: scenario.account)
             for dark in [false, true] {
                 let model = SettingsModel()
                 model.load()

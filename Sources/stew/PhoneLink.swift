@@ -18,6 +18,11 @@ final class PhoneLink: ObservableObject {
     /// Set when the relay refused the claim for want of a plan; `pairingError` then holds
     /// the relay's message.
     @Published private(set) var pairingPlan: RelayPlanRequired?
+    /// What each relay address said in GET /v2/info about needing a plan to pair. Missing
+    /// until it answered (`PhonePlanGate` then stays open).
+    @Published private(set) var relayRequiresPlan: [String: Bool] = [:]
+    /// Set by `showSample`: `stew snapshot` never touches the network.
+    private var showingSample = false
 
     private struct Pushed {
         var pairingIds: Set<String>
@@ -96,7 +101,7 @@ final class PhoneLink: ObservableObject {
     /// Sample state for `stew snapshot`, which never starts the link.
     func showSample(
         pairings: [MacPairing], statuses: [String: RelayConnection.Status], code: PairingCode?, error: String? = nil, plan: RelayPlanRequired? = nil,
-        store: PhoneStore
+        relayRequiresPlan: [String: Bool] = [:], store: PhoneStore
     ) {
         self.store = store
         self.pairings = pairings
@@ -104,6 +109,22 @@ final class PhoneLink: ObservableObject {
         pairingCode = code
         pairingError = plan?.message ?? error
         pairingPlan = plan
+        self.relayRequiresPlan = relayRequiresPlan
+        showingSample = true
+    }
+
+    /// Asks the relay new pairings use whether it needs a plan, for Settings ▸ iPhone. A
+    /// relay that cannot be reached keeps what it said last.
+    func checkRelayPlan(relay: String) {
+        guard !showingSample else { return }
+        RelayVersions.shared.resolve(relay: relay, purpose: .planGate) { [weak self] probe in
+            guard let self else { return }
+            switch probe {
+            case .v2(let info): self.relayRequiresPlan[relay] = info.requiresPlan
+            case .v1, .unsupported: self.relayRequiresPlan[relay] = false
+            case .unknown: break
+            }
+        }
     }
 
     func verificationCode(for pairing: MacPairing) -> String? {

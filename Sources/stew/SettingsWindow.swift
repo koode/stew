@@ -240,7 +240,7 @@ struct SettingsView: View {
         case .general: GeneralSettings(model: model, updater: updater, pause: pause)
         case .keys: KeySettings(model: model)
         case .agents: AgentsSettingsTab(model: model)
-        case .phone: PhoneSettingsTab(model: model, link: link, sample: phoneSample)
+        case .phone: PhoneSettingsTab(model: model, link: link, account: account, sample: phoneSample)
         case .account: AccountSettingsTab(account: account)
         case .approvals: ApprovalsView(model: approvals)
         case .history: HistoryView(model: history)

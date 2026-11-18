@@ -271,4 +271,24 @@ struct RelayProtocolTests {
         }
         #expect(!older.acceptsLeases)
     }
+
+    @Test func infoSaysWhetherPairingNeedsAPlan() {
+        guard case .v2(let enforced) = RelayProbe.decide(status: 200, body: Data(#"{"protocols":[2],"leases":true,"plans":true}"#.utf8)) else {
+            Issue.record("expected v2")
+            return
+        }
+        #expect(enforced.requiresPlan)
+        guard case .v2(let open) = RelayProbe.decide(status: 200, body: Data(#"{"protocols":[2],"leases":true}"#.utf8)) else {
+            Issue.record("expected v2")
+            return
+        }
+        #expect(!open.requiresPlan)
+    }
+
+    @Test func thePlanGateAsksAgainAfterTenMinutes() {
+        let info = RelayProbe.v2(RelayInfo(protocols: [2], leases: true))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: info, age: 599, purpose: .planGate))
+        #expect(RelayInfoRefresh.shouldAsk(cached: info, age: 600, purpose: .planGate))
+        #expect(!RelayInfoRefresh.shouldAsk(cached: info, age: 600, purpose: .use))
+    }
 }
