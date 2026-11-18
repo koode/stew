@@ -339,6 +339,9 @@ private struct SetupTryIt: View {
         switch settings.config.position {
         case "top-center": "top center"
         case "top-left": "top left"
+        case "bottom-right": "bottom right"
+        case "bottom-center": "bottom center"
+        case "bottom-left": "bottom left"
         default: "top right"
         }
     }

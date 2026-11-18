@@ -148,6 +148,7 @@ enum Daemon {
             }
             let settings = SettingsWindowController(updater: updater, pause: coordinator.pauseModel) { coordinator.configChanged() }
             coordinator.onOpenSettings = { tab in settings.show(tab) }
+            panel.onPlaced = { position, display in settings.placePanel(position: position, display: display) }
             let setup = SetupWindowController(
                 onSaved: { coordinator.configChanged() },
                 onShowSample: { request, onAnswer in coordinator.showSample(request, onAnswer: onAnswer) },

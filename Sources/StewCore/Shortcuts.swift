@@ -221,7 +221,11 @@ public struct StewConfig: Codable, Equatable, Sendable {
     /// needs item: "unattended" (background and remote sessions), "always" or "never".
     public var autoNeeds: String
     public var sound: String?
+    /// A `PanelPlacement.positions` value.
     public var position: String
+    /// The display the panel opens on, by its display UUID, after the user dragged the panel
+    /// there. Nil, or a display that is not connected: the display with the pointer.
+    public var display: String?
     /// The panel's background: a `PanelLook` value. Glass needs macOS 26 or later.
     public var panelLook: String
     /// A short burst of confetti where the panel was, after approving a permission request.
@@ -357,6 +361,7 @@ public struct StewConfig: Codable, Equatable, Sendable {
         autoNeeds = try container.decodeIfPresent(String.self, forKey: .autoNeeds) ?? defaults.autoNeeds
         sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? defaults.sound
         position = try container.decodeIfPresent(String.self, forKey: .position) ?? defaults.position
+        display = try container.decodeIfPresent(String.self, forKey: .display)
         panelLook = try container.decodeIfPresent(String.self, forKey: .panelLook) ?? defaults.panelLook
         confetti = try container.decodeIfPresent(Bool.self, forKey: .confetti) ?? defaults.confetti
         autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? defaults.autoUpdate

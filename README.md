@@ -443,7 +443,8 @@ The window has seven panes, picked from its toolbar:
 - `routeQuestions` is `unattended`, `always` or `never`: where Claude Code's own questions appear.
 - `autoNeeds` is `unattended`, `always` or `never`: for which sessions a `needs input:` line at the end of a turn becomes a needs item.
 - `responseTimeout` and `extendBy` are in seconds. `responseTimeout: 0` turns the time limit off.
-- `position` is `top-right`, `top-center` or `top-left`.
+- `position` is `top-right`, `top-center`, `top-left`, `bottom-right`, `bottom-center` or `bottom-left`. Dragging the panel sets it too: the panel snaps to the nearest of these on the display where you let it go.
+- `display` is the display the panel opens on, by its display UUID. stew sets it when you drag the panel to a display. Without it, or while that display is not connected, the panel opens on the display with the pointer.
 - `panelLook` is `solid` or `glass`. Glass puts macOS's Liquid Glass behind the panel, tinted so text stays readable over busy windows. It needs macOS 26 or later; older macOS keeps the solid panel.
 - `sound` is a name from `/System/Library/Sounds` (such as `"Glass"`), or `""` for none.
 - `confetti` shows a short burst of confetti where the panel was when you approve a request. It is off by default, and never plays when "Reduce motion" is on in macOS.

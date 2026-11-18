@@ -123,6 +123,15 @@ final class SettingsWindowController {
         set { model.onOpenSetup = newValue }
     }
 
+    /// A drag snapped the panel to `position` on `display`: the same as picking both here.
+    func placePanel(position: String, display: String?) {
+        model.load()
+        model.update {
+            $0.position = position
+            $0.display = display
+        }
+    }
+
     /// "Hide menu bar icon" in the menu: the same as turning off Show in menu bar.
     func setShowInMenuBar(_ shown: Bool) {
         model.load()
@@ -256,7 +265,17 @@ struct GeneralSettings: View {
     private static let limits: [(String, Double)] = [("No limit", 0), ("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300), ("10 minutes", 600)]
     private static let extensions: [(String, Double)] = [("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120), ("5 minutes", 300)]
     private static let delays: [(String, Double)] = [("Off", 0), ("0.25 seconds", 0.25), ("0.5 seconds", 0.5), ("1 second", 1)]
-    private static let positions: [(String, String)] = [("Top right", "top-right"), ("Top center", "top-center"), ("Top left", "top-left")]
+    private static let positions: [(String, String)] = [
+        ("Top right", "top-right"), ("Top center", "top-center"), ("Top left", "top-left"),
+        ("Bottom right", "bottom-right"), ("Bottom center", "bottom-center"), ("Bottom left", "bottom-left"),
+    ]
+
+    /// The connected displays by name, and the saved one when it is not connected now.
+    private var displays: [(String, String)] {
+        let connected = NSScreen.screens.compactMap { screen in screen.displayUUID.map { (screen.localizedName, $0) } }
+        guard let saved = model.config.display, !connected.contains(where: { $0.1 == saved }) else { return connected }
+        return connected + [("A display that is not connected", saved)]
+    }
     /// 05:00 to 12:00, and an hour set in config.json outside them.
     private static func morningHours(including chosen: Int) -> [Int] {
         Array(Set(Array(5...12) + [chosen])).sorted()
@@ -330,9 +349,18 @@ struct GeneralSettings: View {
                     }
                 }
                 Section("Panel") {
-                    SettingRow(hint: nil) {
+                    SettingRow(hint: "Or drag the panel: it snaps to the nearest spot, on the display where you let it go.") {
                         Picker("Position", selection: binding(\.position)) {
                             ForEach(Self.positions, id: \.1) { Text($0.0).tag($0.1) }
+                        }
+                    }
+                    SettingRow(hint: "Dragging the panel to a display picks it here. While that display is not connected, the panel opens where the pointer is.") {
+                        Picker("Display", selection: Binding(
+                            get: { model.config.display ?? "" },
+                            set: { value in model.update { $0.display = value.isEmpty ? nil : value } }
+                        )) {
+                            Text("Where the pointer is").tag("")
+                            ForEach(displays, id: \.1) { Text($0.0).tag($0.1) }
                         }
                     }
                     SettingRow(hint: PanelBackground.glassAvailable
