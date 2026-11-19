@@ -1,7 +1,7 @@
 {
   "name": "stew",
   "displayName": "stew",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Permission requests, questions and notifications from Claude Code in a macOS panel that never takes keyboard focus. When auto mode blocks a call, stew asks you, and an approved call is retried. Needs the stew Mac app.",
   "author": {
     "name": "Koode",
