@@ -339,6 +339,8 @@ Every key is ⌘ plus one key, and works only while a panel is visible. Presses 
 
 The keys avoid ones you press while typing: deny is ⌘D (the macOS "Don't Save" key), not ⌘⌫. Dismiss is ⌘. (the macOS cancel key), not ⌘W. While a panel is visible these keys go to stew, so your terminal's ⌘D or ⌘1 waits until it closes.
 
+While a field has the keyboard (a note, "Other" or an input), only ⌘↩ and ⇧⌘↩ go to stew. Every other key goes to the field, so ⌘C, ⌘V, ⌘A and ⌘Z edit the text as usual. Esc leaves the field, keeps what you typed and brings the other keys back, so Esc then ⌘D denies with your note.
+
 Keys follow your keyboard layout, so "D" is the key that types D, also on Dvorak, Colemak or a remapped keyboard.
 
 ## Menu bar and pause

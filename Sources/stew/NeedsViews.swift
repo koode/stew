@@ -111,20 +111,21 @@ struct NeedsBody: View {
             .help(needs.doneTitle)
     }
 
-    /// Which keys send the note: Done's, each other answer's, and Decline's.
+    /// Which keys send the note: Done's while typing, each other answer's and Decline's
+    /// once Esc leaves the field.
     private func noteHint(_ keymap: Keymap) -> Text {
         let approve = keymap[.approve].text
         let deny = keymap[.deny].text
         guard needs.hasCustomAnswers else {
-            return Text("\(approve) marks it done and \(deny) declines, with this note. Esc leaves the field.")
+            return Text("\(approve) marks it done with this note. Esc leaves the field, then \(deny) declines with it.")
         }
         guard let lastIndex = needs.answers.indices.last else {
-            return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D} and \(deny) declines, with this note. Esc leaves the field.")
+            return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D} with this note. Esc leaves the field, then \(deny) declines with it.")
         }
         let answerKeys = lastIndex == 0
             ? keymap.options[0].text
             : Text("\(keymap.options[0].text) to \(keymap.options[lastIndex].text)")
-        return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D}, \(answerKeys) the other answers, and \(deny) declines, with this note. Esc leaves the field.")
+        return Text("\(approve) answers \u{201C}\(needs.doneTitle)\u{201D} with this note. Esc leaves the field, then \(answerKeys) give the other answers and \(deny) declines, with the note.")
     }
 }
 

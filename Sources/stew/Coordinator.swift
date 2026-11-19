@@ -1660,15 +1660,28 @@ final class Coordinator: ObservableObject {
         changed()
     }
 
-    /// The shortcuts that make sense for what is on screen now.
+    /// The shortcuts that make sense for what is on screen now. While a field has the
+    /// keyboard, only the keys that send it stay: every other key goes to the field, so
+    /// editing keys such as ⌘C or ⌃A never answer the request. Esc leaves the field and
+    /// brings the other keys back.
     func activeBindings() -> [(Shortcut, PanelAction)] {
-        let bindings = panelBindings()
+        var bindings = panelBindings()
+        if textMode { bindings = bindings.filter { Self.sendsTypedText($0.1) } }
         guard let historyPreview else { return bindings }
         return bindings.filter { _, panelAction in
             switch panelAction {
             case .action(let action): historyPreview.allows(action)
             case .option, .grantAlways: historyPreview != .ended
             }
+        }
+    }
+
+    /// Approve (also past a hard deny) and submit: ⌘↩ and ⇧⌘↩ by default.
+    private static func sendsTypedText(_ panelAction: PanelAction) -> Bool {
+        switch panelAction {
+        case .action(let action): action == .approve || action == .submit
+        case .grantAlways: true
+        case .option: false
         }
     }
 

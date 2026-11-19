@@ -127,6 +127,7 @@ enum Daemon {
 
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        EditMenu.install(in: application)
         let coordinator = Coordinator()
         let history = HistoryStore()
         coordinator.history = history

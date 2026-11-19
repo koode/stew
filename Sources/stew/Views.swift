@@ -630,7 +630,7 @@ struct PermissionBody: View {
                 ReplyEditor(
                     coordinator: coordinator,
                     placeholder: "Note for \(agent.name), sent with your answer",
-                    hint: Text("\(approveShortcut.text) approves and \(keymap[.deny].text) denies with this note. Esc leaves the field."),
+                    hint: Text("\(approveShortcut.text) approves with this note. Esc leaves the field, then \(keymap[.deny].text) denies with it."),
                     interactive: interactive
                 )
             }

@@ -99,6 +99,7 @@ expect "approve exit 0" "$code" "0"
 wait_items 1
 control press other > /dev/null
 control type "use a migration instead" > /dev/null
+expect "typing a note leaves only the send key" "$(control state)" "keys=⌘↩ notice"
 control press deny > /dev/null
 wait $client; code=$?
 expect "deny note" "$(cat "$WORK/out")" '"note":"use a migration instead","status":"denied"'
@@ -167,6 +168,7 @@ control press submit > /dev/null
 expect "input: ⌘↩ with nothing typed sends nothing" "$(control state)" "items=1 kind=input"
 control press other > /dev/null
 expect "input: ⌘O focuses the field and pauses the clock" "$(control state)" "text=true input=empty"
+expect "input: the field leaves only the send key" "$(control state)" "keys=⌘↩ notice"
 expect "input: ⌘↩ on the empty field counted as answering, so the clock stopped" "$(control state)" "clock=none"
 control type "not a domain" > /dev/null
 expect "input: a mismatch is flagged" "$(control state)" "input=mismatch"
@@ -733,6 +735,11 @@ state=$(control state)
 expect "needs shows in the panel" "$state" "items=1 kind=needs"
 expect "needs has no clock" "$state" "clock=none"
 expect "needs keys" "$state" "keys=⌘. ⌘↩ ⌘D ⌘O"
+control press other > /dev/null
+expect "needs: the note field leaves only Done's key" "$(control state)" "text=true input=- grant=false:0"
+expect "needs: no other key while typing" "$(control state)" "keys=⌘↩ notice"
+control press other > /dev/null
+expect "needs: leaving the field brings the keys back" "$(control state)" "keys=⌘. ⌘↩ ⌘D ⌘O"
 expect "needs list" "$("$STEW" needs list)" "$NPM  e2e · Log in to npm"
 expect "needs list --json" "$("$STEW" needs list --json)" '"title" : "Log in to npm"'
 expect "needs.json is private" "$(stat -f %Lp "$WORK/needs.json")" "600"
@@ -1507,6 +1514,8 @@ wait_items 1
 state=$(wait_checked)
 expect "critical severity from the check" "$state" "risk=allow severity=critical"
 expect "critical needs the stronger approve" "$state" "keys=⌘. ⌘E ⇧⌘↩ ⌘D ⌘O"
+control press other > /dev/null
+expect "the stronger approve stays while typing" "$(control state)" "keys=⇧⌘↩ notice"
 expect "the check asked for severity" "$(cat "$STEW_STUB_LOG")" '"severity":{"type":"string","enum":["low","medium","high","critical"]}'
 control press deny > /dev/null
 wait $client
