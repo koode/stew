@@ -422,6 +422,7 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
 
     case "hook":
         let agent = try hookAgent(arguments)
+        Hooks.stepAsideForSettings(arguments: arguments.positional.joined(separator: " "))
         switch arguments.positional.first {
         case "denied": Hooks.denied()
         case "pre": Hooks.pre()
@@ -520,6 +521,10 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
             print(CompletionScript.script(for: shell), terminator: "")
         case nil: throw UsageError("completions needs fish, zsh, bash, install or uninstall")
         }
+
+    case "_plugin-hooks":
+        // Writes plugin/hooks/hooks.json: `swift run stew _plugin-hooks > plugin/hooks/hooks.json`.
+        FileHandle.standardOutput.write(try ClaudePlugin.hooksFile())
 
     case "_sign-update":
         // Release tooling: the private key arrives on stdin and never touches disk.

@@ -25,7 +25,7 @@ Replacing the key later breaks updates for every installed copy that trusts the 
 
 ## Every release
 
-1. Bump `VERSION` (for example `0.2.0`) and commit. The build number is the commit count of `HEAD`, so it grows on its own; keep `main` linear.
+1. Bump `VERSION` (for example `0.2.0`) and `"version"` in `plugin/.claude-plugin/plugin.json` to the same value, and commit. Claude Code updates the plugin only when that version changes; a unit test fails while the two differ. The build number is the commit count of `HEAD`, so it grows on its own; keep `main` linear.
 2. Optional: `scripts/release.sh --dry-run`. It builds, signs ad hoc with a throwaway update key and writes everything to `build/dist`, without notarizing or uploading. Inspect `build/release/Stew.app`, `build/dist/latest.json` and `build/dist/stew.rb`. A dry run never writes into the tap, even with `--tap-dir`.
 3. From a clean checkout of the commit to release, run `scripts/release.sh --tap-dir ~/code/homebrew-apps` (a checkout of the tap, see below). It:
    1. checks that `v<version>/` does not exist in the bucket yet, and stops if it does;

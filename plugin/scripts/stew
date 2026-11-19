@@ -1,0 +1,23 @@
+#!/bin/sh
+# Runs the installed stew for one of this plugin's hooks, with the arguments the hook
+# passes ("hook denied", "hook pre", ...). The plugin holds no copy of stew: the Mac app
+# installs it. It looks in the places the installers put the command, then on PATH for
+# an install with --bin-dir.
+#
+# When stew is not installed, it reads the hook input and exits 0 without output, so
+# Claude Code goes on as if the hook were not there: no decision and no hook error.
+
+for candidate in \
+    "$HOME/.local/bin/stew" \
+    /opt/homebrew/bin/stew \
+    /usr/local/bin/stew \
+    /Applications/Stew.app/Contents/MacOS/stew \
+    "$HOME/Applications/Stew.app/Contents/MacOS/stew" \
+    "$(command -v stew 2>/dev/null)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        STEW_PLUGIN_HOOK=1 exec "$candidate" "$@"
+    fi
+done
+
+cat >/dev/null
+exit 0

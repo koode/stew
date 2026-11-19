@@ -1,0 +1,19 @@
+{
+  "name": "stew",
+  "displayName": "stew",
+  "version": "0.2.1",
+  "description": "Permission requests, questions and notifications from Claude Code in a macOS panel that never takes keyboard focus. When auto mode blocks a call, stew asks you, and an approved call is retried. Needs the stew Mac app.",
+  "author": {
+    "name": "Koode",
+    "url": "https://stewcli.com"
+  },
+  "homepage": "https://stewcli.com",
+  "repository": "https://github.com/koode/stew",
+  "license": "Elastic-2.0",
+  "keywords": ["macos", "permissions", "auto-mode", "notifications", "hooks"],
+  "icon": "./icon.png",
+  "documentationUrl": "https://stewcli.com/help",
+  "supportUrl": "https://github.com/koode/stew/issues",
+  "privacyPolicyUrl": "https://stewcli.com/privacy",
+  "termsOfServiceUrl": "https://stewcli.com/terms"
+}

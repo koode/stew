@@ -1,0 +1,16 @@
+{
+  "name": "stew",
+  "description": "The stew plugin for Claude Code, from the stew repository.",
+  "owner": {
+    "name": "Koode",
+    "url": "https://stewcli.com"
+  },
+  "plugins": [
+    {
+      "name": "stew",
+      "source": "./plugin",
+      "description": "Permission requests, questions and notifications from Claude Code in a macOS panel that never takes keyboard focus. Needs the stew Mac app.",
+      "category": "productivity"
+    }
+  ]
+}

@@ -47,7 +47,7 @@ cp "$project_root/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 # The installers copy the skill out of the app, and the uninstaller ships inside it,
 # so an install from a release zip has both without the source repository.
 mkdir -p "$app/Contents/Resources/skill"
-cp "$project_root/skill/SKILL.md" "$app/Contents/Resources/skill/SKILL.md"
+cp "$project_root/plugin/skills/stew/SKILL.md" "$app/Contents/Resources/skill/SKILL.md"
 install -m 755 "$project_root/uninstall.sh" "$app/Contents/Resources/uninstall.sh"
 # Pre-generated completion scripts, for package managers that link them in place
 # (the Homebrew cask's zsh_completion and fish_completion) instead of running stew.

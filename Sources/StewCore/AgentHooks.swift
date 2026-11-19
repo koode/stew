@@ -51,6 +51,10 @@ public enum HookInstallState: Equatable, Sendable {
 }
 
 extension CodingAgent {
+    /// Seconds the agent waits for a hook that waits for the user's answer, such as
+    /// PermissionDenied.
+    public static let hookWaitTimeout = 1800
+
     /// The hooks stew installs for the agent. `waitTimeout` is how long a hook that waits
     /// for the user may take.
     ///

@@ -78,6 +78,17 @@ Check that it works:
 stew notify "stew works" --body "Close this with ⌘. or ⌘↩"
 ```
 
+### Claude Code plugin
+
+Claude Code can also get the skill and its hooks from the stew plugin, in place of `stew hooks install`. Install the Mac app first, with one of the options above: the plugin's hooks call the `stew` command. Then, in Claude Code:
+
+```
+/plugin marketplace add koode/stew
+/plugin install stew@stew
+```
+
+The plugin has the same Claude Code hooks that `stew hooks install` writes. When the `stew` command is not installed, they do nothing. When `~/.claude/settings.json` also has stew's hooks, those run and the plugin's hooks step aside, so no hook runs twice. The plugin is for Claude Code only; Codex still uses `stew hooks install --agent codex`.
+
 ### The setup window
 
 The first time stew starts with no hooks installed for any agent, it opens a setup window, without taking the keyboard from the app you are in. It walks through five steps, each of which you can skip:
@@ -202,7 +213,7 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 
 ### The skill
 
-The skill tells agent sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Claude Code reads it from `~/.claude/skills/stew`, Codex from `~/.agents/skills/stew`. Edit its `SKILL.md` to change when sessions use it; `stew setup` writes it again.
+The skill tells agent sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Claude Code reads it from `~/.claude/skills/stew` (and from the plugin, as `stew:stew`, when you use it), Codex from `~/.agents/skills/stew`. Edit its `SKILL.md` to change when sessions use it; `stew setup` writes it again.
 
 ### Calling it directly
 

@@ -51,7 +51,7 @@ enum GrantFile {
 
 enum Hooks {
     /// Seconds Claude Code waits for the PermissionDenied hook, so for the user's answer.
-    static let deniedTimeout = 1800
+    static let deniedTimeout = CodingAgent.hookWaitTimeout
 
     static var installedExecutable: String {
         let installed = Paths.home + "/.local/bin/stew"
@@ -60,6 +60,26 @@ enum Hooks {
 
     static var claudeSettingsPath: String {
         ProcessInfo.processInfo.environment["STEW_CLAUDE_USER_SETTINGS"] ?? Paths.home + "/.claude/settings.json"
+    }
+
+    /// The user settings that the Claude Code session running a hook reads:
+    /// CLAUDE_CONFIG_DIR moves them, and Claude Code passes it on to its hooks.
+    static var sessionSettingsPath: String {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["STEW_CLAUDE_USER_SETTINGS"] == nil, let configDirectory = environment["CLAUDE_CONFIG_DIR"], !configDirectory.isEmpty {
+            return configDirectory + "/settings.json"
+        }
+        return claudeSettingsPath
+    }
+
+    /// A hook from the Claude Code plugin does nothing when the session's settings.json
+    /// runs the same stew hook (see `ClaudePlugin.settingsRunSameHook`). It still reads
+    /// its input, so Claude Code never writes to a closed pipe.
+    static func stepAsideForSettings(arguments: String) {
+        guard ProcessInfo.processInfo.environment[ClaudePlugin.hookEnvironmentKey] == "1",
+              ClaudePlugin.settingsRunSameHook(arguments: arguments, settings: FileManager.default.contents(atPath: sessionSettingsPath)) else { return }
+        _ = FileHandle.standardInput.readDataToEndOfFile()
+        exit(0)
     }
 
     /// Codex's user config layer: CODEX_HOME when set, else ~/.codex. STEW_CODEX_HOME

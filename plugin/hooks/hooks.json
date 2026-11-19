@@ -1,0 +1,76 @@
+{
+  "hooks" : {
+    "PermissionDenied" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook denied",
+            "onFailure" : "continue",
+            "timeout" : 1800,
+            "type" : "command"
+          }
+        ],
+        "matcher" : "*"
+      }
+    ],
+    "PreToolUse" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook pre",
+            "onFailure" : "continue",
+            "timeout" : 10,
+            "type" : "command"
+          }
+        ],
+        "matcher" : "*"
+      },
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook question",
+            "onFailure" : "continue",
+            "timeout" : 1800,
+            "type" : "command"
+          }
+        ],
+        "matcher" : "AskUserQuestion"
+      }
+    ],
+    "Stop" : [
+      {
+        "hooks" : [
+          {
+            "async" : true,
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook stop",
+            "onFailure" : "continue",
+            "timeout" : 15,
+            "type" : "command"
+          }
+        ]
+      },
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook stop-late",
+            "onFailure" : "continue",
+            "timeout" : 5,
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook prompt",
+            "onFailure" : "continue",
+            "timeout" : 5,
+            "type" : "command"
+          }
+        ]
+      }
+    ]
+  }
+}
