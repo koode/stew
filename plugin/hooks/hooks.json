@@ -13,6 +13,20 @@
         "matcher" : "*"
       }
     ],
+    "PermissionRequest" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook permission",
+            "onFailure" : "continue",
+            "statusMessage" : "Asking in stew",
+            "timeout" : 1800,
+            "type" : "command"
+          }
+        ],
+        "matcher" : "*"
+      }
+    ],
     "PreToolUse" : [
       {
         "hooks" : [
