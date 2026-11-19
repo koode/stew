@@ -19,6 +19,25 @@ private func installedSettings(executable: String) throws -> Data {
 
 @Suite("Claude Code plugin")
 struct ClaudePluginTests {
+    @Test func pluginCountsAsEnabledFromAnyMarketplace() {
+        let fromRepository = Data(#"{"enabledPlugins": {"stew@stew": true}}"#.utf8)
+        let fromDirectory = Data(#"{"enabledPlugins": {"other@stew": true, "stew@claude-plugins-official": true}}"#.utf8)
+        #expect(ClaudePlugin.isEnabled(settings: fromRepository))
+        #expect(ClaudePlugin.isEnabled(settings: fromDirectory))
+    }
+
+    @Test func pluginIsNotEnabledWhenOffMissingOrUnreadable() {
+        let turnedOff = Data(#"{"enabledPlugins": {"stew@stew": false}}"#.utf8)
+        let otherPlugin = Data(#"{"enabledPlugins": {"stewart@stew": true}}"#.utf8)
+        let noPlugins = Data(#"{"hooks": {}}"#.utf8)
+        let notJSON = Data("not json".utf8)
+        #expect(!ClaudePlugin.isEnabled(settings: turnedOff))
+        #expect(!ClaudePlugin.isEnabled(settings: otherPlugin))
+        #expect(!ClaudePlugin.isEnabled(settings: noPlugins))
+        #expect(!ClaudePlugin.isEnabled(settings: notJSON))
+        #expect(!ClaudePlugin.isEnabled(settings: nil))
+    }
+
     @Test func hookFileIsGeneratedFromTheInstalledHooks() throws {
         let committed = try repositoryFile("plugin/hooks/hooks.json")
         let generated = try ClaudePlugin.hooksFile()

@@ -39,4 +39,19 @@ public enum ClaudePlugin {
             return executable.hasPrefix("/") && (executable as NSString).lastPathComponent == "stew"
         }
     }
+
+    /// The plugin's name, the part before "@" in Claude Code's `enabledPlugins` keys.
+    public static let pluginName = "stew"
+
+    /// Whether Claude Code's user settings turn the stew plugin on, from any marketplace
+    /// (this repository's or a directory's). The plugin then brings the skill, so
+    /// `stew setup` leaves out its own copy and Claude Code does not load the skill twice.
+    public static func isEnabled(settings: Data?) -> Bool {
+        guard let settings,
+              let object = try? JSONSerialization.jsonObject(with: settings) as? [String: Any],
+              let enabledPlugins = object["enabledPlugins"] as? [String: Any] else { return false }
+        return enabledPlugins.contains { key, value in
+            key.split(separator: "@", maxSplits: 1).first.map(String.init) == pluginName && (value as? Bool) == true
+        }
+    }
 }

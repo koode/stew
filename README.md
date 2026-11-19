@@ -87,7 +87,7 @@ Claude Code can also get the skill and its hooks from the stew plugin, in place 
 /plugin install stew@stew
 ```
 
-The plugin has the same Claude Code hooks that `stew hooks install` writes. When the `stew` command is not installed, they do nothing. When `~/.claude/settings.json` also has stew's hooks, those run and the plugin's hooks step aside, so no hook runs twice. The plugin is for Claude Code only; Codex still uses `stew hooks install --agent codex`.
+The plugin has the same Claude Code hooks that `stew hooks install` writes. When the `stew` command is not installed, they do nothing. When `~/.claude/settings.json` also has stew's hooks, those run and the plugin's hooks step aside, so no hook runs twice. With the plugin on, `stew setup` leaves out its own copy of the skill in `~/.claude/skills/stew`, so Claude Code loads the skill once. The plugin is for Claude Code only; Codex still uses `stew hooks install --agent codex`.
 
 ### The setup window
 
@@ -213,7 +213,7 @@ When Claude needs one value it cannot pick from a list, such as a domain, a name
 
 ### The skill
 
-The skill tells agent sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Claude Code reads it from `~/.claude/skills/stew` (and from the plugin, as `stew:stew`, when you use it), Codex from `~/.agents/skills/stew`. Edit its `SKILL.md` to change when sessions use it; `stew setup` writes it again.
+The skill tells agent sessions to use stew when you are probably not watching the terminal: background jobs, long tasks, decisions that block progress. Claude Code reads it from `~/.claude/skills/stew`, or from the plugin as `stew:stew` when the plugin is on, Codex from `~/.agents/skills/stew`. Edit its `SKILL.md` to change when sessions use it; `stew setup` writes it again.
 
 ### Calling it directly
 

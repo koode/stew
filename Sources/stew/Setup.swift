@@ -163,6 +163,11 @@ enum Setup {
             note("No \(location.displayFolder) folder, so the \(agent.productName) skill was skipped.")
             return
         }
+        if pluginBringsSkill(for: agent) {
+            removeSkillCopy(for: agent)
+            note("The stew plugin is on in Claude Code and brings the skill, so stew left out its own copy.")
+            return
+        }
         do {
             try copySkill(from: app, for: agent)
             step("Installed the \(agent.productName) skill in \(SessionResolver.abbreviate(location.skillFolder, home: Paths.home))")
@@ -192,8 +197,33 @@ enum Setup {
         guard directoryExists(location.agentFolder) else {
             throw SetupError("there is no \(location.displayFolder) folder for the \(agent.productName) skill")
         }
-        try copySkill(from: app, for: agent)
+        if pluginBringsSkill(for: agent) {
+            removeSkillCopy(for: agent)
+        } else {
+            try copySkill(from: app, for: agent)
+        }
         try Hooks.install(agent: agent)
+    }
+
+    /// Claude Code loads a plugin's skill next to a user skill of the same name, so with
+    /// the stew plugin on, stew's own copy would load twice.
+    private static func pluginBringsSkill(for agent: CodingAgent) -> Bool {
+        guard agent == .claudeCode else { return false }
+        return ClaudePlugin.isEnabled(settings: FileManager.default.contents(atPath: Hooks.claudeSettingsPath))
+    }
+
+    /// Removes a copy that stew installed earlier: the skill folder, only while it holds
+    /// nothing but stew's SKILL.md, so files a user added there stay.
+    private static func removeSkillCopy(for agent: CodingAgent) {
+        let folder = skillLocation(for: agent).skillFolder
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: folder), contents == ["SKILL.md"] else { return }
+        do {
+            try fileManager.removeItem(atPath: folder)
+            step("Removed stew's own copy of the skill in \(SessionResolver.abbreviate(folder, home: Paths.home))")
+        } catch {
+            print("could not remove \(folder): \(error)")
+        }
     }
 
     /// What of stew an agent has, read from its folders and hook file.
