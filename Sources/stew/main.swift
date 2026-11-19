@@ -431,7 +431,9 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         case "stop": Hooks.stop(agent: agent)
         case "stop-late": Hooks.stopLate(agent: agent)
         case "prompt": Hooks.prompt()
-        default: throw UsageError("hook needs denied, pre, question, permission, stop, stop-late or prompt")
+        case "session-start": Hooks.start(event: "SessionStart")
+        case "subagent-start": Hooks.start(event: "SubagentStart")
+        default: throw UsageError("hook needs denied, pre, question, permission, stop, stop-late, prompt, session-start or subagent-start")
         }
 
     case "hooks":

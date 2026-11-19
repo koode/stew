@@ -263,6 +263,20 @@ expect "approve once returns retry" "$(cat "$WORK/out")" '"retry":true'
 expect "retry is allowed" "$(pre 'git push --force origin main')" '"permissionDecision":"allow"'
 expect "second retry is not" "[$(pre 'git push --force origin main')]" "[]"
 
+# Claude Code tells Claude only that it may retry, so the start hooks give it the rule,
+# and a changed retry is denied once with the approved input.
+expect "session start gives the retry rule" "$(echo '{"hook_event_name":"SessionStart"}' | "$STEW" hook session-start)" 'indicated you may retry this tool call'
+expect "subagent start gives the retry rule" "$(echo '{"hook_event_name":"SubagentStart"}' | "$STEW" hook subagent-start)" '"hookEventName":"SubagentStart"'
+denied "glab api --method PUT x/rebase; poll" "$SOFT" > "$WORK/out" & hook=$!
+wait_items 1
+control press approve > /dev/null
+wait $hook
+out=$(pre 'glab api --method PUT x/rebase')
+expect "a changed retry is denied" "$out" '"permissionDecision":"deny"'
+expect "the denial gives the approved call" "$out" 'every field unchanged: {\"command\":\"glab api --method PUT x/rebase; poll\"'
+expect "a second changed call goes to auto mode" "[$(pre 'glab api --method PUT x/rebase')]" "[]"
+expect "the approved call still goes through" "$(pre 'glab api --method PUT x/rebase; poll')" '"permissionDecision":"allow"'
+
 denied "rm -rf build" "$SOFT" > "$WORK/out" & hook=$!
 wait_items 1
 control press other > /dev/null; control type "use make clean" > /dev/null; control press deny > /dev/null

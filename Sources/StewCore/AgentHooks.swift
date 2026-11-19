@@ -69,6 +69,10 @@ extension CodingAgent {
     /// is on screen, for the few calls auto mode leaves to the user, such as a removal
     /// that could reach far more than intended. Whichever is answered first decides.
     ///
+    /// The SessionStart and SubagentStart hooks give the main agent and each subagent the
+    /// retry rule: after an auto mode denial, Claude Code says only that Claude may retry,
+    /// and stew lets only the identical call through.
+    ///
     /// Codex has no auto mode and no AskUserQuestion: its PermissionRequest hook asks in
     /// stew before Codex shows its own approval prompt. The Stop and UserPromptSubmit hooks
     /// do what they do for Claude Code.
@@ -88,6 +92,8 @@ extension CodingAgent {
                 StewHook(event: "Stop", matcher: nil, arguments: "stop", timeout: 15, background: true, onFailure: failure),
                 StewHook(event: "Stop", matcher: nil, arguments: "stop-late", timeout: 5, onFailure: failure),
                 StewHook(event: "UserPromptSubmit", matcher: nil, arguments: "prompt", timeout: 5, onFailure: failure),
+                StewHook(event: "SessionStart", matcher: nil, arguments: "session-start", timeout: 5, onFailure: failure),
+                StewHook(event: "SubagentStart", matcher: nil, arguments: "subagent-start", timeout: 5, onFailure: failure),
             ]
         case .codex:
             return [

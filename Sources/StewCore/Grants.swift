@@ -123,6 +123,11 @@ public struct Grant: Codable, Equatable, Identifiable, Sendable {
     /// Exact call key, pattern, category name or rule content.
     public var value: String
     public var sessionID: String?
+    /// The subagent that made the call; nil for the main agent.
+    public var agentID: String?
+    /// For once: Claude has not sent the retry yet. The first different call to the same
+    /// tool, from the same agent, is denied with the approved input, once.
+    public var awaitsRetry: Bool?
     public var projectRoot: String?
     public var note: String?
     /// For claudeRule: the settings file holding the rule.
@@ -136,6 +141,8 @@ public struct Grant: Codable, Equatable, Identifiable, Sendable {
         toolName: String,
         value: String,
         sessionID: String? = nil,
+        agentID: String? = nil,
+        awaitsRetry: Bool? = nil,
         projectRoot: String? = nil,
         note: String? = nil,
         settingsPath: String? = nil,
@@ -147,6 +154,8 @@ public struct Grant: Codable, Equatable, Identifiable, Sendable {
         self.toolName = toolName
         self.value = value
         self.sessionID = sessionID
+        self.agentID = agentID
+        self.awaitsRetry = awaitsRetry
         self.projectRoot = projectRoot
         self.note = note
         self.settingsPath = settingsPath
@@ -170,9 +179,15 @@ public enum GrantBook {
     public enum PreToolDecision: Equatable, Sendable {
         case allow
         case deny(note: String)
+        /// Deny a changed retry and give Claude the input the user approved.
+        case redirect(toolName: String, approvedInput: String)
     }
 
-    /// PreToolUse: an approved retry, a denial note, or a standing pattern grant.
+    /// PreToolUse: an approved retry, a denial note, a standing pattern grant, or a
+    /// redirect to the approved input. Claude Code tells Claude only that it may retry,
+    /// so Claude often sends a changed call, which auto mode then blocks again. The first
+    /// different call to the same tool after an approval is denied with the approved
+    /// input, so Claude can send the call the user approved.
     public static func preToolUse(
         grants: inout [Grant],
         call: HookCall,
@@ -186,13 +201,21 @@ public enum GrantBook {
             let grant = grants.remove(at: index)
             return grant.kind == .once ? .allow : .deny(note: grant.note ?? "Denied by the user.")
         }
-        guard call.toolName == "Bash", let command = call.command, !CommandText.isCompound(command),
-              grants.contains(where: { $0.kind == .pattern }) else { return nil }
-        let root = projectRoot()
-        let matched = grants.contains {
-            $0.kind == .pattern && $0.projectRoot == root && CommandText.matches(pattern: $0.value, command: command)
+        if call.toolName == "Bash", let command = call.command, !CommandText.isCompound(command),
+           grants.contains(where: { $0.kind == .pattern }) {
+            let root = projectRoot()
+            let matched = grants.contains {
+                $0.kind == .pattern && $0.projectRoot == root && CommandText.matches(pattern: $0.value, command: command)
+            }
+            if matched { return .allow }
         }
-        return matched ? .allow : nil
+        if let index = grants.firstIndex(where: {
+            $0.kind == .once && $0.awaitsRetry == true && $0.toolName == call.toolName && $0.sessionID == call.sessionID && $0.agentID == call.agentID
+        }) {
+            grants[index].awaitsRetry = nil
+            return .redirect(toolName: call.toolName, approvedInput: grants[index].value)
+        }
+        return nil
     }
 
     /// PermissionDenied: a live category grant for this project and tool.
@@ -203,8 +226,13 @@ public enum GrantBook {
         }
     }
 
+    /// An approval given while Claude waits: it lets the identical retry through and
+    /// redirects the first changed one.
     public static func once(for call: HookCall, now: Date = Date()) -> Grant {
-        Grant(kind: .once, toolName: call.toolName, value: call.key, sessionID: call.sessionID, created: now, expires: now.addingTimeInterval(onceLifetime))
+        Grant(
+            kind: .once, toolName: call.toolName, value: call.key, sessionID: call.sessionID, agentID: call.agentID,
+            awaitsRetry: true, created: now, expires: now.addingTimeInterval(onceLifetime)
+        )
     }
 
     /// A late approval of a blocked call: one identical retry may pass. It lives as long
@@ -390,12 +418,20 @@ public enum HookOutput {
         case .deny(let note):
             specific["permissionDecision"] = "deny"
             specific["permissionDecisionReason"] = "The user denied this in stew: \(note)"
+        case .redirect(let toolName, let approvedInput):
+            specific["permissionDecision"] = "deny"
+            specific["permissionDecisionReason"] = RetryRule.redirect(toolName: toolName, approvedInput: approvedInput)
         case nil:
             break
         }
         if let additionalContext { specific["additionalContext"] = additionalContext }
         guard specific.count > 1 else { return nil }
         return encode(["hookSpecificOutput": specific])
+    }
+
+    /// SessionStart or SubagentStart: the retry rule goes into Claude's context.
+    public static func startContext(event: String) -> String {
+        encode(["hookSpecificOutput": ["hookEventName": event, "additionalContext": RetryRule.text]])
     }
 
     /// UserPromptSubmit: late answers go into the context of the user's new message.
@@ -465,8 +501,10 @@ public enum ClaudeSettings {
         try HookFile.removing(events: hookEvents, executable: executable, from: data)
     }
 
-    /// Every event stew hooks into.
-    static let hookEvents = ["PermissionDenied", "PermissionRequest", "PreToolUse", "Stop", "UserPromptSubmit"]
+    /// Every event stew hooks into, from the hook list, so uninstall finds every hook.
+    static var hookEvents: [String] {
+        Array(Set(CodingAgent.claudeCode.stewHooks(waitTimeout: CodingAgent.hookWaitTimeout).map(\.event))).sorted()
+    }
 
     public typealias HookState = HookInstallState
 
@@ -477,5 +515,20 @@ public enum ClaudeSettings {
 
     public static func hasHooks(executable: String, in data: Data?) -> Bool {
         hookState(executable: executable, in: data) == .complete
+    }
+}
+
+/// What Claude needs to know to use an approval from stew. After an auto mode denial,
+/// Claude Code tells Claude only that it may retry, so stew says up front what that
+/// means: the user answered in stew, and only the identical call goes through.
+public enum RetryRule {
+    public static let retryMessage = "The PermissionDenied hook indicated you may retry this tool call"
+
+    public static let text = """
+        stew answers auto mode denials. When auto mode denies a tool call and the next message says "\(retryMessage)", the user answered that call in stew. Send the identical call again at once: the same tool and the same input, with every field (command, description, timeout) unchanged. Do not shorten it, split it or replace it with a safer method. If the user approved it, stew lets it through once. If the user declined it, stew denies it with the user's note. stew denies the first changed call to the same tool and gives you the approved input.
+        """
+
+    public static func redirect(toolName: String, approvedInput: String) -> String {
+        "The user approved your previous \(toolName) call in stew, but this call is different, and only the identical call goes through. Send the approved call again with exactly this input, every field unchanged: \(approvedInput). If you no longer need it, send this call again: it then goes through the normal checks."
     }
 }

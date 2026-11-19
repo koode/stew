@@ -51,6 +51,18 @@
         "matcher" : "AskUserQuestion"
       }
     ],
+    "SessionStart" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook session-start",
+            "onFailure" : "continue",
+            "timeout" : 5,
+            "type" : "command"
+          }
+        ]
+      }
+    ],
     "Stop" : [
       {
         "hooks" : [
@@ -67,6 +79,18 @@
         "hooks" : [
           {
             "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook stop-late",
+            "onFailure" : "continue",
+            "timeout" : 5,
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stew hook subagent-start",
             "onFailure" : "continue",
             "timeout" : 5,
             "type" : "command"

@@ -148,6 +148,14 @@ enum Hooks {
         exit(0)
     }
 
+    /// SessionStart and SubagentStart: give Claude the retry rule, so it sends the call
+    /// the user approved in stew unchanged. Needs no daemon and reads no files.
+    static func start(event: String) -> Never {
+        _ = FileHandle.standardInput.readDataToEndOfFile()
+        print(HookOutput.startContext(event: event))
+        exit(0)
+    }
+
     /// PreToolUse on AskUserQuestion: ask in stew instead of the terminal when the
     /// session is unattended (or always, per config). Returns the answers as the tool's
     /// input, or a denial with a reason Claude can act on. If the daemon cannot be

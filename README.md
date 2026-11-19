@@ -117,12 +117,12 @@ stew works with Claude Code and Codex. Both use the skill to call stew themselve
 
 ### When auto mode blocks a call
 
-This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one for the prompts auto mode leaves to you, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
+This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one for the prompts auto mode leaves to you, one that lets an approved retry through, two that tell Claude and its subagents how that retry works, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason. Auto mode tells only the category, so stew's own risk check (see below) then adds what in the call is risky, such as "drops every database ending in _pend, which you did not ask for", and marks that part of the command. This check only informs: it does not change how a blocked call is approved.
 3. You approve (⌘↩), deny (⌘D, optionally with a note for Claude), or dismiss (⌘.). If the time to answer runs out, Claude is told you did not respond in time; you can still answer it later from History (see Late answers).
-4. On approval, stew tells Claude Code that Claude may retry. The `PreToolUse` hook lets that identical call through once. A changed call goes back to auto mode.
+4. On approval, stew tells Claude Code that Claude may retry. Claude Code passes on only "you may retry", so the `SessionStart` and `SubagentStart` hooks tell Claude up front what it means: you answered in stew, so it sends the identical call again. The `PreToolUse` hook lets that identical call through once. If Claude sends a changed call to the same tool instead, stew denies it once and gives Claude the call you approved. After that, a changed call goes back to auto mode.
 
 **Allow more…** (⌘G) skips the question next time:
 

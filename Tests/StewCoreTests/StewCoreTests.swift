@@ -506,16 +506,63 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
 @Suite struct GrantBookTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
 
-    func call(_ command: String, session: String = "s1") -> HookCall {
-        HookCall(event: "PreToolUse", sessionID: session, cwd: "/p", toolName: "Bash", key: "{\"command\":\"\(command)\"}", command: command, description: nil, summary: command, reason: nil)
+    func call(_ command: String, session: String = "s1", agent: String? = nil, tool: String = "Bash") -> HookCall {
+        HookCall(event: "PreToolUse", sessionID: session, agentID: agent, cwd: "/p", toolName: tool, key: "{\"command\":\"\(command)\"}", command: command, description: nil, summary: command, reason: nil)
     }
 
     @Test func onceAllowsOneIdenticalRetryInTheSameSession() {
         var grants = [GrantBook.once(for: call("git push -f"), now: now)]
         #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f", session: "other"), projectRoot: { "/p" }, now: now) == nil)
-        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f --tags"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f --tags"), projectRoot: { "/p" }, now: now) == .redirect(toolName: "Bash", approvedInput: "{\"command\":\"git push -f\"}"))
         #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f"), projectRoot: { "/p" }, now: now) == .allow)
         #expect(GrantBook.preToolUse(grants: &grants, call: call("git push -f"), projectRoot: { "/p" }, now: now) == nil)
+    }
+
+    @Test func aChangedRetryIsRedirectedOnceThenGoesToAutoMode() {
+        var grants = [GrantBook.once(for: call("glab api --method PUT x/rebase; poll"), now: now)]
+        let approved = "{\"command\":\"glab api --method PUT x/rebase; poll\"}"
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("glab api --method PUT x/rebase"), projectRoot: { "/p" }, now: now) == .redirect(toolName: "Bash", approvedInput: approved))
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("glab api --method PUT x/rebase"), projectRoot: { "/p" }, now: now) == nil)
+        // The approval itself stays: the identical call still goes through once.
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("glab api --method PUT x/rebase; poll"), projectRoot: { "/p" }, now: now) == .allow)
+    }
+
+    @Test func redirectOnlyHitsTheSameToolAndAgent() {
+        var grants = [GrantBook.once(for: call("rm -rf dist", agent: "a1"), now: now)]
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("ls"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("ls", agent: "a2"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("x", agent: "a1", tool: "Edit"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("ls", agent: "a1"), projectRoot: { "/p" }, now: now) == .redirect(toolName: "Bash", approvedInput: "{\"command\":\"rm -rf dist\"}"))
+    }
+
+    @Test func aStandingGrantWinsOverTheRedirect() {
+        let choice = GrantChoice(scope: .init(kind: .pattern, value: "git push --force *"), duration: .hour)
+        var grants = [GrantBook.once(for: call("git push --force origin main"), now: now), GrantBook.standing(choice, toolName: "Bash", projectRoot: "/p", now: now)!]
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("git push --force origin dev"), projectRoot: { "/p" }, now: now) == .allow)
+    }
+
+    @Test func aLateApprovalIsNotRedirected() {
+        var grants: [Grant] = []
+        GrantBook.approveLate(grants: &grants, toolName: "Bash", callKey: "{\"command\":\"make deploy\"}", sessionID: "s1", now: now)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("ls"), projectRoot: { "/p" }, now: now) == nil)
+        #expect(GrantBook.preToolUse(grants: &grants, call: call("make deploy"), projectRoot: { "/p" }, now: now) == .allow)
+    }
+
+    @Test func redirectOutputDeniesWithTheApprovedInput() throws {
+        let output = HookOutput.preToolUse(.redirect(toolName: "Bash", approvedInput: "{\"command\":\"make deploy\"}"))
+        let specific = try #require((try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])?["hookSpecificOutput"] as? [String: Any])
+        #expect(specific["permissionDecision"] as? String == "deny")
+        let reason = try #require(specific["permissionDecisionReason"] as? String)
+        #expect(reason.contains("exactly this input, every field unchanged: {\"command\":\"make deploy\"}"))
+    }
+
+    @Test func startContextCarriesTheRetryRule() throws {
+        for event in ["SessionStart", "SubagentStart"] {
+            let output = HookOutput.startContext(event: event)
+            let specific = try #require((try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])?["hookSpecificOutput"] as? [String: Any])
+            #expect(specific["hookEventName"] as? String == event)
+            #expect((specific["additionalContext"] as? String)?.contains(RetryRule.retryMessage) == true)
+        }
     }
 
     @Test func denyNoteReachesClaudeOnce() {
@@ -772,12 +819,18 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         #expect(ClaudeSettings.hookState(executable: "/u/stew", in: old) == .partial)
     }
 
+    @Test func uninstallRemovesEveryHookInstallAdds() throws {
+        let installed = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: nil)
+        let removed = try #require(try ClaudeSettings.removingHooks(executable: "/u/stew", from: installed))
+        #expect(ClaudeSettings.hookState(executable: "/u/stew", in: removed) == .none)
+    }
+
     @Test func claudeHooksLetTheCallGoAheadWhenStewFails() throws {
         let installed = try ClaudeSettings.installingHooks(executable: "/u/stew", deniedTimeout: 1800, into: nil)
         var object = try JSONSerialization.jsonObject(with: installed) as! [String: Any]
         var hooks = object["hooks"] as! [String: [[String: Any]]]
         let handlers = hooks.values.flatMap { $0 }.flatMap { $0["hooks"] as! [[String: Any]] }
-        #expect(handlers.count == 7)
+        #expect(handlers.count == 9)
         #expect(handlers.allSatisfy { $0["onFailure"] as? String == "continue" })
 
         // An install from before onFailure has every command, but needs an update.
