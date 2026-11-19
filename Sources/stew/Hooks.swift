@@ -249,11 +249,15 @@ enum Hooks {
         exit(0)
     }
 
-    /// PermissionRequest (Codex): the agent is about to ask for approval, so ask in stew
-    /// first. Approve allows the call; Deny refuses it with the user's note as the message
-    /// the agent reads. A timeout, a closed panel or no daemon prints nothing: the agent
-    /// then shows its own approval prompt, so the user answers there and stew keeps no
-    /// late answer for it.
+    /// PermissionRequest: the agent is about to ask for approval, so ask in stew too.
+    /// Approve allows the call; Deny refuses it with the user's note as the message the
+    /// agent reads. A timeout, a closed panel or no daemon prints nothing: the agent's own
+    /// prompt then decides, so stew keeps no late answer for it.
+    ///
+    /// Codex shows its prompt after the hook. Claude Code shows it at the same time and
+    /// runs no hook once it is answered there or blocks the call after its time limit, so
+    /// for Claude Code the hook follows the transcript and gives up as soon as the call
+    /// has a result: the daemon then takes the request off the panel.
     static func permission(agent: CodingAgent) -> Never {
         do {
             let call = try readHookInput()
@@ -266,11 +270,27 @@ enum Hooks {
             )
             if let sessionID = call.sessionID { session.id = sessionID }
             session.agent = agent
-            let request = StewRequest(
-                session: session, prompt: .permission(PermissionRequest.approval(call, agent: agent)), maxWait: Double(deniedTimeout - 20),
-                origin: RequestOrigin(agentID: call.agentID, agentAsksOnTimeout: true)
-            )
-            let response = Client.send(request)
+            let hookLimit = Double(deniedTimeout - 20)
+            let request: StewRequest
+            switch agent {
+            case .claudeCode:
+                let permission = PermissionRequest(
+                    action: call.blockedAction,
+                    command: call.blockedCommand,
+                    reason: claudeReason(transcriptPath: call.transcriptPath)
+                )
+                request = StewRequest(
+                    session: session, prompt: .permission(permission),
+                    maxWait: PermissionRequest.claudeTimeLimit(toolName: call.toolName, permissionMode: call.permissionMode, hookLimit: hookLimit),
+                    origin: RequestOrigin(agentID: call.agentID, agentAsksOnTimeout: true)
+                )
+            case .codex:
+                request = StewRequest(
+                    session: session, prompt: .permission(PermissionRequest.approval(call, agent: agent)), maxWait: hookLimit,
+                    origin: RequestOrigin(agentID: call.agentID, agentAsksOnTimeout: true)
+                )
+            }
+            let response = agent == .claudeCode ? sendUnlessSettled(request, call: call) : Client.send(request)
             let note = response.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             switch response.status {
             case .approved:
@@ -286,6 +306,23 @@ enum Hooks {
             Log.append("hook permission: \(error)")
         }
         exit(0)
+    }
+
+    /// Sends the request, and exits without an answer once the transcript shows a result
+    /// for the call: the user answered Claude Code's own prompt, or it ran out of time.
+    /// Exiting closes the connection, which takes the request off the panel.
+    static func sendUnlessSettled(_ request: StewRequest, call: HookCall) -> StewResponse {
+        let answer = PendingResponse()
+        Thread.detachNewThread { answer.finish(Client.send(request)) }
+        var watch = TerminalAnswerWatch(call: call)
+        while !answer.wait(seconds: 0.5) {
+            if watch?.settled() == true {
+                Log.append("hook permission: \(call.toolName) got its result in Claude Code's own prompt")
+                exit(0)
+            }
+            if watch == nil { watch = TerminalAnswerWatch(call: call) }
+        }
+        return answer.response ?? StewResponse(status: .error, error: "no answer")
     }
 
     /// Ends a Stop hook. Codex treats a Stop hook's output as invalid unless it is JSON, so
@@ -508,5 +545,57 @@ enum Hooks {
             let standing = GrantFile.read().filter { $0.isStanding && $0.isLive(at: Date()) }
             print("standing approvals: \(standing.count) (stew approvals to manage)")
         }
+    }
+}
+
+/// The daemon's answer, from the thread that waits for it.
+final class PendingResponse: @unchecked Sendable {
+    private let done = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var stored: StewResponse?
+
+    var response: StewResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func finish(_ response: StewResponse) {
+        lock.lock()
+        stored = response
+        lock.unlock()
+        done.signal()
+    }
+
+    /// True once the answer is in; false after `seconds` without it.
+    func wait(seconds: Double) -> Bool {
+        done.wait(timeout: .now() + seconds) == .success
+    }
+}
+
+/// Follows the transcript that records a call, from the hook's start on.
+struct TerminalAnswerWatch {
+    private var watch: TranscriptWatch
+    private var follower = LineFollower()
+    private let handle: FileHandle
+
+    /// Nil while the transcript does not exist, such as a subagent's before its first call.
+    init?(call: HookCall) {
+        guard let transcriptPath = call.transcriptPath,
+              let handle = FileHandle(forReadingAtPath: TranscriptWatch.path(transcriptPath: transcriptPath, agentID: call.agentID)) else { return nil }
+        self.handle = handle
+        watch = TranscriptWatch(toolName: call.toolName, key: call.key)
+        // The call itself is among the last entries; earlier ones only matter for an
+        // identical call that already has its result.
+        let tailSize: UInt64 = 2_000_000
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > tailSize ? size - tailSize : 0)
+        _ = watch.read(follower.lines(in: handle.readDataToEndOfFile()))
+        watch.follow()
+    }
+
+    /// True once the call got its result.
+    mutating func settled() -> Bool {
+        watch.read(follower.lines(in: handle.readDataToEndOfFile()))
     }
 }

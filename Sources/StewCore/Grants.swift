@@ -246,6 +246,8 @@ public struct HookCall: Equatable, Sendable {
     /// Short text for the panel when the tool is not Bash: a path, a URL or the input.
     public var summary: String
     public var reason: String?
+    /// Claude Code's permission mode, such as "auto"; nil when the agent does not say.
+    public var permissionMode: String?
 
     public struct ParseError: Error, CustomStringConvertible {
         public let description: String
@@ -285,11 +287,12 @@ public struct HookCall: Equatable, Sendable {
             command: command,
             description: input["description"] as? String,
             summary: summary,
-            reason: object["reason"] as? String
+            reason: object["reason"] as? String,
+            permissionMode: object["permission_mode"] as? String
         )
     }
 
-    public init(event: String, sessionID: String?, agentID: String? = nil, cwd: String, transcriptPath: String? = nil, toolName: String, key: String, command: String?, description: String?, summary: String, reason: String?) {
+    public init(event: String, sessionID: String?, agentID: String? = nil, cwd: String, transcriptPath: String? = nil, toolName: String, key: String, command: String?, description: String?, summary: String, reason: String?, permissionMode: String? = nil) {
         self.event = event
         self.sessionID = sessionID
         self.agentID = agentID
@@ -301,6 +304,7 @@ public struct HookCall: Equatable, Sendable {
         self.description = description
         self.summary = summary
         self.reason = reason
+        self.permissionMode = permissionMode
     }
 
     /// The tool Claude Code's Code Mode runs Claude's JavaScript with; its input is `code`.
@@ -462,7 +466,7 @@ public enum ClaudeSettings {
     }
 
     /// Every event stew hooks into.
-    static let hookEvents = ["PermissionDenied", "PreToolUse", "Stop", "UserPromptSubmit"]
+    static let hookEvents = ["PermissionDenied", "PermissionRequest", "PreToolUse", "Stop", "UserPromptSubmit"]
 
     public typealias HookState = HookInstallState
 

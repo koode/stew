@@ -106,7 +106,7 @@ stew works with Claude Code and Codex. Both use the skill to call stew themselve
 
 ### When auto mode blocks a call
 
-This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
+This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.claude/settings.json` (a backup is written first): one for calls auto mode blocks, one for the prompts auto mode leaves to you, one that lets an approved retry through, one for questions, two for things Claude needs you to do, and one that passes on late answers (see below).
 
 1. Auto mode reviews a call as usual. If it allows the call, stew never sees it.
 2. If auto mode blocks it, the `PermissionDenied` hook shows the call in stew: the command, auto mode's category for it, and Claude's last message as the reason. Auto mode tells only the category, so stew's own risk check (see below) then adds what in the call is risky, such as "drops every database ending in _pend, which you did not ask for", and marks that part of the command. This check only informs: it does not change how a blocked call is approved.
@@ -126,6 +126,12 @@ This is Claude Code's. With `--with-hooks`, Claude Code hooks are added to `~/.c
 - stew's own approvals never match chained commands (`&&`, `;`, `|`, redirects, `$(…)`).
 - Secrets in a command are shown as `••••` (with a button to reveal them) and become `*` in any saved rule.
 - `stew approvals` opens a window that lists every standing approval, with Revoke.
+
+### When Claude Code asks in the terminal
+
+Auto mode still leaves a few calls to you in Claude Code's own prompt: a call that an `ask` rule in your settings covers, and a shell removal that could delete far more than intended, such as `rmdir "$R/$dir"` while `$R` might be empty. For such a removal, the prompt blocks the call after two minutes, so an unattended session keeps working.
+
+The `PermissionRequest` hook shows these calls in stew at the same time, with Claude's description of the call and Claude's last message as the reason. Whichever you answer first decides: Approve or Deny in stew answers Claude Code's prompt, and an answer in the terminal closes the request in stew. A shell call in auto mode gets 1:55 in stew, so stew's time runs out just before Claude Code blocks the call. When stew's time runs out, nothing is decided and Claude Code's prompt stays open.
 
 What hooks cannot change:
 

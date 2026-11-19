@@ -61,6 +61,10 @@ extension CodingAgent {
     /// runs in the foreground, because only a foreground hook can keep the agent going; it
     /// only reads late-answers.json, so it stays fast.
     ///
+    /// Claude Code's PermissionRequest hook asks in stew while Claude Code's own prompt
+    /// is on screen, for the few calls auto mode leaves to the user, such as a removal
+    /// that could reach far more than intended. Whichever is answered first decides.
+    ///
     /// Codex has no auto mode and no AskUserQuestion: its PermissionRequest hook asks in
     /// stew before Codex shows its own approval prompt. The Stop and UserPromptSubmit hooks
     /// do what they do for Claude Code.
@@ -74,6 +78,7 @@ extension CodingAgent {
             let failure = Self.claudeOnFailure
             return [
                 StewHook(event: "PermissionDenied", matcher: "*", arguments: "denied", timeout: waitTimeout, onFailure: failure),
+                StewHook(event: "PermissionRequest", matcher: "*", arguments: "permission", timeout: waitTimeout, statusMessage: "Asking in stew", onFailure: failure),
                 StewHook(event: "PreToolUse", matcher: "*", arguments: "pre", timeout: 10, onFailure: failure),
                 StewHook(event: "PreToolUse", matcher: "AskUserQuestion", arguments: "question", timeout: waitTimeout, onFailure: failure),
                 StewHook(event: "Stop", matcher: nil, arguments: "stop", timeout: 15, background: true, onFailure: failure),

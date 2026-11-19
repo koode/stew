@@ -577,7 +577,7 @@ struct AgentsSettingsTab: View {
         SettingsPane(tab: .agents) {
             SettingsForm {
                 Section(CodingAgent.claudeCode.productName) {
-                    SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
+                    SettingRow(hint: "When auto mode blocks a call, stew asks you, and an approved call is retried once. When Claude Code asks in the terminal, stew asks too, and the first answer counts. Questions and things Claude needs you to do can come to stew too. Changes ~/.claude/settings.json; a backup is written first.") {
                         LabeledContent("Hooks") { hookControls(.claudeCode, state: model.hookState) }
                     }
                     SettingRow(hint: "Where Claude Code's questions (AskUserQuestion) appear. Unattended means background and remote sessions; a session you are typing in keeps asking in the terminal.") {

@@ -616,11 +616,13 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         let hooks = (try JSONSerialization.jsonObject(with: twice) as! [String: Any])["hooks"] as! [String: Any]
         #expect((hooks["PreToolUse"] as! [[String: Any]]).count == 3)
         #expect((hooks["PermissionDenied"] as! [[String: Any]]).count == 1)
+        #expect((hooks["PermissionRequest"] as! [[String: Any]]).count == 1)
         #expect(ClaudeSettings.hasHooks(executable: "/u/.local/bin/stew", in: twice))
         let removed = try #require(try ClaudeSettings.removingHooks(executable: "/u/.local/bin/stew", from: twice))
         let left = (try JSONSerialization.jsonObject(with: removed) as! [String: Any])["hooks"] as! [String: Any]
         #expect((left["PreToolUse"] as! [[String: Any]]).count == 1)
         #expect(left["PermissionDenied"] == nil)
+        #expect(left["PermissionRequest"] == nil)
     }
 
     @Test func uninstallWithoutHooksLeavesTheFileAlone() throws {
@@ -775,7 +777,7 @@ private func sampleQuestions(multiSecond: Bool = false) -> [Question] {
         var object = try JSONSerialization.jsonObject(with: installed) as! [String: Any]
         var hooks = object["hooks"] as! [String: [[String: Any]]]
         let handlers = hooks.values.flatMap { $0 }.flatMap { $0["hooks"] as! [[String: Any]] }
-        #expect(handlers.count == 6)
+        #expect(handlers.count == 7)
         #expect(handlers.allSatisfy { $0["onFailure"] as? String == "continue" })
 
         // An install from before onFailure has every command, but needs an update.

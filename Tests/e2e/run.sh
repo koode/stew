@@ -1062,6 +1062,54 @@ wait $hook
 expect "codex: an MCP tool names its server" "$(codex_entry "Use create_issue from the github MCP server")" '"command":"mcp__github__create_issue: {\"title\":\"Flaky test\"}"'
 expect "codex: unknown agent is refused" "$(echo '{}' | "$STEW" hook permission --agent gemini 2>&1)" "unknown --agent gemini"
 
+# Claude Code's PermissionRequest: the hook asks in stew while Claude Code's own prompt is
+# open. When the transcript shows the call's result (answered in the terminal, or blocked
+# after Claude Code's two minutes), the hook gives up and the panel closes.
+CLAUDE_TRANSCRIPT="$WORK/claude-permission.jsonl"
+: > "$CLAUDE_TRANSCRIPT"
+claude_permission() { # command, permission mode
+  python3 -c 'import json,sys;print(json.dumps({"session_id":"claude-perm","transcript_path":sys.argv[3],"cwd":sys.argv[4],"permission_mode":sys.argv[2],"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":sys.argv[1],"description":"Remove the build folders"},"permission_suggestions":[]}))' "$1" "$2" "$CLAUDE_TRANSCRIPT" "$PROJ" \
+    | "$STEW" hook permission
+}
+claude_transcript() { # tool_use|tool_result, id, command
+  python3 -c '
+import json,sys
+kind,id,command=sys.argv[1:4]
+part={"type":"tool_use","id":id,"name":"Bash","input":{"command":command,"description":"Remove the build folders"}} if kind=="tool_use" else {"type":"tool_result","tool_use_id":id,"is_error":True,"content":"The user doesn'"'"'t want to proceed with this tool use."}
+print(json.dumps({"type":"assistant" if kind=="tool_use" else "user","message":{"content":[part]}}))' "$1" "$2" "$3" >> "$CLAUDE_TRANSCRIPT"
+}
+RMDIR='for dir in a b; do rmdir "$R/$dir"; done'
+clock_seconds() { control state | python3 -c 'import re,sys; match=re.search(r"clock=running:(\d+)", sys.stdin.read()); print(match.group(1) if match else "none")'; }
+# An answer time longer than Claude Code's countdown, so the cap shows.
+set_config ',"responseTimeout":600'
+claude_transcript tool_use toolu_perm1 "$RMDIR"
+claude_permission "$RMDIR" auto > "$WORK/out" & hook=$!
+wait_items 1
+expect "claude permission: the prompt shows in stew" "$(control state)" "kind=permission"
+clock=$(clock_seconds)
+[[ "$clock" =~ ^[0-9]+$ && "$clock" -le 115 && "$clock" -ge 110 ]] && pass "claude permission: a shell call in auto mode stops before Claude Code's countdown" || fail "claude permission: a shell call in auto mode stops before Claude Code's countdown" "clock $clock"
+control press approve > /dev/null
+wait $hook
+expect "claude permission: approve allows" "$(cat "$WORK/out")" '{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}'
+expect "claude permission: Claude's description is the action" "$(history_json | python3 -c 'import json,sys; print(next(entry for entry in json.load(sys.stdin) if entry.get("command")==sys.argv[1])["summary"])' "$RMDIR")" "Remove the build folders"
+claude_transcript tool_result toolu_perm1 "$RMDIR"
+claude_transcript tool_use toolu_perm2 "$RMDIR"
+claude_permission "$RMDIR" auto > "$WORK/out" & hook=$!
+wait_items 1
+claude_transcript tool_result toolu_perm2 "$RMDIR"
+wait $hook
+expect "claude permission: an answer in the terminal leaves no output" "[$(cat "$WORK/out")]" "[]"
+expect "claude permission: an answer in the terminal closes the panel" "$(control state)" "items=0 "
+claude_permission "rm -rf build" default > "$WORK/out" & hook=$!
+wait_items 1
+clock=$(clock_seconds)
+[[ "$clock" =~ ^[0-9]+$ && "$clock" -gt 500 ]] && pass "claude permission: outside auto mode stew keeps its own time limit" || fail "claude permission: outside auto mode stew keeps its own time limit" "clock $clock"
+claude_transcript tool_use toolu_perm3 "rm -rf build"
+control press deny > /dev/null
+wait $hook
+expect "claude permission: deny refuses, even when the call reached the transcript after the hook started" "$(cat "$WORK/out")" '"behavior":"deny"'
+set_config ""
+
 # Codex Stop and UserPromptSubmit: the same needs and late answers as Claude Code, and
 # Stop always prints JSON, which Codex requires. Codex does not say whether anyone is at
 # the terminal, so with the default autoNeeds its needs lines make no item.
