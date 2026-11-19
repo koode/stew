@@ -198,14 +198,24 @@ public struct Account: Codable, Equatable, Sendable {
     public var offers: [AccountOffer]
     /// Present while `entitled`. The Mac stores and forwards it, and never reads it.
     public var lease: String?
+    /// Whether the account answered "Where did you hear about stew?".
+    public var heardFrom: AccountHeardFrom
 
-    public init(id: String, email: String, plan: AccountPlan, entitled: Bool, offers: [AccountOffer] = [], lease: String? = nil) {
+    private enum CodingKeys: String, CodingKey {
+        case id, email, plan, entitled, offers, lease, heardFrom
+    }
+
+    public init(
+        id: String, email: String, plan: AccountPlan, entitled: Bool, offers: [AccountOffer] = [], lease: String? = nil,
+        heardFrom: AccountHeardFrom = .notOffered
+    ) {
         self.id = id
         self.email = email
         self.plan = plan
         self.entitled = entitled
         self.offers = offers
         self.lease = lease
+        self.heardFrom = heardFrom
     }
 
     /// One offer that does not decode, such as one with a missing label or a bad URL, is
@@ -220,6 +230,30 @@ public struct Account: Codable, Equatable, Sendable {
         offers = lossy.compactMap(\.value)
         let leaseText = try container.decodeIfPresent(String.self, forKey: .lease)
         lease = leaseText?.isEmpty == false ? leaseText : nil
+        // Missing on a server from before the question; an answer that does not decode
+        // still counts as answered, so the question is not asked again.
+        if !container.contains(.heardFrom) {
+            heardFrom = .notOffered
+        } else if try container.decodeNil(forKey: .heardFrom) {
+            heardFrom = .unanswered
+        } else {
+            heardFrom = .answered((try? container.decode(HeardFromAnswer.self, forKey: .heardFrom)) ?? HeardFromAnswer())
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(email, forKey: .email)
+        try container.encode(plan, forKey: .plan)
+        try container.encode(entitled, forKey: .entitled)
+        try container.encode(offers, forKey: .offers)
+        try container.encodeIfPresent(lease, forKey: .lease)
+        switch heardFrom {
+        case .notOffered: break
+        case .unanswered: try container.encodeNil(forKey: .heardFrom)
+        case .answered(let answer): try container.encode(answer, forKey: .heardFrom)
+        }
     }
 
     /// The offers the Mac shows and may open, in the server's order. None while a payment
@@ -445,6 +479,12 @@ public struct AccountClient: Sendable {
         return reply.url
     }
 
+    /// Sends where the user heard about stew, or that they skipped it; returns the account
+    /// with the answer.
+    public func answerHeardFrom(_ reply: HeardFromReply, token: String) async throws -> Account {
+        try await call("POST", "/v1/account/heard-from", token: token, body: reply)
+    }
+
     public func signOut(token: String) async throws {
         _ = try await send("POST", "/v1/sign-out", token: token, body: nil)
     }
@@ -454,7 +494,7 @@ public struct AccountClient: Sendable {
     }
 
     /// The request a call sends, for tests to inspect.
-    func request(_ method: String, _ path: String, token: String?, body: [String: String]?) throws -> URLRequest {
+    func request(_ method: String, _ path: String, token: String?, body: (any Encodable)?) throws -> URLRequest {
         var request = URLRequest(url: server.appendingPathComponent(String(path.dropFirst())))
         request.httpMethod = method
         request.timeoutInterval = Self.timeout
@@ -474,7 +514,7 @@ public struct AccountClient: Sendable {
         return request
     }
 
-    private func call<Reply: Decodable>(_ method: String, _ path: String, token: String? = nil, body: [String: String]? = nil) async throws -> Reply {
+    private func call<Reply: Decodable>(_ method: String, _ path: String, token: String? = nil, body: (any Encodable)? = nil) async throws -> Reply {
         try Self.decode(try await send(method, path, token: token, body: body).data)
     }
 
@@ -486,7 +526,7 @@ public struct AccountClient: Sendable {
         }
     }
 
-    private func send(_ method: String, _ path: String, token: String?, body: [String: String]?) async throws -> (data: Data, response: HTTPURLResponse) {
+    private func send(_ method: String, _ path: String, token: String?, body: (any Encodable)?) async throws -> (data: Data, response: HTTPURLResponse) {
         let request: URLRequest
         do {
             request = try self.request(method, path, token: token, body: body)

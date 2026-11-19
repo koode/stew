@@ -2,7 +2,8 @@ import SwiftUI
 import StewCore
 
 /// Settings ▸ Account: sign in with an email address, see the plan, subscribe, manage
-/// billing, sign out or delete the account.
+/// billing, sign out or delete the account. Once after sign-in it asks where the user
+/// heard about stew.
 struct AccountSettingsTab: View {
     @ObservedObject var account: AccountModel
     @State private var deleting = false
@@ -114,6 +115,9 @@ struct AccountSettingsTab: View {
                         .disabled(account.busy != nil)
                 }
             }
+            if account.showsHeardFrom {
+                heardFromQuestion
+            }
             Section("Plan") {
                 if account.paymentOutcome == .paid {
                     Notice(.success, "Payment received. Your plan is active.")
@@ -151,6 +155,37 @@ struct AccountSettingsTab: View {
                     Button("Sign out") { account.signOut() }
                         .disabled(account.busy != nil)
                 }
+            }
+        }
+    }
+
+    /// Asked once, after sign-in. Send or Skip hides it for good.
+    private var heardFromQuestion: some View {
+        Section("Where did you hear about stew?") {
+            SettingRow(hint: "Optional, and asked only once. stewcli.com has no analytics, so this is how we learn what brought you here.") {
+                Picker("Source", selection: $account.heardFrom.source) {
+                    Text("Choose…").tag(HeardFromSource?.none)
+                    ForEach(HeardFromSource.allCases, id: \.self) { source in
+                        Text(source.label).tag(HeardFromSource?.some(source))
+                    }
+                }
+            }
+            if account.heardFrom.showsDetail {
+                SettingRow(hint: "Optional. Up to \(HeardFromQuestion.longestDetail) characters.") {
+                    TextField("Where", text: $account.heardFrom.detail, prompt: Text("A newsletter, a podcast, a blog"))
+                        .onChange(of: account.heardFrom.detail) {
+                            let limited = HeardFromQuestion.limited(account.heardFrom.detail)
+                            if limited != account.heardFrom.detail { account.heardFrom.detail = limited }
+                        }
+                        .onSubmit { account.sendHeardFrom() }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Skip") { account.skipHeardFrom() }
+                Button("Send") { account.sendHeardFrom() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!account.heardFrom.canSend)
             }
         }
     }

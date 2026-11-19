@@ -242,7 +242,7 @@ enum Daemon {
         let accountStore: AccountTokenStore = Paths.headless
             ? FileAccountTokenStore(path: (Paths.socket as NSString).deletingLastPathComponent + "/account-session")
             : KeychainAccountTokenStore()
-        AccountModel.shared.start(store: accountStore) { lease in PhoneLink.shared.forwardLease(lease) }
+        AccountModel.shared.start(store: accountStore, state: coordinator.stateStore) { lease in PhoneLink.shared.forwardLease(lease) }
         for terminating in [SIGTERM, SIGINT] {
             signal(terminating, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: terminating, queue: .main)

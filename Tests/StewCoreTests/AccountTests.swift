@@ -707,3 +707,140 @@ private let start = SignInStart(signInId: "sgn_1", pollToken: "poll", expiresAt:
         #expect(KeychainAccountTokenStore.service == "nl.koode.stew.account")
     }
 }
+
+@Suite struct HeardFromTests {
+    private func accountJSON(heardFrom: String?) -> String {
+        let field = heardFrom.map { #","heardFrom":\#($0)"# } ?? ""
+        return #"{"id":"acc_1","email":"abby@example.com","plan":{"status":"trial"},"entitled":true\#(field)}"#
+    }
+
+    private func decoded(heardFrom: String?) throws -> Account {
+        try AccountClient.decodeAccount(Data(accountJSON(heardFrom: heardFrom).utf8))
+    }
+
+    private func sample(_ heardFrom: AccountHeardFrom, id: String = "acc_1") -> Account {
+        Account(id: id, email: "abby@example.com", plan: AccountPlan(status: .trial), entitled: true, heardFrom: heardFrom)
+    }
+
+    @Test func theSourcesAreTheContractsKeysInItsOrder() {
+        #expect(HeardFromSource.allCases.map(\.rawValue) == [
+            "hacker_news", "reddit", "x", "bluesky", "product_hunt", "github", "claude_plugin_directory", "youtube", "friend", "search", "other",
+        ])
+        #expect(Set(HeardFromSource.allCases.map(\.label)).count == HeardFromSource.allCases.count)
+    }
+
+    @Test func readsWhetherTheServerAsks() throws {
+        #expect(try decoded(heardFrom: nil).heardFrom == .notOffered)
+        #expect(try decoded(heardFrom: "null").heardFrom == .unanswered)
+        let answered = try decoded(heardFrom: #"{"source":"reddit","detail":null,"skipped":false,"answeredAt":"2026-12-01T10:00:00Z"}"#)
+        #expect(answered.heardFrom == .answered(HeardFromAnswer(source: "reddit", answeredAt: Date(timeIntervalSince1970: 1_796_119_200))))
+        let skipped = try decoded(heardFrom: #"{"source":null,"detail":null,"skipped":true,"answeredAt":"2026-12-01T10:00:00Z"}"#)
+        guard case .answered(let skip) = skipped.heardFrom else { Issue.record("not answered"); return }
+        #expect(skip.skipped)
+        // An answer in a shape this build does not know still counts as answered.
+        guard case .answered = try decoded(heardFrom: #"{"source":7,"answeredAt":"soon"}"#).heardFrom else { Issue.record("not answered"); return }
+        guard case .answered = try decoded(heardFrom: #""reddit""#).heardFrom else { Issue.record("not answered"); return }
+    }
+
+    @Test func roundTripsTheAccount() throws {
+        for state in [AccountHeardFrom.notOffered, .unanswered, .answered(HeardFromAnswer(source: "x", detail: "a post"))] {
+            let account = sample(state)
+            let data = try JSONEncoder().encode(account)
+            #expect(try JSONDecoder().decode(Account.self, from: data) == account)
+        }
+    }
+
+    @Test func sendsTheAnswerOrTheSkipWithTheSession() async throws {
+        let answered = accountJSON(heardFrom: #"{"source":"other","detail":"A newsletter","skipped":false,"answeredAt":"2026-12-01T10:00:00Z"}"#)
+        let (client, transport) = client([.http(200, answered), .http(200, answered), .http(200, answered)])
+        let account = try await client.answerHeardFrom(.answer(.other, detail: "A newsletter"), token: "tok")
+        guard case .answered(let answer) = account.heardFrom else { Issue.record("not answered"); return }
+        #expect(answer.detail == "A newsletter")
+        _ = try await client.answerHeardFrom(.answer(.hackerNews, detail: nil), token: "tok")
+        _ = try await client.answerHeardFrom(.skip, token: "tok")
+        let requests = transport.requests
+        #expect(requests.allSatisfy { $0.httpMethod == "POST" && $0.url?.path == "/v1/account/heard-from" })
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "authorization") == "Bearer tok" })
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "content-type") == "application/json" })
+        let bodies = requests.compactMap { $0.httpBody.map { String(decoding: $0, as: UTF8.self) } }
+        #expect(bodies == [#"{"detail":"A newsletter","source":"other"}"#, #"{"source":"hacker_news"}"#, #"{"skipped":true}"#])
+    }
+
+    @Test func theOtherCallsStillSendStringBodies() throws {
+        let client = AccountClient(server: server, transport: StubTransport([]), userAgent: "stew/1")
+        let request = try client.request("POST", "/v1/sign-in", token: nil, body: ["email": "abby@example.com", "deviceName": "Mac"])
+        #expect(bodyObject(request) == ["email": "abby@example.com", "deviceName": "Mac"])
+    }
+
+    @Test func onlyOtherCarriesItsTextTrimmedAndLimited() {
+        #expect(HeardFromQuestion().reply == nil)
+        #expect(!HeardFromQuestion().canSend)
+        #expect(HeardFromQuestion(source: .reddit, detail: "ignored").reply == .answer(.reddit, detail: nil))
+        #expect(HeardFromQuestion(source: .other, detail: "  A newsletter \n").reply == .answer(.other, detail: "A newsletter"))
+        #expect(HeardFromQuestion(source: .other, detail: "   ").reply == .answer(.other, detail: nil))
+        let long = String(repeating: "é", count: 250)
+        #expect(HeardFromQuestion(source: .other, detail: long).reply == .answer(.other, detail: String(repeating: "é", count: 200)))
+        #expect(HeardFromQuestion.limited(long).count == HeardFromQuestion.longestDetail)
+        #expect(HeardFromQuestion(source: .other).showsDetail)
+        #expect(!HeardFromQuestion(source: .friend).showsDetail)
+    }
+
+    @Test func showsOnlyWhileTheServerAsksAndThisMacDidNotAnswer() {
+        #expect(HeardFromQuestion.shows(account: sample(.unanswered), doneFor: []))
+        #expect(HeardFromQuestion.shows(account: sample(.unanswered), doneFor: ["acc_other"]))
+        #expect(!HeardFromQuestion.shows(account: sample(.unanswered), doneFor: ["acc_1"]))
+        #expect(!HeardFromQuestion.shows(account: sample(.notOffered), doneFor: []))
+        #expect(!HeardFromQuestion.shows(account: sample(.answered(HeardFromAnswer(skipped: true))), doneFor: []))
+        #expect(!HeardFromQuestion.shows(account: nil, doneFor: []))
+    }
+
+    @Test func aRefusalDropsTheReplyAndOnlyABriefOutageKeepsIt() async {
+        let cases: [(StubTransport.Reply, HeardFromQuestion.Outcome)] = [
+            (.http(404, #"{"error":"not_found"}"#), .dropped),
+            (.http(404, "<html>Not Found</html>"), .dropped),
+            (.http(409, #"{"error":"already_answered"}"#), .dropped),
+            (.http(400, #"{"error":"invalid_heard_from"}"#), .dropped),
+            (.http(200, "not json"), .dropped),
+            (.http(401, #"{"error":"signed_out"}"#), .signedOut),
+            (.http(502, "<html>Bad gateway</html>"), .retryLater),
+            (.http(429, #"{"error":"rate_limited","retryAfter":5}"#), .retryLater),
+            (.failure, .retryLater),
+        ]
+        for (reply, expected) in cases {
+            let (client, _) = client([reply])
+            let result: Result<Account, AccountError>
+            do {
+                result = .success(try await client.answerHeardFrom(.skip, token: "tok"))
+            } catch let error as AccountError {
+                result = .failure(error)
+            } catch {
+                Issue.record("unexpected \(error)")
+                continue
+            }
+            #expect(HeardFromQuestion.outcome(result) == expected)
+        }
+        let stored = sample(.answered(HeardFromAnswer(skipped: true)))
+        #expect(HeardFromQuestion.outcome(.success(stored)) == .stored(stored))
+    }
+
+    @Test func resendsAKeptReplyOnlyWhileTheServerHasNoAnswer() {
+        let pending = HeardFromPending(accountId: "acc_1", reply: .answer(.youtube, detail: nil))
+        #expect(HeardFromQuestion.shouldResend(pending, account: sample(.unanswered)))
+        #expect(!HeardFromQuestion.shouldResend(pending, account: sample(.answered(HeardFromAnswer(source: "youtube")))))
+        #expect(!HeardFromQuestion.shouldResend(pending, account: sample(.notOffered)))
+        #expect(!HeardFromQuestion.shouldResend(pending, account: sample(.unanswered, id: "acc_2")))
+        #expect(!HeardFromQuestion.shouldResend(nil, account: sample(.unanswered)))
+    }
+
+    @Test func theDaemonStateKeepsWhatWasAnswered() throws {
+        let pending = HeardFromPending(accountId: "acc_1", reply: .answer(.other, detail: "A podcast"))
+        let state = DaemonState(heardFromDone: ["acc_1"], heardFromPending: pending)
+        #expect(DaemonState.decode(try state.encoded()) == state)
+        let skipped = DaemonState(heardFromDone: ["acc_2"], heardFromPending: HeardFromPending(accountId: "acc_2", reply: .skip))
+        #expect(DaemonState.decode(try skipped.encoded()) == skipped)
+        let older = DaemonState.decode(Data(#"{"announcedVersions":["0.2.0"]}"#.utf8))
+        #expect(older.heardFromDone == [])
+        #expect(older.heardFromPending == nil)
+        #expect(older.announcedVersions == ["0.2.0"])
+    }
+}

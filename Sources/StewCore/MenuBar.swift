@@ -194,6 +194,11 @@ public struct DaemonState: Codable, Equatable, Sendable {
     public var installedUpdate: InstalledUpdate?
     /// Versions already announced as available, so each gets one notice.
     public var announcedVersions: [String]
+    /// Accounts whose "Where did you hear about stew?" was sent or skipped on this Mac, so
+    /// it never shows again for them.
+    public var heardFromDone: [String]
+    /// A reply to that question that did not reach the server yet.
+    public var heardFromPending: HeardFromPending?
 
     public struct InstalledUpdate: Codable, Equatable, Sendable {
         public var version: String
@@ -205,12 +210,17 @@ public struct DaemonState: Codable, Equatable, Sendable {
         }
     }
 
-    public init(pause: PauseState? = nil, historySeenAt: Date? = nil, lastRunVersion: String? = nil, installedUpdate: InstalledUpdate? = nil, announcedVersions: [String] = []) {
+    public init(
+        pause: PauseState? = nil, historySeenAt: Date? = nil, lastRunVersion: String? = nil, installedUpdate: InstalledUpdate? = nil, announcedVersions: [String] = [],
+        heardFromDone: [String] = [], heardFromPending: HeardFromPending? = nil
+    ) {
         self.pause = pause
         self.historySeenAt = historySeenAt
         self.lastRunVersion = lastRunVersion
         self.installedUpdate = installedUpdate
         self.announcedVersions = announcedVersions
+        self.heardFromDone = heardFromDone
+        self.heardFromPending = heardFromPending
     }
 
     public init(from decoder: Decoder) throws {
@@ -220,6 +230,8 @@ public struct DaemonState: Codable, Equatable, Sendable {
         lastRunVersion = try? container.decodeIfPresent(String.self, forKey: .lastRunVersion)
         installedUpdate = try? container.decodeIfPresent(InstalledUpdate.self, forKey: .installedUpdate)
         announcedVersions = (try? container.decodeIfPresent([String].self, forKey: .announcedVersions)) ?? []
+        heardFromDone = (try? container.decodeIfPresent([String].self, forKey: .heardFromDone)) ?? []
+        heardFromPending = try? container.decodeIfPresent(HeardFromPending.self, forKey: .heardFromPending)
     }
 
     public static func decode(_ data: Data) -> DaemonState {

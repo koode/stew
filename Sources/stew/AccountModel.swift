@@ -32,6 +32,10 @@ final class AccountModel: ObservableObject {
     @Published private(set) var busy: Busy?
     /// Set when the server said the session is gone, for a notice on the sign-in form.
     @Published private(set) var signedOutNotice: String?
+    /// "Where did you hear about stew?" as the user is answering it.
+    @Published var heardFrom = HeardFromQuestion()
+    /// Accounts the question was sent or skipped for on this Mac: it never shows again.
+    @Published private(set) var heardFromDone: [String] = []
 
     /// Called with the lease after every refresh, nil when there is none.
     var onLease: ((String?) -> Void)?
@@ -40,6 +44,10 @@ final class AccountModel: ObservableObject {
     /// Nil until `start`, so `stew snapshot` and Settings without a daemon never read the
     /// keychain.
     private var store: AccountTokenStore?
+    /// daemon-state.json, which keeps `heardFromDone` and a reply still to send. Nil in
+    /// snapshots, which keep them in memory.
+    private var stateStore: DaemonStateStore?
+    private var sendingHeardFrom = false
     private var lastRefresh: Date?
     /// The session generation a refresh in flight started in, if any.
     private var refreshingIn: Int?
@@ -51,9 +59,11 @@ final class AccountModel: ObservableObject {
 
     /// Reads the session, refreshes the account, and checks every hour whether a day has
     /// passed since the last refresh: a timer of 24 hours would drift while the Mac sleeps.
-    func start(store: AccountTokenStore, onLease: @escaping (String?) -> Void) {
+    func start(store: AccountTokenStore, state: DaemonStateStore, onLease: @escaping (String?) -> Void) {
         self.store = store
         self.onLease = onLease
+        stateStore = state
+        heardFromDone = state.state.heardFromDone
         signedIn = store.read() != nil
         refresh()
         dailyTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
@@ -65,7 +75,8 @@ final class AccountModel: ObservableObject {
     /// Sample state for `stew snapshot`, which never starts the model.
     func showSample(
         signIn: SignInFlow = SignInFlow(), code: String = "", account: Account? = nil, problem: String? = nil,
-        paymentWait: PaymentWait? = nil, paymentOutcome: PaymentOutcome? = nil, voucher: String = ""
+        paymentWait: PaymentWait? = nil, paymentOutcome: PaymentOutcome? = nil, voucher: String = "",
+        heardFrom: HeardFromQuestion = HeardFromQuestion()
     ) {
         self.signIn = signIn
         self.code = code
@@ -77,6 +88,8 @@ final class AccountModel: ObservableObject {
         self.paymentOutcome = paymentOutcome
         busy = nil
         signedOutNotice = nil
+        self.heardFrom = heardFrom
+        heardFromDone = []
     }
 
     private var config: StewConfig { loadConfig().0 }
@@ -208,6 +221,7 @@ final class AccountModel: ObservableObject {
             case .success(let account):
                 self.problem = nil
                 self.apply(account)
+                self.resendHeardFrom(for: account)
             case .failure(.signedOut):
                 self.endSession(notice: AccountError.signedOut.message(host: self.host))
             case .failure(let error):
@@ -224,6 +238,73 @@ final class AccountModel: ObservableObject {
         lastRefresh = Date()
         onLease?(account.entitled ? account.lease : nil)
         paymentStep()
+    }
+
+    /// Whether Settings ▸ Account asks where the user heard about stew.
+    var showsHeardFrom: Bool {
+        signedIn && HeardFromQuestion.shows(account: account, doneFor: heardFromDone)
+    }
+
+    func sendHeardFrom() {
+        guard let reply = heardFrom.reply else { return }
+        answerHeardFrom(reply)
+    }
+
+    func skipHeardFrom() {
+        answerHeardFrom(.skip)
+    }
+
+    /// Hides the question for this account for good, then sends the reply. A reply that
+    /// cannot get through now is kept and sent once more at a later refresh; nothing shows
+    /// for it either way.
+    private func answerHeardFrom(_ reply: HeardFromReply) {
+        guard let account, !heardFromDone.contains(account.id) else { return }
+        let pending = HeardFromPending(accountId: account.id, reply: reply)
+        heardFromDone.append(account.id)
+        heardFrom = HeardFromQuestion()
+        stateStore?.update { state in
+            if !state.heardFromDone.contains(pending.accountId) { state.heardFromDone.append(pending.accountId) }
+            state.heardFromPending = pending
+        }
+        deliverHeardFrom(pending)
+    }
+
+    /// A reply kept from an earlier try goes out while the server still has no answer for
+    /// the account; once it has one, the kept reply is dropped.
+    private func resendHeardFrom(for account: Account) {
+        guard let pending = stateStore?.state.heardFromPending, pending.accountId == account.id else { return }
+        if HeardFromQuestion.shouldResend(pending, account: account) {
+            deliverHeardFrom(pending)
+        } else {
+            forgetHeardFrom(pending)
+        }
+    }
+
+    private func deliverHeardFrom(_ pending: HeardFromPending) {
+        guard !sendingHeardFrom, let token = store?.read(), let client = client() else { return }
+        sendingHeardFrom = true
+        let started = generation.current
+        run({ try await client.answerHeardFrom(pending.reply, token: token) }) { [weak self] result in
+            guard let self else { return }
+            self.sendingHeardFrom = false
+            let outcome = HeardFromQuestion.outcome(result)
+            switch outcome {
+            case .stored(let account):
+                self.forgetHeardFrom(pending)
+                if self.generation.isCurrent(started), self.account?.id == account.id { self.account = account }
+            case .retryLater:
+                Log.write("account: where you heard about stew not sent yet: \(result)")
+            case .dropped, .signedOut:
+                Log.write("account: where you heard about stew not stored: \(result)")
+                self.forgetHeardFrom(pending)
+            }
+        }
+    }
+
+    private func forgetHeardFrom(_ pending: HeardFromPending) {
+        stateStore?.update { state in
+            if state.heardFromPending == pending { state.heardFromPending = nil }
+        }
     }
 
     /// The offers the pane shows: those the Mac may open.
@@ -337,6 +418,7 @@ final class AccountModel: ObservableObject {
         code = ""
         signedOutNotice = notice
         voucher = ""
+        heardFrom = HeardFromQuestion()
         // Pairings keep the lease their relay already has until it runs out; new
         // pairings go without one.
         onLease?(nil)

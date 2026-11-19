@@ -12,6 +12,7 @@ enum AccountSnapshot {
         var account: Account?
         var paymentWait: PaymentWait?
         var voucher = ""
+        var heardFrom = HeardFromQuestion()
     }
 
     static func render(to directory: String, write: (AnyView, Bool, String) -> Void) {
@@ -36,12 +37,16 @@ enum AccountSnapshot {
         _ = codesLocked.checkCode("418207")
         _ = codesLocked.codeChecked(start, .failure(.codesLocked))
         let trial = account(AccountPlan(status: .trial, trialEndsAt: now.addingTimeInterval(9 * day - 3600)), entitled: true)
+        var newTrial = trial
+        newTrial.heardFrom = .unanswered
         let scenarios = [
             Scenario(name: "signed-out"),
             Scenario(name: "waiting-for-code", signIn: waiting),
             Scenario(name: "wrong-code", signIn: wrongCode, code: "418207"),
             Scenario(name: "codes-locked", signIn: codesLocked, code: "418207"),
             Scenario(name: "trial", account: trial),
+            Scenario(name: "heard-from", account: newTrial),
+            Scenario(name: "heard-from-other", account: newTrial, heardFrom: HeardFromQuestion(source: .other, detail: "A newsletter")),
             Scenario(name: "voucher", account: trial, voucher: "LAUNCH20"),
             Scenario(name: "waiting-for-payment", account: trial, paymentWait: PaymentWait(startedAt: now)),
             Scenario(name: "active-monthly", account: account(
@@ -62,7 +67,7 @@ enum AccountSnapshot {
         ]
         let model = AccountModel.shared
         for scenario in scenarios {
-            model.showSample(signIn: scenario.signIn, code: scenario.code, account: scenario.account, paymentWait: scenario.paymentWait, voucher: scenario.voucher)
+            model.showSample(signIn: scenario.signIn, code: scenario.code, account: scenario.account, paymentWait: scenario.paymentWait, voucher: scenario.voucher, heardFrom: scenario.heardFrom)
             for dark in [false, true] {
                 let settings = SettingsModel()
                 settings.load()
