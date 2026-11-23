@@ -328,6 +328,26 @@ The iPhone relay is the one part of stew that needs a plan; everything else is f
 
 ![Settings, Account, during the free trial](docs/images/settings-account-trial-light.png)
 
+## Pair another Mac
+
+When you work on two Macs, pair them, and a request from either one shows on both panels:
+
+```bash
+stew pair code             # on one Mac: prints a pairing code
+stew pair 'stew://pair?…'  # on the other Mac: joins it and prints six digits
+```
+
+To finish, type the six digits on the first Mac's panel, and allow the first Mac on the second Mac's panel. Both steps are on the panels on purpose: a paired Mac can approve requests, so no process can pair one from the command line alone. With SSH access from one Mac to the other, `stew pair --ssh macbook` does both halves from one terminal; ssh only carries the code, and both panels still confirm.
+
+The heading of a request from the other Mac starts with that Mac's name, such as `MacBook Pro · api-server`. The first answer counts, on either Mac, and the other panel drops its copy. When you start typing an answer on one Mac, the time limit stops on the Mac that asked. The Mac that asked keeps the history and writes any approval for next time. Needs items stay on the Mac that has them.
+
+Requests travel through the same relay as the iPhone's, end-to-end encrypted, so pairing Macs is part of the iPhone plan. Each direction is a pairing of its own, so a pair of Macs counts as two pairings.
+
+```bash
+stew peers                   # the paired Macs and which directions work
+stew unpair "MacBook Pro"    # ends the pairing in both directions, on both Macs
+```
+
 ## Keys
 
 Every key is ⌘ plus one key, and works only while a panel is visible. Presses in the first 0.5 seconds after a panel appears are ignored, so a shortcut meant for another app cannot answer it.
@@ -477,6 +497,7 @@ The window has seven panes, picked from its toolbar:
 - **No self-approval.** The daemon accepts answers only from its own panel. Its test mode, which accepts simulated key presses on its socket, has to be turned on when the daemon starts, so a caller cannot approve its own request.
 - **Signed updates only.** An update needs a valid Ed25519 signature from the stew release key and Koode's Developer ID code signature. The release server only serves the files.
 - **Local files only.** The socket is `~/Library/Application Support/stew/stew.sock` (mode 0600). Approvals are in `grants.json` next to it. Open needs items are in `needs.json` (mode 0600), with their commands as given so the copy button copies the real command; the panel and the history show secrets as `••••`. Logs go to `~/Library/Logs/stew.log`.
+- **Paired Macs count only after both panels confirm.** A Mac that joins a code must show the six digits the user types on the other Mac's panel, as an iPhone does, and the user allows it on its own panel. The pairing back to it is taken only from the keys of the Mac the user confirmed. A paired Mac can only answer the requests it was sent; it cannot stop, pause or update the other Mac's stew.
 - **Web links only.** A needs item's links must be `http` or `https`, so a click can only open the browser, never a file or an app.
 
 ## Uninstall
@@ -495,7 +516,7 @@ Installed with the script:
 stew uninstall
 ```
 
-`./uninstall.sh` in a clone does the same. This removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, the shell completion files the installer wrote, caches, stored approvals and the iPhone pairings in the login keychain. It keeps `~/.config/stew` and any allow rules stew added to projects' `.claude/settings.local.json`. Run `stew approvals` first to see and revoke those.
+`./uninstall.sh` in a clone does the same. This removes the hooks, the daemon, Stew.app, the `~/.local/bin/stew` link, the skill, the shell completion files the installer wrote, caches, stored approvals, and the iPhone and Mac pairings in the login keychain. It keeps `~/.config/stew` and any allow rules stew added to projects' `.claude/settings.local.json`. Run `stew approvals` first to see and revoke those.
 
 ## Develop
 

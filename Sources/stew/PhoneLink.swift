@@ -49,7 +49,13 @@ final class PhoneLink: ObservableObject {
     /// approve what only the Mac may. Memory only: after a restart only the Mac answers late.
     private var lateAnswerable: [String: (pairingIds: Set<String>, hardDeny: Bool, confirmation: PhoneConfirmation?, at: Date, defaultRules: Bool)] = [:]
     private var timer: Timer?
-    let macName = Host.current().localizedName ?? "Mac"
+    /// STEW_MAC_NAME names the headless test daemon, so a test can run two "Macs" on one.
+    let macName: String = {
+        if Paths.headless, let name = ProcessInfo.processInfo.environment["STEW_MAC_NAME"], !name.isEmpty { return name }
+        return Host.current().localizedName ?? "Mac"
+    }()
+    /// The keys and pairings, for `PeerRelay`, which uses the same identity.
+    var linkStore: PhoneStore? { store }
     /// The account's lease, from its last refresh; nil when signed out or without a plan.
     private(set) var lease: String?
     /// The lease each pairing's relay last took, so the same one does not go twice.
@@ -83,7 +89,8 @@ final class PhoneLink: ObservableObject {
         self.store = store
         pairings = store.pairings
         // A waiting code is no longer on screen after a restart, so nobody should use it.
-        for pairing in pairings where pairing.state == .waiting {
+        // A pairing made for another Mac waits on: its code went to that Mac, not a screen.
+        for pairing in pairings where pairing.state == .waiting && pairing.expectedPeer == nil {
             store.remove(pairing.pairingId)
         }
         pairings = store.pairings
@@ -95,6 +102,8 @@ final class PhoneLink: ObservableObject {
         }
         coordinator.onControl = { [weak self] control in self?.control(control) }
         coordinator.onNeedsFinished = { [weak self] record, outcome in self?.needsFinished(record, outcome) }
+        PeerRelay.shared.start(coordinator: coordinator)
+        for pairing in pairings where pairing.state == .confirming && pairing.isMac == true { askForDigits(pairing) }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
     }
 
@@ -154,6 +163,13 @@ final class PhoneLink: ObservableObject {
     }
 
     private func forget(_ pairingId: String) {
+        // Both directions with another Mac end together.
+        if let linked = pairings.first(where: { $0.pairingId == pairingId })?.linkedJoin {
+            PeerRelay.shared.leave(linked, cascade: false)
+        }
+        for joined in PeerRelay.shared.joined where joined.linkedPairing == pairingId {
+            PeerRelay.shared.leave(joined.pairingId, cascade: false)
+        }
         sentLeases[pairingId] = nil
         leaseRetries[pairingId] = nil
         store?.remove(pairingId)
@@ -173,8 +189,42 @@ final class PhoneLink: ObservableObject {
         pairingPlan = nil
         let relay = coordinator.config.phone.relay
         let code = PairingCode.generate(relay: relay, macName: macName, macKeys: store.identity.publicKeys)
-        let identity = store.identity
         let pairing = MacPairing(pairingId: code.pairingId, relay: relay, macName: macName, secret: code.secret, state: .waiting, createdAt: Date())
+        claim(code, pairing) { [weak self] error, plan in
+            guard let self else { return }
+            if let error {
+                self.pairingError = error
+                self.pairingPlan = plan
+                return
+            }
+            self.pairingCode = code
+        }
+    }
+
+    /// The pairing for this Mac's own requests, made after it joined another Mac's: only
+    /// that Mac, by its keys, may take it. Calls back with its code, or nil.
+    func startReversePairing(expectedPeer: LinkPublicKeys, linkedJoin: String, completion: @escaping (PairingCode?) -> Void) {
+        guard let store, let coordinator else { return completion(nil) }
+        if let existing = pairings.first(where: { $0.linkedJoin == linkedJoin && $0.state == .waiting }) {
+            return completion(existing.pairingCode(macKeys: store.identity.publicKeys))
+        }
+        let relay = coordinator.config.phone.relay
+        let code = PairingCode.generate(relay: relay, macName: macName, macKeys: store.identity.publicKeys)
+        var pairing = MacPairing(pairingId: code.pairingId, relay: relay, macName: macName, secret: code.secret, state: .waiting, createdAt: Date())
+        pairing.expectedPeer = expectedPeer
+        pairing.linkedJoin = linkedJoin
+        claim(code, pairing) { error, _ in
+            if let error { Log.write("peer: \(error)") }
+            completion(error == nil ? code : nil)
+        }
+    }
+
+    /// Claims the pairing id at the relay, then saves and connects the pairing. Calls back
+    /// with nil, or why it failed and the plan the relay asks for.
+    private func claim(_ code: PairingCode, _ pairing: MacPairing, completion: @escaping (String?, RelayPlanRequired?) -> Void) {
+        guard let store else { return completion("stew's link is not ready", nil) }
+        let relay = pairing.relay
+        let identity = store.identity
         let connection = RelayConnection(pairingId: code.pairingId, relay: relay, identity: identity)
         // The connection asks the relay for its protocol first, so a code never names a relay
         // this Mac cannot use.
@@ -196,20 +246,18 @@ final class PhoneLink: ObservableObject {
             guard result.ok else {
                 if let plan = result.planRequired {
                     Log.write("phone: the relay at \(relay) needs a plan to pair: \(plan.message) (\(plan.upgradeURL.absoluteString))")
-                    self.pairingError = plan.message
-                    self.pairingPlan = plan
-                    return
+                    return completion(plan.message, plan)
                 }
                 switch result.status {
-                case 0: self.pairingError = "Cannot reach the relay at \(relay)."
-                case 426: self.pairingError = "The relay at \(relay) needs a newer stew. Update stew, then pair again."
-                default: self.pairingError = "The relay at \(relay) refused the pairing (\(result.errorCode ?? String(result.status)))."
+                case 0: completion("Cannot reach the relay at \(relay).", nil)
+                case 426: completion("The relay at \(relay) needs a newer stew. Update stew, then pair again.", nil)
+                default: completion("The relay at \(relay) refused the pairing (\(result.errorCode ?? String(result.status))).", nil)
                 }
                 return
             }
             self.save(pairing)
             self.connect(pairing)
-            self.pairingCode = code
+            completion(nil, nil)
         }
     }
 
@@ -257,7 +305,7 @@ final class PhoneLink: ObservableObject {
 
     func cancelPairing() {
         pairingCode = nil
-        for pairing in pairings where pairing.state == .waiting { forget(pairing.pairingId) }
+        for pairing in pairings where pairing.state == .waiting && pairing.expectedPeer == nil { forget(pairing.pairingId) }
     }
 
     /// The user types the digits the phone shows. Clicking a button would also confirm a
@@ -333,10 +381,25 @@ final class PhoneLink: ObservableObject {
                     Log.write("phone: hello keys do not match the relay's copy; ignored")
                     return .handled
                 }
-                pairing.state = .confirming
                 pairing.phoneName = String(hello.phoneName.prefix(60))
                 pairing.phoneKeys = phoneKeys
+                pairing.isMac = hello.isMac == true ? true : nil
+                if let expected = pairing.expectedPeer {
+                    // This Mac's pairing for its own requests, handed to a Mac the user
+                    // already paired: only that Mac's keys may take it, and then no digits.
+                    guard phoneKeys == expected, hello.isMac == true else {
+                        Log.write("peer: a device other than the paired Mac used this Mac's code; ignored")
+                        return .handled
+                    }
+                    pairing.state = .paired
+                    pairing.pairedAt = Date()
+                    save(pairing)
+                    Log.write("peer: \(pairing.phoneName ?? "the other Mac") joined; requests go both ways")
+                    return .handled
+                }
+                pairing.state = .confirming
                 save(pairing)
+                if pairing.isMac == true { askForDigits(pairing) }
             case .envelope:
                 guard let channel = try pairing.channel(identity: store.identity) else { return .handled }
                 switch frame.envelope.kind {
@@ -386,6 +449,7 @@ final class PhoneLink: ObservableObject {
             return applyNeeds(answer, needsID: String(requestId.dropFirst(needsPrefix.count)), from: pairingId)
         }
         if let test = applyTest(answer, from: pairingId) { return test }
+        if requestId == LinkPeer.requestId { return applyPeerLink(answer, from: pairingId) }
         guard let coordinator,
               let item = coordinator.items.first(where: { $0.id.uuidString == requestId }),
               pushed[item.id]?.pairingIds.contains(pairingId) == true else {
@@ -703,6 +767,60 @@ final class PhoneLink: ObservableObject {
         return LinkResult(requestId: requestId, accepted: true, message: "", deadline: deadline)
     }
 
+    /// A Mac that joined with this Mac's code shows six digits; the user types them on this
+    /// Mac's panel, as they do for an iPhone in Settings. Only typing them pairs: a
+    /// process on this Mac cannot answer its own panel.
+    private func askForDigits(_ pairing: MacPairing) {
+        guard let coordinator else { return }
+        let name = pairing.phoneName ?? "the other Mac"
+        let pairingId = pairing.pairingId
+        let request = StewRequest(
+            session: SessionInfo(name: "stew"),
+            prompt: .input(InputRequest(
+                question: "Type the six digits \(name) shows",
+                why: "\(name) joined this Mac's pairing code. Once paired, either Mac can answer the other's requests.",
+                placeholder: "123 456", pattern: "[0-9]{3} ?[0-9]{3}", format: "6 digits"
+            )),
+            timeout: Self.codeLifetime
+        )
+        coordinator.showOwn(request) { [weak self] response in
+            guard let self, self.pairings.contains(where: { $0.pairingId == pairingId && $0.state == .confirming }) else { return }
+            guard response.status == .answered, let digits = response.text else {
+                self.unpair(pairingId)
+                return
+            }
+            if self.confirm(pairingId, digits: digits) {
+                Log.write("peer: paired with \(name)")
+            } else if let current = self.pairings.first(where: { $0.pairingId == pairingId }) {
+                self.coordinator?.showNotice(NotifyRequest(title: "Those digits do not match \(name)'s", body: "Check them on \(name) and type them again.", level: .warning))
+                self.askForDigits(current)
+            }
+        }
+    }
+
+    /// A paired Mac hands over the code of the pairing it made for its own requests, so
+    /// requests go both ways. Taken only from a Mac the user confirmed here.
+    private func applyPeerLink(_ answer: LinkAnswer, from pairingId: String) -> LinkResult {
+        func refuse(_ message: String) -> LinkResult { LinkResult(requestId: answer.requestId, accepted: false, message: message) }
+        guard case .peerLink(let text) = answer.choice,
+              let pairing = pairings.first(where: { $0.pairingId == pairingId }), pairing.state == .paired, pairing.isMac == true else {
+            return refuse("Waiting for the digits on \(macName).")
+        }
+        if let existing = PeerRelay.shared.joined.first(where: { $0.linkedPairing == pairingId }) {
+            _ = existing
+            return LinkResult(requestId: answer.requestId, accepted: true, message: "Paired both ways.")
+        }
+        switch PeerRelay.shared.join(text, handedOver: true, linkedPairing: pairingId) {
+        case .success:
+            var updated = pairing
+            if let code = try? PairingCode(text: text) { updated.linkedJoin = code.pairingId }
+            save(updated)
+            return LinkResult(requestId: answer.requestId, accepted: true, message: "Paired both ways.")
+        case .failure(let refusal):
+            return refuse(refusal.message)
+        }
+    }
+
     /// The request as the phone should see it now.
     private func linkRequest(for item: Item, previous: LinkRequest?) -> LinkRequest {
         var deadline = item.deadline
@@ -793,32 +911,45 @@ final class PhoneLink: ObservableObject {
             pushed[itemID] = nil
             resolve(itemID.uuidString, pairingIds: entry.pairingIds, outcome: .dismissed, answering: nil, agent: entry.sent.request.session.codingAgent)
         }
-        let targets = Set(paired.map(\.pairingId))
-        guard !targets.isEmpty else { return }
+        // A paired Mac shows every request at once, as the user may sit at either Mac. A
+        // phone gets one only under its push rules.
+        let macTargets = Set(paired.filter { $0.isMac == true }.map(\.pairingId))
+        let phoneTargets = Set(paired.filter { $0.isMac != true }.map(\.pairingId))
+        guard !macTargets.isEmpty || !phoneTargets.isEmpty else { return }
         var presence: MacPresence?
         for item in coordinator.items where !item.isNeeds {
             // The phone should see the risk verdict, and a hard deny must never be offered
             // as approvable, so a request waits while its check runs.
             if case .checking = item.risk { continue }
+            var wanted = item.source == .caller && item.lateEntryID == nil ? macTargets : []
+            if !phoneTargets.isEmpty {
+                let current = presence ?? Self.samplePresence()
+                presence = current
+                if PushPolicy.shouldPush(
+                    source: item.source, config: coordinator.config.phone, openFor: now.timeIntervalSince(item.received), presence: current,
+                    engagedOnMac: item.engaged
+                ) { wanted.formUnion(phoneTargets) }
+            }
             if var entry = pushed[item.id] {
                 let fresh = linkRequest(for: item, previous: entry.sent)
-                guard Self.needsUpdate(entry.sent, fresh) else { continue }
-                send(fresh, kind: .update, item: item, to: entry.pairingIds)
-                entry.sent = fresh
+                if Self.needsUpdate(entry.sent, fresh) {
+                    send(fresh, kind: .update, item: item, to: entry.pairingIds)
+                    entry.sent = fresh
+                }
+                let added = wanted.subtracting(entry.pairingIds)
+                if !added.isEmpty {
+                    send(entry.sent, kind: .request, item: item, to: added)
+                    entry.pairingIds.formUnion(added)
+                }
                 pushed[item.id] = entry
                 continue
             }
-            let current = presence ?? Self.samplePresence()
-            presence = current
-            guard PushPolicy.shouldPush(
-                source: item.source, config: coordinator.config.phone, openFor: now.timeIntervalSince(item.received), presence: current,
-                engagedOnMac: item.engaged
-            ) else { continue }
+            guard !wanted.isEmpty else { continue }
             let request = linkRequest(for: item, previous: nil)
-            send(request, kind: .request, item: item, to: targets)
-            pushed[item.id] = Pushed(pairingIds: targets, sent: request)
+            send(request, kind: .request, item: item, to: wanted)
+            pushed[item.id] = Pushed(pairingIds: wanted, sent: request)
         }
-        pushNeeds(coordinator: coordinator, targets: targets, now: now, presence: &presence)
+        pushNeeds(coordinator: coordinator, targets: phoneTargets, now: now, presence: &presence)
     }
 
     /// Needs items go out under the same policy as requests. One the user parked with
@@ -863,6 +994,7 @@ final class PhoneLink: ObservableObject {
     /// phone of its own and approve its own requests.
     private func control(_ control: String) -> String? {
         let words = control.split(separator: " ").map(String.init)
+        if let reply = PeerRelay.shared.control(words) { return reply }
         guard Paths.headless, words.first == "phone", words.count >= 2 else { return nil }
         switch words[1] {
         case "pair":

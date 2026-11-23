@@ -20,6 +20,15 @@ struct MacPairing: Codable, Equatable, Identifiable {
     var phoneKeys: LinkPublicKeys?
     var createdAt: Date
     var pairedAt: Date?
+    /// The device is another Mac, from its hello. Nil or false: an iPhone.
+    var isMac: Bool?
+    /// The pairing this Mac made for its own requests after it joined a paired Mac's
+    /// pairing: only a device with these keys (that Mac's) may take it, and it counts as
+    /// paired at once, as the user confirmed that Mac when it joined.
+    var expectedPeer: LinkPublicKeys?
+    /// For a pairing with another Mac: the id of the pairing this Mac joined on that Mac,
+    /// so ending one ends both.
+    var linkedJoin: String?
 
     func pairingCode(macKeys: LinkPublicKeys) -> PairingCode {
         PairingCode(relay: relay, pairingId: pairingId, macName: macName, macKeys: macKeys, secret: secret)
@@ -31,6 +40,29 @@ struct MacPairing: Codable, Equatable, Identifiable {
     }
 }
 
+/// A pairing of another Mac that this Mac joined with its code, in the phone's part: the
+/// other Mac's requests show on this Mac's panel, and answers go back through the relay.
+struct JoinedPairing: Codable, Equatable, Identifiable {
+    var id: String { pairingId }
+    var pairingId: String { code.pairingId }
+    var code: PairingCode
+    /// The user let the other Mac answer this Mac's requests, on this Mac's panel. Only
+    /// then does this Mac make the pairing for its own requests and hand it over.
+    var approved: Bool
+    /// Joined with a code the other Mac handed over through a pairing the user already
+    /// confirmed, so it needed no step of its own.
+    var handedOver: Bool
+    /// This Mac's own pairing that the other Mac joined, once there is one.
+    var linkedPairing: String?
+    var joinedAt: Date
+
+    var macName: String { code.macName }
+
+    func channel(identity: LinkIdentity) throws -> LinkChannel {
+        try LinkChannel(pairingId: code.pairingId, side: .phone, identity: identity, peer: code.macKeys, pairingSecret: code.secret)
+    }
+}
+
 /// The Mac's keys and its pairings. Both are secrets (the pairing secret salts every
 /// key, and a phone key in this list may approve requests), so they live in the login
 /// keychain, not in a file another process could edit. The headless test daemon keeps
@@ -39,6 +71,9 @@ final class PhoneStore {
     struct Contents: Codable, Equatable {
         var identity: LinkIdentity.Stored
         var pairings: [MacPairing]
+        /// Pairings of other Macs that this Mac joined in the phone's part. Nil in stores
+        /// from before pairing Macs.
+        var joined: [JoinedPairing]?
     }
 
     static let keychainService = "nl.koode.stew.link"
@@ -46,6 +81,7 @@ final class PhoneStore {
 
     private(set) var identity: LinkIdentity
     private(set) var pairings: [MacPairing]
+    private(set) var joined: [JoinedPairing] = []
     private let filePath: String?
     private let persists: Bool
 
@@ -64,6 +100,7 @@ final class PhoneStore {
         if let stored, let identity = try? LinkIdentity(stored: stored.identity) {
             self.identity = identity
             pairings = stored.pairings
+            joined = stored.joined ?? []
         } else {
             identity = LinkIdentity()
             pairings = []
@@ -84,8 +121,22 @@ final class PhoneStore {
         save()
     }
 
+    func upsertJoined(_ pairing: JoinedPairing) {
+        if let index = joined.firstIndex(where: { $0.pairingId == pairing.pairingId }) {
+            joined[index] = pairing
+        } else {
+            joined.append(pairing)
+        }
+        save()
+    }
+
+    func removeJoined(_ pairingId: String) {
+        joined.removeAll { $0.pairingId == pairingId }
+        save()
+    }
+
     private func save() {
-        guard persists, let data = try? JSONEncoder().encode(Contents(identity: identity.stored, pairings: pairings)) else { return }
+        guard persists, let data = try? JSONEncoder().encode(Contents(identity: identity.stored, pairings: pairings, joined: joined)) else { return }
         do {
             try Self.write(data, filePath: filePath)
         } catch {

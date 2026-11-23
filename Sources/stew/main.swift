@@ -56,6 +56,15 @@ USAGE
       keyboard or mouse input or until the screen is unlocked. Pausing again
       replaces how the pause ends.
   stew resume        End a pause now, or cancel one that has not begun.
+  stew pair code     Pair this Mac with another Mac: prints a pairing code to use
+                     there. Requests from either Mac then show on both panels;
+                     the first answer counts. Both Macs confirm on their panels.
+  stew pair CODE|-   Join another Mac's pairing code (- reads it from stdin).
+  stew pair --ssh HOST
+      Both halves at once, with a Mac that `ssh HOST` reaches: ssh only carries
+      the code. Requests always go through the relay, like an iPhone's.
+  stew peers         List the paired Macs.
+  stew unpair NAME   End the pairing with a Mac, in both directions.
   stew hooks install|uninstall|status [--agent claude|codex|all]
       Ask in stew when Claude Code's auto mode blocks a call (hooks in
       ~/.claude/settings.json), or before Codex asks for approval (hooks in
@@ -415,6 +424,16 @@ func runCommand(_ command: String, _ arguments: Arguments) throws {
         }
         print("  \(keymap.options.map(\.description).joined(separator: " ")) options 1-4")
         print("  approve gets +\(keymap.hardDenyExtra.symbols) when the check says it never allows the call")
+
+    case "pair":
+        try PairCommands.pair(arguments)
+
+    case "unpair":
+        try PairCommands.unpair(arguments)
+
+    case "peers":
+        guard arguments.positional.isEmpty else { throw UsageError("peers takes no arguments") }
+        PairCommands.list()
 
     case "_control":
         // Test hook: the daemon accepts simulated input only in headless mode.

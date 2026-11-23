@@ -1,6 +1,6 @@
 # Remote machines: design
 
-Status: proposal. Nothing in this document is built yet.
+Status: proposal. Built since: pairing two Macs through the relay (`stew pair`, see the README), where each Mac takes the phone's part in the other's pairing, so requests go both ways. Linux remotes and SSH forwarding of requests are not built; SSH only carries a pairing code.
 
 This document describes how a second machine can run `stew` so that its Claude Code requests show on the user's main Mac, and from there on their iPhone, with the answers going back to the machine that asked. The second machine can be another Mac, a headless Linux server or VM, a machine reached over SSH, or a cloud agent box.
 

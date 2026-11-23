@@ -283,6 +283,16 @@ enum Snapshot {
         ("permission-checking", { coordinator in
             coordinator.show(permission(branchCommand, risk: .checking, timeout: 600))
         }),
+        // A copy of a request from a paired Mac: its heading names that Mac first.
+        ("permission-from-peer", { coordinator in
+            var request = permission(branchCommand, risk: .off, timeout: 600).request
+            request.session.host = "macbook"
+            let item = Item(request: request, connection: nil)
+            item.source = .peer
+            item.peer = "macbook"
+            item.timeLimit = 600
+            coordinator.show(item)
+        }),
         // The same check against stew's default rules, as when Codex checks without
         // Claude Code: neither banner may name the user's auto mode rules.
         ("permission-checking-default-rules", { coordinator in
