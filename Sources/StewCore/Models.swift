@@ -8,16 +8,20 @@ public struct SessionInfo: Codable, Equatable, Sendable {
     /// The agent that runs the session. Nil from callers and stores that predate it, and
     /// from a shell outside any agent; `codingAgent` reads it as Claude Code.
     public var agent: CodingAgent?
+    /// The paired Mac the request came from. Set by the daemon that received it, from the
+    /// socket it came in on, never by the caller. Nil for this Mac's own requests.
+    public var host: String?
 
-    public init(name: String, id: String? = nil, cwd: String? = nil, agent: CodingAgent? = nil) {
+    public init(name: String, id: String? = nil, cwd: String? = nil, agent: CodingAgent? = nil, host: String? = nil) {
         self.name = name
         self.id = id
         self.cwd = cwd
         self.agent = agent
+        self.host = host
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, id, cwd, agent
+        case name, id, cwd, agent, host
     }
 
     /// An agent this version does not know reads as none, so a request from a newer stew
@@ -28,6 +32,12 @@ public struct SessionInfo: Codable, Equatable, Sendable {
         id = try container.decodeIfPresent(String.self, forKey: .id)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         agent = (try? container.decodeIfPresent(String.self, forKey: .agent)).flatMap { $0.flatMap(CodingAgent.init(rawValue:)) }
+        host = try container.decodeIfPresent(String.self, forKey: .host)
+    }
+
+    /// The panel's heading: the Mac first for a request from a paired Mac.
+    public var displayName: String {
+        host.map { "\($0) · \(name)" } ?? name
     }
 
     /// The agent the panel names: Claude Code when the request does not say.

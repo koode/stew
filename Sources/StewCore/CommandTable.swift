@@ -97,6 +97,13 @@ public enum CommandTable {
             flag("until-back", "Pause until the next keyboard or mouse input, after 1 minute"),
         ], argument: .text),
         command("resume", "End a pause now"),
+        command("pair", "Pair with another Mac, so requests show on both", options: [
+            option("ssh", "Pair with the Mac that ssh reaches at this destination"),
+        ], subcommands: [
+            command("code", "Print a pairing code for the other Mac"),
+        ], argument: .text),
+        command("unpair", "End the pairing with a Mac", argument: .text),
+        command("peers", "List the paired Macs"),
         command("hooks", "Ask in stew when an agent blocks a call or asks for approval", subcommands: [
             command("install", "Add the hooks to Claude Code or Codex", options: [agentOption]),
             command("uninstall", "Remove the hooks", options: [agentOption]),

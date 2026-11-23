@@ -135,13 +135,15 @@ public struct RelayClaim: Codable, Equatable, Sendable {
 /// sealed hello the relay passes on to the Mac.
 public struct RelayRegistration: Codable, Equatable, Sendable {
     public var registrationToken: String
-    public var deviceToken: String
-    /// "production" or "sandbox": which APNs host the relay sends to.
-    public var environment: String
+    /// Nil for a Mac in the phone's part: it has no push token and takes its frames on
+    /// the phone socket instead.
+    public var deviceToken: String?
+    /// "production" or "sandbox": which APNs host the relay sends to. Nil with no token.
+    public var environment: String?
     public var phoneKeys: LinkPublicKeys
     public var hello: LinkEnvelope
 
-    public init(registrationToken: String, deviceToken: String, environment: String, phoneKeys: LinkPublicKeys, hello: LinkEnvelope) {
+    public init(registrationToken: String, deviceToken: String?, environment: String?, phoneKeys: LinkPublicKeys, hello: LinkEnvelope) {
         self.registrationToken = registrationToken
         self.deviceToken = deviceToken
         self.environment = environment

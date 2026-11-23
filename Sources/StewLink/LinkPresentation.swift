@@ -547,7 +547,7 @@ public enum LinkRefusal {
             let isAnswer: Bool
             switch choice {
             case .approve, .deny, .answers, .text, .secret: isAnswer = true
-            case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left: isAnswer = false
+            case .moreTime, .done, .needsAnswer, .enterSoon, .enterLater, .viewing, .left, .peerLink: isAnswer = false
             }
             guard isAnswer, LinkPresentation.canAnswerLate(request) else {
                 return tooLate(

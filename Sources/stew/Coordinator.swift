@@ -70,6 +70,10 @@ final class Item: ObservableObject, Identifiable {
     /// `.stew` for stew's own notice, such as the return summary or a new version: kept
     /// out of the history and off the phone.
     var source: ItemSource = .caller
+    /// For a copy from a paired Mac (`source == .peer`): that Mac's name.
+    var peer: String?
+    /// For a copy from a paired Mac: that Mac's id of the request.
+    var peerLinkID: String?
     /// Option under the mouse, so its preview shows.
     @Published var hoveredOption: Int?
     /// For a needs item: its id in needs.json.
@@ -207,6 +211,8 @@ final class Coordinator: ObservableObject {
     var onPreviewAnswer: ((UUID, StewResponse) -> Bool)?
     /// Gets controls this class does not know; a non-nil reply answers the caller.
     var onControl: ((String) -> String?)?
+    /// The user started answering a paired Mac's request here, so that Mac pauses its clock.
+    var onPeerEngaged: ((Item) -> Void)?
     /// Told when a needs item ends for good, with how it ended, so paired phones learn it.
     var onNeedsFinished: ((NeedsItem, HistoryEntry.Outcome) -> Void)?
     private var configModified: Date?
@@ -296,10 +302,12 @@ final class Coordinator: ObservableObject {
             return
         }
         do {
-            let request = try Wire.decode(StewRequest.self, line: line)
+            var request = try Wire.decode(StewRequest.self, line: line)
             if case .question(let set) = request.prompt { try set.validate() }
             if case .needs(let needs) = request.prompt { try needs.validate() }
             if case .input(let input) = request.prompt { try input.validate() }
+            // Only the daemon names the Mac a request came from.
+            request.session.host = nil
             enqueue(request, connection: connection)
         } catch {
             connection.send((try? Wire.encode(StewResponse(status: .error, error: "bad request: \(error)"))) ?? Data())
@@ -359,6 +367,67 @@ final class Coordinator: ObservableObject {
             }
             connection.send(Data("unknown control \(control)\n".utf8))
         }
+    }
+
+    /// A paired Mac's request, shown here until the user answers it on either Mac.
+    /// `onAnswer` sends the answer back through the relay. That Mac records it, sends it
+    /// to the phone and writes grants, so this copy has no risk check, no history and no
+    /// phone push. While paused, it is not shown; that Mac keeps waiting.
+    @discardableResult
+    func showPeerCopy(_ request: StewRequest, from peer: String, linkID: String, onAnswer: @escaping (Item, StewResponse) -> Void) -> Item? {
+        reloadConfigIfChanged()
+        guard activePause == nil, !items.contains(where: { $0.peerLinkID == linkID }) else { return nil }
+        var shown = request
+        shown.session.host = peer
+        let item = Item(request: shown, connection: nil)
+        item.source = .peer
+        item.peer = peer
+        item.peerLinkID = linkID
+        item.onAnswer = { [weak item] response in
+            guard let item else { return }
+            onAnswer(item, response)
+        }
+        item.timeLimit = shown.timeLimit(defaultTimeout: config.responseTimeout)
+        if case .permission(let permission) = shown.prompt, let blocked = permission.blocked {
+            item.risk = .blocked(blocked)
+        }
+        let wasEmpty = items.isEmpty
+        items.append(item)
+        arrangeQueue()
+        if wasEmpty {
+            ArrivalSound.play(config.sound)
+        }
+        changed()
+        return item
+    }
+
+    /// The paired Mac's request ended there: its copy goes without an answer.
+    func dropPeerCopy(linkID: String) {
+        guard let item = items.first(where: { $0.peerLinkID == linkID }) else { return }
+        item.onAnswer = nil
+        remove(item)
+    }
+
+    /// The pairing with that Mac ended: its copies go.
+    func dropPeerCopies(from peer: String) {
+        for item in items where item.source == .peer && item.peer == peer {
+            item.onAnswer = nil
+            remove(item)
+        }
+    }
+
+    /// A panel item of stew's own, such as a step of pairing another Mac: kept out of the
+    /// history and off the phone, and `onAnswer` gets the answer.
+    func showOwn(_ request: StewRequest, onAnswer: @escaping (StewResponse) -> Void) {
+        reloadConfigIfChanged()
+        let item = Item(request: request, connection: nil)
+        item.source = .stew
+        item.onAnswer = onAnswer
+        item.timeLimit = request.timeLimit(defaultTimeout: config.responseTimeout)
+        items.append(item)
+        arrangeQueue()
+        ArrivalSound.play(config.sound)
+        changed()
     }
 
     func enqueue(_ request: StewRequest, connection: Connection?, lateEntryID: UUID? = nil) {
@@ -717,7 +786,7 @@ final class Coordinator: ObservableObject {
             case .valid: inputState = "valid"
             }
         }
-        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) viewing=\(viewingState) confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
+        return "items=\(items.count) kind=\(current?.request.prompt.kind ?? "none") question=\(current?.flow?.index ?? -1) text=\(textMode) input=\(inputState) grant=\(grantMode):\(grantSelection) clock=\(clockState) risk=\(risk) severity=\(severity) viewing=\(viewingState) host=\(current?.request.session.host ?? "-") confetti=\(celebrations) \(needsState) keys=\(bindings) notice=\(current?.questionNotice ?? "-")"
     }
 
     /// The setup window's sample request: shown like a request from an agent, but without
@@ -811,7 +880,7 @@ final class Coordinator: ObservableObject {
         }
         needsWaiters = [:]
         // A late answer in progress has no caller; its request stays answerable.
-        for item in items where !item.isNeeds && item.lateEntryID == nil {
+        for item in items where !item.isNeeds && item.lateEntryID == nil && item.source != .peer {
             let response = StewResponse(status: .dismissed, note: "stew daemon stopped")
             record(item, response, byUser: false)
             item.connection?.send((try? Wire.encode(response)) ?? Data())
@@ -1304,6 +1373,7 @@ final class Coordinator: ObservableObject {
     func engage(_ item: Item) {
         guard !item.engaged, !item.isNeeds, item === current, historyPreview == nil else { return }
         item.engaged = true
+        if item.source == .peer { onPeerEngaged?(item) }
         // The clock is stopped for good, so the phone's viewing cap no longer ends it.
         item.viewingTimer?.cancel()
         item.viewingTimer = nil

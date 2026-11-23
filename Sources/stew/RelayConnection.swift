@@ -83,6 +83,9 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
     /// Why this connection asks for /v2/info: `.lease` when it carries a lease, so a relay
     /// that did not take leases before is asked again.
     var infoPurpose: RelayInfoRefresh.Purpose = .use
+    /// The part this connection signs as: `.mac` for this Mac's own pairings, `.phone` for
+    /// a pairing of another Mac that this Mac joined.
+    var side: LinkSide = .mac
     /// Called on the main queue with each new frame from the relay.
     var onFrame: ((RelayFrame) -> FrameHandling)?
     /// Called on the main queue whenever the socket's status changes.
@@ -175,7 +178,7 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
             return components.url.map { URLRequest(url: $0) }
         case .v2:
             guard let socketURL = components.url,
-                  let header = try? RelayAuth.header(method: "GET", path: components.percentEncodedPath, side: .mac, body: nil, identity: identity) else {
+                  let header = try? RelayAuth.header(method: "GET", path: components.percentEncodedPath, side: side, body: nil, identity: identity) else {
                 return nil
             }
             var request = URLRequest(url: socketURL)
@@ -400,7 +403,7 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
             if version == .v2 {
                 request.setValue("2", forHTTPHeaderField: RelayProtocol.versionHeader)
                 let path = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? target.path
-                if signed, let header = try? RelayAuth.header(method: method, path: path, side: .mac, body: body, identity: self.identity) {
+                if signed, let header = try? RelayAuth.header(method: method, path: path, side: self.side, body: body, identity: self.identity) {
                     request.setValue(header, forHTTPHeaderField: "authorization")
                 }
             }

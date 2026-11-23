@@ -134,8 +134,8 @@ The relay forwards envelopes between the two devices and sends Apple push notifi
 |---|---|---|
 | `GET /v2/info` | anyone | Lists the protocol versions the relay serves, with its limits and timers |
 | `POST /claim` | Mac | Claims a new pairing id with the Mac's signing key and the SHA-256 of a registration token derived from the pairing secret |
-| `POST /device` | phone | Registers the phone's push token and keys with that token (once), later updates the push token with a signed call |
-| `GET /socket` | Mac | The Mac's WebSocket (subprotocol `stew.relay.2`), on which the relay passes on the phone's hello, answers and unpair |
+| `POST /device` | phone | Registers the phone's push token and keys with that token (once), later updates the push token with a signed call. Another Mac in the phone's part registers without a push token |
+| `GET /socket` | either | The Mac's WebSocket (subprotocol `stew.relay.2`), on which the relay passes on the phone's hello, answers and unpair. Signed with `side=phone`, the phone side's WebSocket, on which another Mac in the phone's part gets the Mac's requests, updates, resolved messages and unpair, with the same `seq` and acks |
 | `POST /messages` | either | Takes an envelope. A Mac request is stored until it is resolved and pushed to the phone; a phone answer goes to the Mac and waits up to 10 seconds for the Mac's result |
 | `GET /pending` | phone | Returns the open and recently resolved requests |
 
@@ -146,5 +146,7 @@ The relay forwards envelopes between the two devices and sends Apple push notifi
 - Every frame on the Mac's socket has a `seq`. The Mac acks the highest one it has handled, and on each connect the relay sends every frame above the last ack again, so nothing for the Mac is lost on a dropping socket.
 - The Mac pings every 25 seconds and reconnects when no pong comes within 10. It acts on the relay's close codes: after an unpair it stops and forgets the pairing, after a replaced socket it waits a minute.
 - A push carries the envelope when it fits in 4 KB; otherwise the notification extension fetches it from `GET /pending`. When a request ends, a closed push replaces its notification without a sound and without actions. `resolved` is final: an update that arrives after it changes nothing.
+
+Two Macs pair as two pairings, one per direction: each Mac is in the phone's part of the other's. The joining Mac says so in its hello (`isMac`), and after the user allows it on its panel it hands the code of its own pairing over as an answer with request id `peer-link` and the choice `peerLink`. The other Mac joins that pairing, and the first Mac takes it without digits only from the keys it already paired with (`Sources/stew/PeerRelay.swift`).
 
 The Mac's side is in `Sources/StewLink` (the v2 header, frames and close codes in `RelayProtocol.swift`), `Sources/stew/RelayConnection.swift` and `Sources/stew/PhoneLink.swift`.

@@ -6,10 +6,15 @@ import StewCore
 public struct LinkHello: Codable, Equatable, Sendable {
     public var phoneName: String
     public var phoneKeys: LinkPublicKeys
+    /// True when the device is another Mac running stew, not an iPhone. That Mac shows
+    /// this Mac's requests on its panel at once, and pairs back so requests go both ways.
+    /// Nil from the iPhone app.
+    public var isMac: Bool?
 
-    public init(phoneName: String, phoneKeys: LinkPublicKeys) {
+    public init(phoneName: String, phoneKeys: LinkPublicKeys, isMac: Bool? = nil) {
         self.phoneName = phoneName
         self.phoneKeys = phoneKeys
+        self.isMac = isMac
     }
 }
 
@@ -125,6 +130,27 @@ public enum LinkChoice: Codable, Equatable, Sendable {
     /// The request left the screen in the app: the clock runs again after a short grace
     /// period. Not an answer.
     case left
+    /// From a paired Mac, with request id `LinkPeer.requestId`: the pairing code of the
+    /// pairing it made for its own requests, so this Mac joins it and requests go both
+    /// ways. Not an answer.
+    case peerLink(String)
+}
+
+/// Pairing two Macs: each takes the phone's part in the other's pairing.
+public enum LinkPeer {
+    /// The request id of the answer that hands over the reverse pairing's code.
+    public static let requestId = "peer-link"
+}
+
+extension QuestionFlow {
+    /// The panel's answers in the form a phone sends them, so a paired Mac can answer a
+    /// question shown on its own panel.
+    public var linkAnswers: [LinkQuestionAnswer] {
+        selections.enumerated().map { index, selected in
+            let other = otherText[index].flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            return LinkQuestionAnswer(selected: selected.sorted(), other: other)
+        }
+    }
 }
 
 /// Phone to Mac.
@@ -268,5 +294,32 @@ public struct LinkUnpair: Codable, Equatable, Sendable {
 
     public init(reason: String) {
         self.reason = reason
+    }
+}
+
+/// A paired Mac's request on this Mac's panel: which ones show, and how an answer given on
+/// the panel goes back.
+public enum PeerCopy {
+    /// Requests the other Mac waits on. Needs items stay with the Mac that has them: it
+    /// keeps them open across restarts and clears them when the session moves on.
+    public static func shows(_ request: StewRequest) -> Bool {
+        if case .needs = request.prompt { return false }
+        return true
+    }
+
+    /// The phone's answer for what the user did on the panel. Nil when it is no answer the
+    /// other Mac takes, such as Esc on a permission request: the request stays open there.
+    public static func choice(for response: StewResponse, to request: StewRequest, flow: QuestionFlow?) -> LinkChoice? {
+        switch (response.status, request.prompt) {
+        case (.approved, .permission): return .approve
+        case (.denied, .permission): return .deny
+        case (.answered, .question): return flow.map { .answers($0.linkAnswers) }
+        case (.answered, .input(let input)):
+            guard let text = response.text else { return nil }
+            return input.secret ? .secret(text) : .text(text)
+        case (.later, .input): return .enterLater
+        case (.acknowledged, .notify), (.dismissed, .notify): return .done
+        default: return nil
+        }
     }
 }

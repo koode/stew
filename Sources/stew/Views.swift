@@ -175,11 +175,11 @@ struct Header: View {
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(style.tint.opacity(0.15)))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .center, spacing: 8) {
-                    Text(session.name)
+                    Text(session.displayName)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(session.name)
+                        .help(session.displayName)
                     Spacer(minLength: 8)
                     controls
                 }
@@ -1143,7 +1143,7 @@ struct WaitingList: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(style.tint)
                         .frame(width: 14)
-                    Text(item.request.session.name)
+                    Text(item.request.session.displayName)
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
                     Text(summary(item.request.prompt))

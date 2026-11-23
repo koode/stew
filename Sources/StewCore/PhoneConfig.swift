@@ -72,6 +72,9 @@ public struct MacPresence: Equatable, Sendable {
 public enum ItemSource: Sendable {
     case caller
     case stew
+    /// A copy of a request from a paired Mac. That Mac keeps the history, sends it to the
+    /// phone and writes any grant; this one only shows it and passes the answer back.
+    case peer
 }
 
 public enum PushPolicy {
